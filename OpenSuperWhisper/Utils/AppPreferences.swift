@@ -98,6 +98,15 @@ final class AppPreferences {
     
     @UserDefault(key: "useAsianAutocorrect", defaultValue: true)
     var useAsianAutocorrect: Bool
+
+    /// Deterministic safe correction: the personal terms dictionary and the
+    /// formatting passes around it.
+    ///
+    /// On by default and a peer of any later style-rewriting setting, never its
+    /// child. It depends on nothing - no model, no network, no macOS version -
+    /// so it must keep working when rewriting is off, unavailable or rejected.
+    @UserDefault(key: "safeCorrectionEnabled", defaultValue: true)
+    var safeCorrectionEnabled: Bool
     
     @OptionalUserDefault(key: "selectedMicrophoneData")
     var selectedMicrophoneData: Data?

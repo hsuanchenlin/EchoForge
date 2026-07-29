@@ -13,6 +13,19 @@ struct ProcessedText: Equatable {
     let raw: String
     /// The transcript text consumed by the app before live-output formatting.
     let final: String
+    /// What the personal terms dictionary wrote into ``final``.
+    ///
+    /// Nothing reads this yet. It is produced here because only the terms stage
+    /// knows which spans it corrected or pinned, and a later rewriting stage
+    /// would have to check its own output still contains them before that
+    /// output could be accepted. See `TermsCorrection.mustSurviveTokens`.
+    let mustSurviveTokens: [String]
+
+    init(raw: String, final: String, mustSurviveTokens: [String] = []) {
+        self.raw = raw
+        self.final = final
+        self.mustSurviveTokens = mustSurviveTokens
+    }
 
     /// True when post-processing changed the engine's output.
     var wasModified: Bool { raw != final }
@@ -50,18 +63,73 @@ enum TextPostProcessor {
     /// `WhisperEngine` and `FluidAudioEngine`, which meant a third engine could
     /// silently ship without it. Engines now return their text unformatted and
     /// this runs once for all of them.
-    static func process(_ text: String, settings: Settings) -> ProcessedText {
+    ///
+    /// The order of the two deterministic passes is load-bearing. The personal
+    /// terms dictionary runs **first**, so entries match what the user actually
+    /// said rather than a respaced version of it, and the spans it protects are
+    /// then held out of CJK autocorrect. Reversing them would let autocorrect
+    /// respace a term the user had just pinned.
+    ///
+    /// `terms` is injectable for tests; in the app it comes from the shared
+    /// store. Passing terms does not bypass the toggle - `safeCorrectionEnabled`
+    /// still decides whether the stage runs at all.
+    static func process(
+        _ text: String,
+        settings: Settings,
+        terms: [PersonalTerm]? = nil
+    ) -> ProcessedText {
         guard !text.isEmpty else { return .unchanged(text) }
 
-        var result = text
+        // Deterministic safe correction: no model, no network, no macOS 26.
+        // Independent of any later style-rewriting setting.
+        let activeTerms = settings.safeCorrectionEnabled
+            ? (terms ?? PersonalTermsStore.shared.activeTerms)
+            : []
+        let corrected = PersonalTermsCorrector.apply(activeTerms, to: text)
+
+        var result = corrected.text
 
         // CJK/Latin spacing. Gated exactly as before: Asian language selected
         // and the user preference enabled.
         if settings.shouldApplyAsianAutocorrect {
-            result = AutocorrectWrapper.format(result)
+            result = applyAsianAutocorrect(to: corrected)
         }
 
-        return ProcessedText(raw: text, final: result)
+        return ProcessedText(
+            raw: text, final: result, mustSurviveTokens: corrected.mustSurviveTokens
+        )
+    }
+
+    /// Runs the CJK/Latin spacing library over everything except the spans the
+    /// dictionary marked never-correct.
+    ///
+    /// The library is a C function that takes a string and returns a string, so
+    /// there is no way to tell it to leave a range alone. Splitting the text at
+    /// the protected boundaries and formatting only the gaps is what actually
+    /// guarantees a pinned span comes out byte-identical. The visible
+    /// consequence is that no spacing is introduced immediately adjacent to a
+    /// protected span either, which is the honest reading of "never correct".
+    private static func applyAsianAutocorrect(to correction: TermsCorrection) -> String {
+        guard !correction.protectedRanges.isEmpty else {
+            return AutocorrectWrapper.format(correction.text)
+        }
+
+        let characters = Array(correction.text)
+        var result = ""
+        var cursor = 0
+
+        for range in correction.protectedRanges {
+            if cursor < range.lowerBound {
+                result += AutocorrectWrapper.format(String(characters[cursor ..< range.lowerBound]))
+            }
+            result += String(characters[range])
+            cursor = range.upperBound
+        }
+        if cursor < characters.count {
+            result += AutocorrectWrapper.format(String(characters[cursor...]))
+        }
+
+        return result
     }
 
     // MARK: - Insertion stage

@@ -17,6 +17,8 @@ TranscriptionService.transcribeAudio()     single choke point
         ▼
 TextPostProcessor.process()                TRANSCRIPT STAGE
         │                                  shared by every engine and caller
+        │                                  1. personal terms  (always on)
+        │                                  2. CJK autocorrect (protected spans held out)
         ├──────────────┬───────────────────────────────┐
         ▼              ▼                               ▼
 IndicatorWindow   TranscriptionQueue              ContentView
@@ -38,9 +40,19 @@ the text or how it will be consumed, so it runs exactly once, in
 `TranscriptionService`. Its output is what gets stored in `Recording`,
 displayed in history, and searched.
 
-Today it does one thing: CJK/Latin spacing via the vendored `autocorrect`
-library, gated on an Asian language being selected *and* the user preference
-being enabled (`Settings.shouldApplyAsianAutocorrect`).
+It does two things, in this order:
+
+1. **The personal terms dictionary**, gated on `safeCorrectionEnabled` (default
+   on) and nothing else - no language gate, no model, no network. See
+   `docs/personal-terms.md`.
+2. **CJK/Latin spacing** via the vendored `autocorrect` library, gated on an
+   Asian language being selected *and* the user preference being enabled
+   (`Settings.shouldApplyAsianAutocorrect`).
+
+The order is load-bearing, and so is the interaction between the two: terms are
+applied first so they match what the user actually said, and the spans they
+marked never-correct are then held out of autocorrect so a pinned term is not
+respaced afterwards.
 
 **Insertion stage** (`TextPostProcessor.prepareForInsertion`) is formatting for
 text emitted by the live dictation path. Today it appends a trailing space after
@@ -83,3 +95,8 @@ alongside the final text. Only `final` is consumed today; `raw` exists because
 any stage that can rewrite the user's words has to be able to show what they
 originally said and fall back to it, and that is impossible to retrofit once the
 raw text has been dropped at the engine boundary.
+
+`ProcessedText.mustSurviveTokens` is there for the same reason: it is what the
+terms dictionary corrected or pinned, and a stage that rewrites the transcript
+would have to check its own output still contains all of it. Nothing consumes it
+yet.
