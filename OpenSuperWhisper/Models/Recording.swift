@@ -18,11 +18,18 @@ struct Recording: Identifiable, Codable, FetchableRecord, PersistableRecord, Equ
     var status: RecordingStatus
     var progress: Float
     var sourceFileURL: String?
-    
+    /// The transcript exactly as the engine produced it, before post-processing.
+    ///
+    /// Nil for every recording stored so far: nothing writes this yet. It exists
+    /// so a later stage can persist `ProcessedText.raw` and fall back to what the
+    /// user originally said when post-processing turns out to be wrong.
+    var rawTranscription: String?
+
     var isRegeneration: Bool = false
-    
+
     enum CodingKeys: String, CodingKey {
         case id, timestamp, fileName, transcription, duration, status, progress, sourceFileURL
+        case rawTranscription
     }
 
     static func == (lhs: Recording, rhs: Recording) -> Bool {
@@ -65,6 +72,7 @@ struct Recording: Identifiable, Codable, FetchableRecord, PersistableRecord, Equ
         static let status = Column(CodingKeys.status)
         static let progress = Column(CodingKeys.progress)
         static let sourceFileURL = Column(CodingKeys.sourceFileURL)
+        static let rawTranscription = Column(CodingKeys.rawTranscription)
     }
 }
 
@@ -95,8 +103,16 @@ class RecordingStore: ObservableObject {
     }
 
     private nonisolated func setupDatabase() throws {
+        try Self.makeMigrator().migrate(dbQueue)
+    }
+
+    /// The full schema history of the recordings database.
+    ///
+    /// Exposed separately from `setupDatabase()` so migrations can be exercised
+    /// against a throwaway database instead of the user's real one.
+    nonisolated static func makeMigrator() -> DatabaseMigrator {
         var migrator = DatabaseMigrator()
-        
+
         migrator.registerMigration("v1") { db in
             try db.create(table: Recording.databaseTableName, ifNotExists: true) { t in
                 t.column("id", .text).primaryKey()
@@ -127,10 +143,20 @@ class RecordingStore: ObservableObject {
                 }
             }
         }
-        
-        try migrator.migrate(dbQueue)
+
+        migrator.registerMigration("v3_add_raw_transcription") { db in
+            let columnNames = try db.columns(in: Recording.databaseTableName).map { $0.name }
+
+            if !columnNames.contains("rawTranscription") {
+                try db.alter(table: Recording.databaseTableName) { t in
+                    t.add(column: "rawTranscription", .text)
+                }
+            }
+        }
+
+        return migrator
     }
-    
+
     private nonisolated func fetchAllRecordings() async throws -> [Recording] {
         try await dbQueue.read { db in
             try Recording
