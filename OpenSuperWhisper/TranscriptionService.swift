@@ -145,7 +145,7 @@ class TranscriptionService: ObservableObject {
             }
             
             let rawResult = try await engine.transcribeAudio(url: url, settings: settings)
-            
+
             try Task.checkCancellation()
             
             // Single post-processing choke point: every engine and every caller
@@ -153,7 +153,7 @@ class TranscriptionService: ObservableObject {
             // passes through here, so they cannot drift apart.
             let processed = TextPostProcessor.process(rawResult, settings: settings)
             let result = processed.final
-            
+
             let finalCancelled = await MainActor.run {
                 guard let self = self else { return true }
                 return self.isCancelled

@@ -236,8 +236,7 @@ class IndicatorViewModel: ObservableObject {
     }
     
     /// Insertion-stage formatting for the live dictation output.
-    /// Delegates to `TextPostProcessor` so the queue and live paths share one
-    /// tested definition of post-processing.
+    /// Kept as a delegating wrapper for the existing view-model contract.
     static func applyPostProcessing(_ text: String) -> String {
         TextPostProcessor.prepareForInsertion(text)
     }

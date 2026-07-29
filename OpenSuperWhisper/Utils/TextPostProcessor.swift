@@ -68,7 +68,7 @@ enum TextPostProcessor {
 
     /// Applies formatting for text emitted by the live dictation path.
     ///
-    /// Appends a trailing space after sentence-ending punctuation so that
+    /// Appends a trailing space after punctuation so that
     /// consecutive dictations do not run together in the target app. This is an
     /// insertion affordance, not part of the transcript: the stored `Recording`
     /// and the history "Copy entire text" button intentionally do not get it.

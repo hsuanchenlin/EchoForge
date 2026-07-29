@@ -44,10 +44,10 @@ being enabled (`Settings.shouldApplyAsianAutocorrect`).
 
 **Insertion stage** (`TextPostProcessor.prepareForInsertion`) is formatting for
 text emitted by the live dictation path. Today it appends a trailing space after
-sentence-ending punctuation so consecutive pasted dictations do not run
-together in the target app. The live path applies it before honoring the user's
-paste and copy preferences, preserving the existing behavior when output is
-copied without being pasted.
+punctuation so consecutive pasted dictations do not run together in the target
+app. The live path applies it before honoring the user's paste and copy
+preferences, preserving the existing behavior when output is copied without
+being pasted.
 
 This stage is **not** part of the stored transcript, and that is intentional.
 Only the live dictation indicator applies this stage. The queue, the in-window
@@ -73,9 +73,9 @@ deliberate asymmetry.
 
 ## Adding a stage
 
-Transcript-level formatting goes in `process`. Cursor-level affordances go in
-`prepareForInsertion`. If a change would alter what is stored in `Recording`,
-it belongs in the transcript stage and needs a test asserting both consumption
+Transcript-level formatting goes in `process`. Live-output affordances go in
+`prepareForInsertion`. If a change would alter what is stored in `Recording`, it
+belongs in the transcript stage and needs a test asserting both consumption
 paths agree.
 
 `process` returns `ProcessedText`, which carries the engine's raw output

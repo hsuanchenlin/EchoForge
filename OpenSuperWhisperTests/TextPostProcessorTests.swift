@@ -5,7 +5,7 @@ import XCTest
 ///
 /// The behaviour that matters here is the split: the transcript stage must be
 /// identical for every engine and every consumption path, while the insertion
-/// stage must apply only where text is typed at the user's cursor.
+/// stage must apply only to live dictation output.
 @MainActor
 final class TextPostProcessorTests: XCTestCase {
 
@@ -214,7 +214,7 @@ final class TextPostProcessorTests: XCTestCase {
     func testInsertionStageIsNotAppliedByTranscriptStage() {
         // The stored transcript must never gain the insertion-time trailing
         // space: history rows, search and the "Copy entire text" button all
-        // read the stored text, and none of them is typing at a cursor.
+        // read the stored text rather than the live dictation output.
         AppPreferences.shared.addSpaceAfterSentence = true
         let settings = makeSettings(language: "en", useAsianAutocorrect: true)
 
