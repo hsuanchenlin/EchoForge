@@ -25,9 +25,9 @@ IndicatorWindow   TranscriptionQueue              ContentView
         │              └── stores in Recording ────────┘
         ▼
 TextPostProcessor.prepareForInsertion()    INSERTION STAGE
-        │                                  live dictation only
+        │                                  live dictation output only
         ▼
-ClipboardUtil.insertText()                 typed at the user's cursor
+ClipboardUtil                              pasted and/or copied per preferences
 ```
 
 ## Two stages, deliberately separate
@@ -42,15 +42,17 @@ Today it does one thing: CJK/Latin spacing via the vendored `autocorrect`
 library, gated on an Asian language being selected *and* the user preference
 being enabled (`Settings.shouldApplyAsianAutocorrect`).
 
-**Insertion stage** (`TextPostProcessor.prepareForInsertion`) is formatting that
-only makes sense when text is typed at the user's cursor. Today it appends a
-trailing space after sentence-ending punctuation so consecutive dictations do
-not run together in the target app.
+**Insertion stage** (`TextPostProcessor.prepareForInsertion`) is formatting for
+text emitted by the live dictation path. Today it appends a trailing space after
+sentence-ending punctuation so consecutive pasted dictations do not run
+together in the target app. The live path applies it before honoring the user's
+paste and copy preferences, preserving the existing behavior when output is
+copied without being pasted.
 
 This stage is **not** part of the stored transcript, and that is intentional.
-Only the live dictation indicator inserts text at the cursor. The queue, the
-in-window recorder and the history "Copy entire text" button all read stored
-text, so none of them applies it.
+Only the live dictation indicator applies this stage. The queue, the in-window
+recorder and the history "Copy entire text" button all read stored text, so none
+of them applies it.
 
 ## Why it is centralised
 
@@ -64,7 +66,7 @@ Centralising them means:
 - adding an engine cannot accidentally skip transcript formatting,
 - the difference between the queue and live paths is one explicit call site
   rather than an accident of where code happened to live,
-- both stages are pure functions and directly unit-testable.
+- both stages are directly unit-testable.
 
 `TextPostProcessorTests` pins the behaviour of both stages, including the
 deliberate asymmetry.

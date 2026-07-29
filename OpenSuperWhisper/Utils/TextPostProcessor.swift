@@ -11,7 +11,7 @@ import Foundation
 struct ProcessedText: Equatable {
     /// Exactly what the transcription engine returned, before any formatting.
     let raw: String
-    /// The text the app stores, displays and inserts.
+    /// The transcript text consumed by the app before live-output formatting.
     let final: String
 
     /// True when post-processing changed the engine's output.
@@ -33,10 +33,9 @@ struct ProcessedText: Equatable {
 ///    `TranscriptionService`, which is the single choke point every engine and
 ///    every caller passes through. This is what gets stored in `Recording`.
 ///
-/// 2. **The insertion stage** - ``prepareForInsertion(_:)``. Affordances that
-///    only make sense when text is typed at the user's cursor, and which
-///    deliberately do *not* belong to the stored transcript. Only the live
-///    dictation indicator inserts text, so only it applies this stage.
+/// 2. **The insertion stage** - ``prepareForInsertion(_:)``. Live-output
+///    affordances that deliberately do *not* belong to the stored transcript.
+///    Only the live dictation indicator applies this stage.
 ///
 /// Keeping these apart is what makes the queue and live paths consistent where
 /// they should be and intentionally different where they should be. See
@@ -67,13 +66,12 @@ enum TextPostProcessor {
 
     // MARK: - Insertion stage
 
-    /// Applies formatting that only makes sense when inserting at the cursor.
+    /// Applies formatting for text emitted by the live dictation path.
     ///
     /// Appends a trailing space after sentence-ending punctuation so that
     /// consecutive dictations do not run together in the target app. This is an
     /// insertion affordance, not part of the transcript: the stored `Recording`
-    /// and the history "Copy entire text" button intentionally do not get it,
-    /// because neither is typing into a live text field.
+    /// and the history "Copy entire text" button intentionally do not get it.
     static func prepareForInsertion(_ text: String) -> String {
         guard AppPreferences.shared.addSpaceAfterSentence,
               let lastChar = text.last,

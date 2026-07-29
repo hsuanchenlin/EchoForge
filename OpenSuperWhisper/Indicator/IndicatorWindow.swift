@@ -235,9 +235,9 @@ class IndicatorViewModel: ObservableObject {
 
     }
     
-    /// Insertion-stage formatting, applied only when text is typed at the
-    /// user's cursor. Delegates to `TextPostProcessor` so the queue and live
-    /// paths share one tested definition of post-processing.
+    /// Insertion-stage formatting for the live dictation output.
+    /// Delegates to `TextPostProcessor` so the queue and live paths share one
+    /// tested definition of post-processing.
     static func applyPostProcessing(_ text: String) -> String {
         TextPostProcessor.prepareForInsertion(text)
     }
