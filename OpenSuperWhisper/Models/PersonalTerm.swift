@@ -125,20 +125,22 @@ struct PersonalTerm: Codable, Identifiable, Equatable {
 /// The whole `terms.json` document.
 ///
 /// `version` exists so a future format change can be recognised rather than
-/// guessed at. Entries the current build cannot understand are dropped on load
-/// instead of failing the whole file, which keeps a dictionary written by a
-/// newer build usable by an older one.
+/// guessed at. Entries the current build cannot understand are preserved
+/// without being activated, which keeps a dictionary written by a newer build
+/// usable by an older one without losing its data.
 struct PersonalTermsDocument: Codable, Equatable {
     static let currentVersion = 1
 
     var version: Int
     var terms: [PersonalTerm]
+    private var opaqueTerms: [OpaqueTerm]
 
     static let empty = PersonalTermsDocument(version: currentVersion, terms: [])
 
     init(version: Int = currentVersion, terms: [PersonalTerm]) {
         self.version = version
         self.terms = terms
+        self.opaqueTerms = []
     }
 
     enum CodingKeys: String, CodingKey {
@@ -149,16 +151,89 @@ struct PersonalTermsDocument: Codable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = try container.decodeIfPresent(Int.self, forKey: .version) ?? Self.currentVersion
         let decoded = try container.decodeIfPresent([FailableTerm].self, forKey: .terms) ?? []
-        terms = decoded.compactMap { $0.term }
+        terms = decoded.compactMap(\.term)
+        opaqueTerms = decoded.enumerated().compactMap { index, entry in
+            entry.term == nil ? OpaqueTerm(index: index, value: entry.value) : nil
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(version, forKey: .version)
+
+        var encodedTerms = terms.map(FailableTerm.init)
+        for opaque in opaqueTerms.sorted(by: { $0.index < $1.index }) {
+            encodedTerms.insert(
+                FailableTerm(value: opaque.value),
+                at: min(opaque.index, encodedTerms.count)
+            )
+        }
+        try container.encode(encodedTerms, forKey: .terms)
     }
 
     /// Lets one unreadable entry - an unknown `kind`, a missing `match` - be
     /// skipped without taking the rest of the user's dictionary with it.
-    private struct FailableTerm: Decodable {
+    private struct OpaqueTerm: Equatable {
+        let index: Int
+        let value: JSONValue
+    }
+
+    private struct FailableTerm: Codable {
         let term: PersonalTerm?
+        let value: JSONValue
+
+        init(_ term: PersonalTerm) {
+            self.term = term
+            self.value = .null
+        }
+
+        init(value: JSONValue) {
+            self.term = nil
+            self.value = value
+        }
 
         init(from decoder: Decoder) throws {
+            value = try JSONValue(from: decoder)
             term = try? PersonalTerm(from: decoder)
+        }
+
+        func encode(to encoder: Encoder) throws {
+            if let term {
+                try term.encode(to: encoder)
+            } else {
+                try value.encode(to: encoder)
+            }
+        }
+    }
+
+    private enum JSONValue: Codable, Equatable {
+        case object([String: JSONValue])
+        case array([JSONValue])
+        case string(String)
+        case number(Decimal)
+        case bool(Bool)
+        case null
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            if container.decodeNil() { self = .null }
+            else if let value = try? container.decode([String: JSONValue].self) { self = .object(value) }
+            else if let value = try? container.decode([JSONValue].self) { self = .array(value) }
+            else if let value = try? container.decode(String.self) { self = .string(value) }
+            else if let value = try? container.decode(Bool.self) { self = .bool(value) }
+            else { self = .number(try container.decode(Decimal.self)) }
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var container = encoder.singleValueContainer()
+            switch self {
+            case .object(let value): try container.encode(value)
+            case .array(let value): try container.encode(value)
+            case .string(let value): try container.encode(value)
+            case .number(let value): try container.encode(value)
+            case .bool(let value): try container.encode(value)
+            case .null: try container.encodeNil()
+            }
         }
     }
 }

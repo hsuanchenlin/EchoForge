@@ -12,6 +12,14 @@ import Foundation
 /// reads it from a detached task, and the settings screen wraps it in its own
 /// view model. See `docs/personal-terms.md`.
 final class PersonalTermsStore {
+    enum StoreError: LocalizedError {
+        case recoveryRequired
+
+        var errorDescription: String? {
+            "Reload or repair terms.json before changing the dictionary."
+        }
+    }
+
     static let shared = PersonalTermsStore()
 
     /// `~/Library/Application Support/<bundle id>/terms.json`, beside the
@@ -98,7 +106,14 @@ final class PersonalTermsStore {
     /// Whole-file writes rather than per-entry mutation because the file is
     /// small, hand-editable and has no meaningful concurrent writer.
     func replaceAll(_ terms: [PersonalTerm]) throws {
-        let updated = PersonalTermsDocument(terms: terms)
+        lock.lock()
+        guard loadFailureMessage == nil else {
+            lock.unlock()
+            throw StoreError.recoveryRequired
+        }
+        var updated = document
+        lock.unlock()
+        updated.terms = terms
         let data = try Self.encode(updated)
 
         try FileManager.default.createDirectory(

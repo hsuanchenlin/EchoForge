@@ -31,6 +31,7 @@ final class PersonalTermsViewModel: ObservableObject {
     /// swallowed, because the alternative is a screen that looks like the
     /// user's dictionary was lost.
     var loadFailure: String? { store.loadFailure }
+    var canMutate: Bool { loadFailure == nil }
 
     func reload() {
         store.reload()
@@ -38,6 +39,7 @@ final class PersonalTermsViewModel: ObservableObject {
     }
 
     func upsert(_ term: PersonalTerm) {
+        guard canMutate else { return }
         var updated = terms
         if let index = updated.firstIndex(where: { $0.id == term.id }) {
             updated[index] = term
@@ -48,12 +50,13 @@ final class PersonalTermsViewModel: ObservableObject {
     }
 
     func remove(_ ids: Set<UUID>) {
-        guard !ids.isEmpty else { return }
+        guard canMutate, !ids.isEmpty else { return }
         persist(terms.filter { !ids.contains($0.id) })
     }
 
     func setEnabled(_ isEnabled: Bool, for id: UUID) {
-        guard let index = terms.firstIndex(where: { $0.id == id }) else { return }
+        guard canMutate,
+              let index = terms.firstIndex(where: { $0.id == id }) else { return }
         var updated = terms
         updated[index].isEnabled = isEnabled
         persist(updated)
@@ -139,6 +142,7 @@ struct PersonalTermsSettingsView: View {
                     }
                     .buttonStyle(.borderless)
                     .help("Remove the selected entries")
+                    .disabled(!viewModel.canMutate)
                 }
 
                 Button {
@@ -149,6 +153,7 @@ struct PersonalTermsSettingsView: View {
                 }
                 .buttonStyle(.borderless)
                 .help("Add a dictionary entry")
+                .disabled(!viewModel.canMutate)
             }
 
             if let failure = viewModel.loadFailure {
@@ -165,15 +170,18 @@ struct PersonalTermsSettingsView: View {
                     ForEach(viewModel.terms) { term in
                         PersonalTermRow(
                             term: term,
+                            canMutate: viewModel.canMutate,
                             onToggle: { viewModel.setEnabled($0, for: term.id) },
                             onEdit: { editedTerm = term }
                         )
                         .contextMenu {
                             Button("Edit…") { editedTerm = term }
+                                .disabled(!viewModel.canMutate)
                             Button("Remove", role: .destructive) {
                                 viewModel.remove([term.id])
                                 selection.remove(term.id)
                             }
+                            .disabled(!viewModel.canMutate)
                         }
                         .tag(term.id)
                     }
@@ -272,6 +280,7 @@ struct PersonalTermsSettingsView: View {
 
 private struct PersonalTermRow: View {
     let term: PersonalTerm
+    let canMutate: Bool
     let onToggle: (Bool) -> Void
     let onEdit: () -> Void
 
@@ -281,6 +290,7 @@ private struct PersonalTermRow: View {
                 .toggleStyle(.checkbox)
                 .labelsHidden()
                 .help(term.isEnabled ? "Applied to transcriptions" : "Kept but not applied")
+                .disabled(!canMutate)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
@@ -325,6 +335,7 @@ private struct PersonalTermRow: View {
             }
             .buttonStyle(.borderless)
             .help("Edit this entry")
+            .disabled(!canMutate)
         }
         .opacity(term.isEnabled ? 1 : 0.5)
         .padding(.vertical, 2)

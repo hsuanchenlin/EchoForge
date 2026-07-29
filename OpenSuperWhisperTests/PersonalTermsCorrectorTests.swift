@@ -169,8 +169,8 @@ final class PersonalTermsCorrectorTests: XCTestCase {
     func testTargetIsEmittedExactlyAsTypedAndTheRestOfTheScriptIsUntouched() {
         let terms = [PersonalTerm(kind: .preferredSpelling, match: "台北", replacement: "臺北")]
 
-        // Only the matched span changes. The surrounding Simplified text stays
-        // Simplified: variant folding decides matching, never output.
+        // Test-only exception to Traditional fixtures: Simplified input is
+        // required to prove variant folding never changes unmatched output.
         XCTAssertEqual(corrected("我们下周去台北出差", terms), "我们下周去臺北出差")
 
         // And a Traditional dictation of the same word is normalised to the
@@ -180,6 +180,8 @@ final class PersonalTermsCorrectorTests: XCTestCase {
 
     func testVariantMatchingDoesNotConvertUnmatchedText() {
         let terms = [PersonalTerm(kind: .replacement, match: "簡體", replacement: "簡體中文")]
+        // Test-only exception to Traditional fixtures: an all-Simplified input
+        // is required to prove a no-match correction is byte-for-byte inert.
         let input = "这句话没有任何一个词命中词典"
 
         XCTAssertEqual(corrected(input, terms), input)

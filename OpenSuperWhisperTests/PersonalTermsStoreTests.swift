@@ -153,15 +153,38 @@ final class PersonalTermsStoreTests: XCTestCase {
         XCTAssertNil(store.loadFailure)
     }
 
-    func testSavingAfterAMalformedFileClearsTheFailure() throws {
+    func testSavingAfterAMalformedFileRequiresExplicitRecovery() throws {
         try write("not json")
         let store = makeStore()
         XCTAssertNotNil(store.loadFailure)
 
-        try store.replaceAll([PersonalTerm(kind: .protect, match: "useState")])
+        XCTAssertThrowsError(
+            try store.replaceAll([PersonalTerm(kind: .protect, match: "useState")])
+        )
 
-        XCTAssertNil(store.loadFailure)
-        XCTAssertEqual(makeStore().terms.map(\.match), ["useState"])
+        XCTAssertNotNil(store.loadFailure)
+        XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8), "not json")
+    }
+
+    func testSavingPreservesNewerVersionAndUnreadableEntries() throws {
+        try write("""
+        { "version": 7, "terms": [
+          { "kind": "replacement", "match": "頂頂群", "replacement": "釘釘群" },
+          { "kind": "futureKind", "match": "未來", "metadata": { "priority": 3 } }
+        ] }
+        """)
+        let store = makeStore()
+
+        try store.replaceAll([
+            PersonalTerm(kind: .replacement, match: "頂頂群", replacement: "釘釘群"),
+            PersonalTerm(kind: .protect, match: "useState")
+        ])
+
+        let saved = try String(contentsOf: fileURL, encoding: .utf8)
+        XCTAssertTrue(saved.contains("\"version\" : 7"))
+        XCTAssertTrue(saved.contains("\"kind\" : \"futureKind\""))
+        XCTAssertTrue(saved.contains("\"priority\" : 3"))
+        XCTAssertEqual(makeStore().terms.map(\.match), ["頂頂群", "useState"])
     }
 
     func testReloadPicksUpAnExternalEdit() throws {
