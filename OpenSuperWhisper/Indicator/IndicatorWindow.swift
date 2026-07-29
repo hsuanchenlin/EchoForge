@@ -235,13 +235,10 @@ class IndicatorViewModel: ObservableObject {
 
     }
     
+    /// Insertion-stage formatting for the live dictation output.
+    /// Kept as a delegating wrapper for the existing view-model contract.
     static func applyPostProcessing(_ text: String) -> String {
-        guard AppPreferences.shared.addSpaceAfterSentence,
-              let lastChar = text.last,
-              lastChar.isPunctuation else {
-            return text
-        }
-        return text + " "
+        TextPostProcessor.prepareForInsertion(text)
     }
     
     private func startBlinking() {

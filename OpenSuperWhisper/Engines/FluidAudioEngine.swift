@@ -85,11 +85,9 @@ class FluidAudioEngine: TranscriptionEngine {
         // Finalize
         onProgressUpdate?(0.95)
         
-        var processedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        if settings.shouldApplyAsianAutocorrect && !processedText.isEmpty {
-            processedText = AutocorrectWrapper.format(processedText)
-        }
+        // Engine-specific cleanup only. Shared post-processing (CJK autocorrect)
+        // is applied once by TextPostProcessor, via TranscriptionService.
+        let processedText = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
         
         onProgressUpdate?(1.0)
         
