@@ -1,0 +1,83 @@
+# Text post-processing
+
+How transcribed text is formatted between the engine and the user.
+
+## The pipeline
+
+```
+AudioRecorder / file drop
+        │
+        ▼
+TranscriptionEngine.transcribeAudio()      WhisperEngine | FluidAudioEngine
+        │                                  engine-specific cleanup only
+        │                                  (marker stripping, trimming)
+        ▼
+TranscriptionService.transcribeAudio()     single choke point
+        │
+        ▼
+TextPostProcessor.process()                TRANSCRIPT STAGE
+        │                                  shared by every engine and caller
+        ├──────────────┬───────────────────────────────┐
+        ▼              ▼                               ▼
+IndicatorWindow   TranscriptionQueue              ContentView
+ (live dictation)  (file / drop queue)           (in-window recorder)
+        │              │                               │
+        │              └── stores in Recording ────────┘
+        ▼
+TextPostProcessor.prepareForInsertion()    INSERTION STAGE
+        │                                  live dictation only
+        ▼
+ClipboardUtil.insertText()                 typed at the user's cursor
+```
+
+## Two stages, deliberately separate
+
+**Transcript stage** (`TextPostProcessor.process`) is formatting that belongs to
+the transcription itself. It must be identical no matter which engine produced
+the text or how it will be consumed, so it runs exactly once, in
+`TranscriptionService`. Its output is what gets stored in `Recording`,
+displayed in history, and searched.
+
+Today it does one thing: CJK/Latin spacing via the vendored `autocorrect`
+library, gated on an Asian language being selected *and* the user preference
+being enabled (`Settings.shouldApplyAsianAutocorrect`).
+
+**Insertion stage** (`TextPostProcessor.prepareForInsertion`) is formatting that
+only makes sense when text is typed at the user's cursor. Today it appends a
+trailing space after sentence-ending punctuation so consecutive dictations do
+not run together in the target app.
+
+This stage is **not** part of the stored transcript, and that is intentional.
+Only the live dictation indicator inserts text at the cursor. The queue, the
+in-window recorder and the history "Copy entire text" button all read stored
+text, so none of them applies it.
+
+## Why it is centralised
+
+Both stages used to be scattered. `AutocorrectWrapper.format` was called
+separately inside `WhisperEngine` and `FluidAudioEngine`, so a third engine
+could ship without it and nobody would notice; the trailing-space rule lived
+inside a SwiftUI view model. Neither had tests covering both consumption paths.
+
+Centralising them means:
+
+- adding an engine cannot accidentally skip transcript formatting,
+- the difference between the queue and live paths is one explicit call site
+  rather than an accident of where code happened to live,
+- both stages are pure functions and directly unit-testable.
+
+`TextPostProcessorTests` pins the behaviour of both stages, including the
+deliberate asymmetry.
+
+## Adding a stage
+
+Transcript-level formatting goes in `process`. Cursor-level affordances go in
+`prepareForInsertion`. If a change would alter what is stored in `Recording`,
+it belongs in the transcript stage and needs a test asserting both consumption
+paths agree.
+
+`process` returns `ProcessedText`, which carries the engine's raw output
+alongside the final text. Only `final` is consumed today; `raw` exists because
+any stage that can rewrite the user's words has to be able to show what they
+originally said and fall back to it, and that is impossible to retrofit once the
+raw text has been dropped at the engine boundary.

@@ -214,17 +214,12 @@ class WhisperEngine: TranscriptionEngine {
             text += segmentText + "\n"
         }
         
-        let cleanedText = text
+        // Engine-specific cleanup only. Shared post-processing (CJK autocorrect)
+        // is applied once by TextPostProcessor, via TranscriptionService.
+        return text
             .replacingOccurrences(of: "[MUSIC]", with: "")
             .replacingOccurrences(of: "[BLANK_AUDIO]", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        var processedText = cleanedText
-        if settings.shouldApplyAsianAutocorrect && !cleanedText.isEmpty {
-            processedText = AutocorrectWrapper.format(cleanedText)
-        }
-        
-        return processedText
     }
     
     func cancelTranscription() {

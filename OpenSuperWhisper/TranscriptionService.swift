@@ -144,9 +144,15 @@ class TranscriptionService: ObservableObject {
                 throw CancellationError()
             }
             
-            let result = try await engine.transcribeAudio(url: url, settings: settings)
+            let rawResult = try await engine.transcribeAudio(url: url, settings: settings)
             
             try Task.checkCancellation()
+            
+            // Single post-processing choke point: every engine and every caller
+            // (live dictation, the file/drop queue, the in-window recorder)
+            // passes through here, so they cannot drift apart.
+            let processed = TextPostProcessor.process(rawResult, settings: settings)
+            let result = processed.final
             
             let finalCancelled = await MainActor.run {
                 guard let self = self else { return true }
