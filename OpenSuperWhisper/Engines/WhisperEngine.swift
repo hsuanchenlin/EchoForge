@@ -214,8 +214,8 @@ class WhisperEngine: TranscriptionEngine {
             text += segmentText + "\n"
         }
         
-        // Engine-specific cleanup only. Shared post-processing (CJK autocorrect)
-        // is applied once by TextPostProcessor, via TranscriptionService.
+        // Engine-specific cleanup only. Shared transcript post-processing is
+        // applied once by TextPostProcessor, via TranscriptionService.
         return text
             .replacingOccurrences(of: "[MUSIC]", with: "")
             .replacingOccurrences(of: "[BLANK_AUDIO]", with: "")
@@ -512,4 +512,3 @@ class WhisperEngine: TranscriptionEngine {
         )
     }
 }
-

@@ -34,6 +34,10 @@ The recordings database is GRDB, with its full schema history in `RecordingStore
 (`OpenSuperWhisper/Models/Recording.swift`). Schema changes go in a new named migration; never
 edit an applied one, since the identifier is what decides whether a user's database already ran it.
 
+`terms.json` beside it is the second store: the personal terms dictionary, deliberately a plain
+hand-editable file outside the database because it has a different lifecycle and must not be
+touched by the recordings retention policy. See `docs/personal-terms.md`.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

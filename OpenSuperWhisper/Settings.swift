@@ -628,7 +628,10 @@ struct Settings {
     var useBeamSearch: Bool
     var beamSize: Int
     var useAsianAutocorrect: Bool
-    
+    /// Whether the deterministic terms stage runs. Independent of every
+    /// language gate and of any later style-rewriting setting.
+    var safeCorrectionEnabled: Bool
+
     var isAsianLanguage: Bool {
         Settings.asianLanguages.contains(selectedLanguage)
     }
@@ -648,6 +651,7 @@ struct Settings {
         self.useBeamSearch = prefs.useBeamSearch
         self.beamSize = prefs.beamSize
         self.useAsianAutocorrect = prefs.useAsianAutocorrect
+        self.safeCorrectionEnabled = prefs.safeCorrectionEnabled
     }
 }
 
@@ -689,12 +693,19 @@ struct SettingsView: View {
                 }
                 .tag(2)
             
+            // Personal terms dictionary
+            PersonalTermsSettingsView()
+                .tabItem {
+                    Label("Dictionary", systemImage: "character.book.closed")
+                }
+                .tag(3)
+
             // Advanced Settings
             advancedSettings
                 .tabItem {
                     Label("Advanced", systemImage: "gear")
                 }
-                .tag(3)
+                .tag(4)
             }
         .padding()
         .frame(width: sheetSize.width, height: sheetSize.height)
