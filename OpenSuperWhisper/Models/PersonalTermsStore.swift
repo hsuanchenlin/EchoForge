@@ -81,8 +81,12 @@ final class PersonalTermsStore {
             data = try Data(contentsOf: fileURL)
         } catch {
             lock.lock()
-            document = .empty
-            loadFailureMessage = nil
+            if Self.isFileNotFound(error) {
+                document = .empty
+                loadFailureMessage = nil
+            } else {
+                loadFailureMessage = "terms.json could not be read: \(error.localizedDescription)"
+            }
             lock.unlock()
             return
         }
@@ -113,7 +117,7 @@ final class PersonalTermsStore {
         }
         var updated = document
         lock.unlock()
-        updated.terms = terms
+        updated.replaceTerms(terms)
         let data = try Self.encode(updated)
 
         try FileManager.default.createDirectory(
@@ -131,6 +135,12 @@ final class PersonalTermsStore {
 
     static func decode(_ data: Data) throws -> PersonalTermsDocument {
         try JSONDecoder().decode(PersonalTermsDocument.self, from: data)
+    }
+
+    private static func isFileNotFound(_ error: Error) -> Bool {
+        let error = error as NSError
+        return error.domain == NSCocoaErrorDomain
+            && error.code == CocoaError.Code.fileReadNoSuchFile.rawValue
     }
 
     /// Pretty-printed with sorted keys so the file stays readable and diffable

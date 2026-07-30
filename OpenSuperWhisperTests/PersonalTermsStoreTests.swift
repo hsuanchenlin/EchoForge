@@ -126,6 +126,15 @@ final class PersonalTermsStoreTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: fileURL, encoding: .utf8), "{ this is not json")
     }
 
+    func testNonMissingReadFailureIsReported() throws {
+        try FileManager.default.createDirectory(at: fileURL, withIntermediateDirectories: true)
+
+        let store = makeStore()
+
+        XCTAssertTrue(store.terms.isEmpty)
+        XCTAssertNotNil(store.loadFailure)
+    }
+
     func testUnreadableEntryIsSkippedWithoutLosingTheRest() throws {
         // "flavour" is not a kind this build knows, and the third entry has no
         // match at all. Neither may take the valid entries down with it.
@@ -185,6 +194,88 @@ final class PersonalTermsStoreTests: XCTestCase {
         XCTAssertTrue(saved.contains("\"kind\" : \"futureKind\""))
         XCTAssertTrue(saved.contains("\"priority\" : 3"))
         XCTAssertEqual(makeStore().terms.map(\.match), ["頂頂群", "useState"])
+    }
+
+    func testSavingPreservesMixedOrderAndUnknownFields() throws {
+        let firstID = UUID()
+        let lastID = UUID()
+        try write("""
+        {
+          "version": 7,
+          "syncToken": "future-document-field",
+          "terms": [
+            {
+              "id": "\(firstID)",
+              "kind": "protect",
+              "match": "第一個",
+              "futureEntryField": { "priority": 9 }
+            },
+            { "kind": "futureKind", "match": "中間" },
+            {
+              "id": "\(lastID)",
+              "kind": "protect",
+              "match": "最後一個"
+            }
+          ]
+        }
+        """)
+        let store = makeStore()
+
+        try store.replaceAll([
+            PersonalTerm(id: lastID, kind: .protect, match: "已更新")
+        ])
+
+        let saved = try String(contentsOf: fileURL, encoding: .utf8)
+        let middleRange = try XCTUnwrap(saved.range(of: "\"match\" : \"中間\""))
+        let lastRange = try XCTUnwrap(saved.range(of: "\"match\" : \"已更新\""))
+        XCTAssertLessThan(middleRange.lowerBound, lastRange.lowerBound)
+        XCTAssertTrue(saved.contains("\"syncToken\" : \"future-document-field\""))
+        XCTAssertFalse(saved.contains("\"第一個\""))
+    }
+
+    func testSavingKnownEntryPreservesUnknownFields() throws {
+        let id = UUID()
+        try write("""
+        {
+          "terms": [{
+            "id": "\(id)",
+            "kind": "replacement",
+            "match": "頂頂群",
+            "replacement": "釘釘群",
+            "futureMetadata": { "priority": 9 }
+          }]
+        }
+        """)
+        let store = makeStore()
+
+        try store.replaceAll([
+            PersonalTerm(id: id, kind: .replacement, match: "頂頂群", replacement: "叮叮群")
+        ])
+
+        let saved = try String(contentsOf: fileURL, encoding: .utf8)
+        XCTAssertTrue(saved.contains("\"replacement\" : \"叮叮群\""))
+        XCTAssertTrue(saved.contains("\"futureMetadata\""))
+        XCTAssertTrue(saved.contains("\"priority\" : 9"))
+    }
+
+    func testDuplicateIDsAreNormalizedBeforeEditing() throws {
+        let duplicateID = UUID()
+        try write("""
+        { "terms": [
+          { "id": "\(duplicateID)", "kind": "protect", "match": "第一個" },
+          { "id": "\(duplicateID)", "kind": "protect", "match": "第二個" }
+        ] }
+        """)
+        let store = makeStore()
+
+        XCTAssertEqual(store.terms.count, 2)
+        XCTAssertEqual(Set(store.terms.map(\.id)).count, 2)
+
+        var updated = store.terms
+        updated[1].match = "已更新"
+        try store.replaceAll(updated)
+
+        XCTAssertEqual(makeStore().terms.map(\.match), ["第一個", "已更新"])
     }
 
     func testReloadPicksUpAnExternalEdit() throws {

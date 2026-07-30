@@ -90,7 +90,7 @@ struct PersonalTerm: Codable, Identifiable, Equatable {
         self.isEnabled = isEnabled
     }
 
-    enum CodingKeys: String, CodingKey {
+    enum CodingKeys: String, CodingKey, CaseIterable {
         case id, kind, match, replacement, contextHint
         case isEnabled = "enabled"
     }
@@ -132,78 +132,125 @@ struct PersonalTermsDocument: Codable, Equatable {
     static let currentVersion = 1
 
     var version: Int
-    var terms: [PersonalTerm]
-    private var opaqueTerms: [OpaqueTerm]
+    private var entries: [Entry]
+    private var unknownFields: [String: JSONValue]
+
+    var terms: [PersonalTerm] {
+        entries.compactMap {
+            guard case .known(let term, _) = $0 else { return nil }
+            return term
+        }
+    }
 
     static let empty = PersonalTermsDocument(version: currentVersion, terms: [])
 
     init(version: Int = currentVersion, terms: [PersonalTerm]) {
         self.version = version
-        self.terms = terms
-        self.opaqueTerms = []
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case version, terms
+        self.entries = terms.map { .known($0, .object([:])) }
+        self.unknownFields = [:]
     }
 
     init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        version = try container.decodeIfPresent(Int.self, forKey: .version) ?? Self.currentVersion
-        let decoded = try container.decodeIfPresent([FailableTerm].self, forKey: .terms) ?? []
-        terms = decoded.compactMap(\.term)
-        opaqueTerms = decoded.enumerated().compactMap { index, entry in
-            entry.term == nil ? OpaqueTerm(index: index, value: entry.value) : nil
+        let root = try JSONValue(from: decoder)
+        guard case .object(var fields) = root else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Expected a JSON object")
+            )
         }
+
+        if let encodedVersion = fields.removeValue(forKey: "version") {
+            guard case .number(let value) = encodedVersion,
+                  let decodedVersion = try? Self.decodeInteger(value) else {
+                throw DecodingError.dataCorrupted(
+                    .init(codingPath: decoder.codingPath, debugDescription: "Invalid version")
+                )
+            }
+            version = decodedVersion
+        } else {
+            version = Self.currentVersion
+        }
+
+        let encodedTerms = fields.removeValue(forKey: "terms") ?? .array([])
+        guard case .array(let values) = encodedTerms else {
+            throw DecodingError.dataCorrupted(
+                .init(codingPath: decoder.codingPath, debugDescription: "Invalid terms")
+            )
+        }
+
+        var seenIDs = Set<UUID>()
+        entries = values.map { value in
+            guard var term = try? Self.decodeTerm(value) else {
+                return .opaque(value)
+            }
+            if !seenIDs.insert(term.id).inserted {
+                term.id = UUID()
+                seenIDs.insert(term.id)
+            }
+            return .known(term, value)
+        }
+        unknownFields = fields
     }
 
     func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(version, forKey: .version)
-
-        var encodedTerms = terms.map(FailableTerm.init)
-        for opaque in opaqueTerms.sorted(by: { $0.index < $1.index }) {
-            encodedTerms.insert(
-                FailableTerm(value: opaque.value),
-                at: min(opaque.index, encodedTerms.count)
-            )
-        }
-        try container.encode(encodedTerms, forKey: .terms)
-    }
-
-    /// Lets one unreadable entry - an unknown `kind`, a missing `match` - be
-    /// skipped without taking the rest of the user's dictionary with it.
-    private struct OpaqueTerm: Equatable {
-        let index: Int
-        let value: JSONValue
-    }
-
-    private struct FailableTerm: Codable {
-        let term: PersonalTerm?
-        let value: JSONValue
-
-        init(_ term: PersonalTerm) {
-            self.term = term
-            self.value = .null
-        }
-
-        init(value: JSONValue) {
-            self.term = nil
-            self.value = value
-        }
-
-        init(from decoder: Decoder) throws {
-            value = try JSONValue(from: decoder)
-            term = try? PersonalTerm(from: decoder)
-        }
-
-        func encode(to encoder: Encoder) throws {
-            if let term {
-                try term.encode(to: encoder)
-            } else {
-                try value.encode(to: encoder)
+        var fields = unknownFields
+        fields["version"] = .number(Decimal(version))
+        fields["terms"] = .array(try entries.map { entry in
+            switch entry {
+            case .known(let term, let original):
+                return try Self.merging(term, into: original)
+            case .opaque(let value):
+                return value
             }
+        })
+        try JSONValue.object(fields).encode(to: encoder)
+    }
+
+    mutating func replaceTerms(_ updatedTerms: [PersonalTerm]) {
+        var remaining = updatedTerms
+        entries = entries.compactMap { entry in
+            guard case .known(let existing, let original) = entry else {
+                return entry
+            }
+            guard let index = remaining.firstIndex(where: { $0.id == existing.id }) else {
+                return nil
+            }
+            return .known(remaining.remove(at: index), original)
         }
+        entries.append(contentsOf: remaining.map { .known($0, .object([:])) })
+    }
+
+    private enum Entry: Equatable {
+        case known(PersonalTerm, JSONValue)
+        case opaque(JSONValue)
+    }
+
+    private static func decodeTerm(_ value: JSONValue) throws -> PersonalTerm {
+        let data = try JSONEncoder().encode(value)
+        return try JSONDecoder().decode(PersonalTerm.self, from: data)
+    }
+
+    private static func decodeInteger(_ value: Decimal) throws -> Int {
+        let data = try JSONEncoder().encode(value)
+        return try JSONDecoder().decode(Int.self, from: data)
+    }
+
+    private static func merging(_ term: PersonalTerm, into original: JSONValue) throws -> JSONValue {
+        let encoded = try JSONEncoder().encode(term)
+        let current = try JSONDecoder().decode(JSONValue.self, from: encoded)
+        guard case .object(let currentFields) = current else {
+            return current
+        }
+        var mergedFields: [String: JSONValue]
+        if case .object(let originalFields) = original {
+            mergedFields = originalFields
+        } else {
+            mergedFields = [:]
+        }
+        for key in PersonalTerm.CodingKeys.allCases.map(\.rawValue) {
+            mergedFields.removeValue(forKey: key)
+        }
+        mergedFields.merge(currentFields) { _, current in current }
+        return .object(mergedFields)
     }
 
     private enum JSONValue: Codable, Equatable {
