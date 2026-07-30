@@ -135,12 +135,53 @@ enum AudioChunker {
         from samples: [Float],
         budget: AudioChunkBudget
     ) -> [AudioChunk] {
-        var chunks: [AudioChunk] = []
-        chunks.reserveCapacity(ranges.count)
+        if samples.count < budget.minimumSamples {
+            let range = 0..<samples.count
+            var chunkSamples = Array(samples[range])
+            chunkSamples.append(
+                contentsOf: repeatElement(0, count: budget.minimumSamples - chunkSamples.count)
+            )
+            return [AudioChunk(samples: chunkSamples, range: range)]
+        }
+
+        var groups = ranges
+        while true {
+            let planned = planDisjointRanges(groups, sampleCount: samples.count, budget: budget)
+            if let planned {
+                return planned.map { range in
+                    AudioChunk(samples: Array(samples[range]), range: range)
+                }
+            }
+
+            guard groups.count > 1 else {
+                preconditionFailure("A recording above the floor must admit one valid chunk")
+            }
+
+            let failure = firstUnallocatableRange(
+                groups,
+                sampleCount: samples.count,
+                budget: budget
+            )
+            let left = failure == groups.count - 1 ? failure - 1 : failure
+            let merged = groups[left].lowerBound..<groups[left + 1].upperBound
+            groups.replaceSubrange(
+                left...(left + 1),
+                with: split(merged, budget: budget)
+            )
+        }
+    }
+
+    private static func planDisjointRanges(
+        _ ranges: [Range<Int>],
+        sampleCount: Int,
+        budget: AudioChunkBudget
+    ) -> [Range<Int>]? {
+        var planned: [Range<Int>] = []
+        planned.reserveCapacity(ranges.count)
 
         for (index, range) in ranges.enumerated() {
-            let lowerLimit = index == 0 ? 0 : ranges[index - 1].upperBound
-            let upperLimit = index == ranges.count - 1 ? samples.count : ranges[index + 1].lowerBound
+            let lowerLimit = planned.last?.upperBound ?? 0
+            let upperLimit = index == ranges.count - 1 ? sampleCount : ranges[index + 1].lowerBound
 
             // The ceiling needs no clamp here, and must not have one: clamping
             // would drop audio, which is the failure this whole type exists to
@@ -159,15 +200,34 @@ enum AudioChunker {
                 }
             }
 
-            var chunkSamples = Array(samples[start..<end])
-            if chunkSamples.count < budget.minimumSamples {
-                chunkSamples.append(
-                    contentsOf: repeatElement(0, count: budget.minimumSamples - chunkSamples.count)
+            guard end - start >= budget.minimumSamples else { return nil }
+            guard end - start <= budget.maximumSamples else { return nil }
+            planned.append(start..<end)
+        }
+        return planned
+    }
+
+    private static func firstUnallocatableRange(
+        _ ranges: [Range<Int>],
+        sampleCount: Int,
+        budget: AudioChunkBudget
+    ) -> Int {
+        var previousEnd = 0
+        for (index, range) in ranges.enumerated() {
+            let upperLimit = index == ranges.count - 1 ? sampleCount : ranges[index + 1].lowerBound
+            var start = range.lowerBound
+            var end = range.upperBound
+            let deficit = budget.minimumSamples - range.count
+            if deficit > 0 {
+                end += min(deficit, max(0, upperLimit - end))
+                start -= min(
+                    budget.minimumSamples - (end - start),
+                    max(0, start - previousEnd)
                 )
             }
-
-            chunks.append(AudioChunk(samples: chunkSamples, range: start..<end))
+            if end - start < budget.minimumSamples { return index }
+            previousEnd = end
         }
-        return chunks
+        preconditionFailure("Range planning failed without an unallocatable range")
     }
 }

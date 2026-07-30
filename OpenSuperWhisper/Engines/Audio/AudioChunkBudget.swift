@@ -13,8 +13,8 @@ import Foundation
 /// app is preparing for live in `AudioChunkBudget+FluidAudio.swift`.
 struct AudioChunkBudget: Equatable {
 
-    /// Sample rate the sample counts below are expressed in.
-    let sampleRate: Int
+    /// Shared PCM and VAD sample rate.
+    static let sampleRate = 16_000
 
     /// Hard floor. A chunk shorter than this is not a small chunk, it is an
     /// invalid input: FluidAudio's CoreML preprocessors throw on it.
@@ -40,22 +40,19 @@ struct AudioChunkBudget: Equatable {
     ///     cost of guessing high is a slightly shorter chunk, the cost of
     ///     guessing low is silently lost words.
     init(
-        sampleRate: Int = 16_000,
         minimumSeconds: Double,
         maximumSeconds: Double,
         preferredSeconds: Double,
         tokenBudget: Int? = nil,
         tokensPerSecond: Double? = nil
     ) {
-        precondition(sampleRate > 0, "sampleRate must be positive")
         precondition(minimumSeconds > 0, "minimumSeconds must be positive")
         precondition(maximumSeconds >= minimumSeconds, "maximumSeconds must not be below minimumSeconds")
 
         func samples(_ seconds: Double) -> Int {
-            Int((seconds * Double(sampleRate)).rounded())
+            Int((seconds * Double(Self.sampleRate)).rounded())
         }
 
-        self.sampleRate = sampleRate
         self.minimumSamples = samples(minimumSeconds)
         self.maximumSamples = samples(maximumSeconds)
 
@@ -69,10 +66,10 @@ struct AudioChunkBudget: Equatable {
     /// Sample offset of a VAD segment boundary, which the VAD reports in
     /// centiseconds of the source audio.
     func sampleIndex(centiseconds: Int64) -> Int {
-        Int(centiseconds) * sampleRate / 100
+        Int(centiseconds) * Self.sampleRate / 100
     }
 
     func seconds(samples: Int) -> Double {
-        Double(samples) / Double(sampleRate)
+        Double(samples) / Double(Self.sampleRate)
     }
 }

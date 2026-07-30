@@ -300,20 +300,32 @@ final class AudioChunkerTests: XCTestCase {
             }
         }
     }
+
+    func testC4_crowdedSubFloorChunksMergeWithoutPaddingOrOverlap() {
+        let audio = samples(seconds: 0.25)
+        let segments = [segment(0.02, 0.07), segment(0.12, 0.17)]
+        let budget = AudioChunkBudget.paraformerZh
+
+        let chunks = AudioChunker.chunks(from: audio, segments: segments, budget: budget)
+
+        XCTAssertEqual(chunks.count, 1)
+        XCTAssertEqual(chunks[0].samples.count, chunks[0].range.count)
+        XCTAssertGreaterThanOrEqual(chunks[0].range.count, budget.minimumSamples)
+    }
 }
 
 /// The budget is the seam that keeps the chunker engine-neutral: no engine's
 /// limits may be baked into it.
 final class AudioChunkBudgetTests: XCTestCase {
 
-    func testArbitraryLimitsAreHonouredVerbatim() {
+    func testArbitraryLimitsAreHonouredVerbatimAtTheSharedSampleRate() {
         let budget = AudioChunkBudget(
-            sampleRate: 8_000, minimumSeconds: 0.5, maximumSeconds: 40, preferredSeconds: 12
+            minimumSeconds: 0.5, maximumSeconds: 40, preferredSeconds: 12
         )
 
-        XCTAssertEqual(budget.minimumSamples, 4_000)
-        XCTAssertEqual(budget.maximumSamples, 320_000)
-        XCTAssertEqual(budget.preferredSamples, 96_000)
+        XCTAssertEqual(budget.minimumSamples, 8_000)
+        XCTAssertEqual(budget.maximumSamples, 640_000)
+        XCTAssertEqual(budget.preferredSamples, 192_000)
     }
 
     func testPreferredLengthIsClampedIntoTheAcceptedRange() {
