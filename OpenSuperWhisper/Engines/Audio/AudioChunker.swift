@@ -106,10 +106,21 @@ enum AudioChunker {
     /// Equal, not "fill then remainder": a fixed-window cut leaves a tail that
     /// can fall under the engine's floor, which is exactly how a 44.8 s clip cut
     /// into 14 s windows produced a rejected 0.142 s remainder.
+    ///
+    /// The part count aims for `preferredSamples` but is clamped into the range
+    /// that keeps every part inside `minimumSamples...maximumSamples`: this is
+    /// also called by `materialize`'s merge fallback on a range that is already
+    /// close to the floor, and dividing that further by `preferredSamples` alone
+    /// can hand back a part under the floor - which `materialize` would then
+    /// merge and re-split into the same too-short part forever.
     private static func split(_ range: Range<Int>, budget: AudioChunkBudget) -> [Range<Int>] {
         guard range.count > budget.preferredSamples else { return [range] }
 
-        let parts = (range.count + budget.preferredSamples - 1) / budget.preferredSamples
+        let idealParts = (range.count + budget.preferredSamples - 1) / budget.preferredSamples
+        let minParts = (range.count + budget.maximumSamples - 1) / budget.maximumSamples
+        let maxParts = max(1, range.count / budget.minimumSamples)
+        let parts = max(minParts, min(idealParts, maxParts))
+
         let base = range.count / parts
         let remainder = range.count % parts
 

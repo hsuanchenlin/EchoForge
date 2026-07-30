@@ -312,6 +312,45 @@ final class AudioChunkerTests: XCTestCase {
         XCTAssertEqual(chunks[0].samples.count, chunks[0].range.count)
         XCTAssertGreaterThanOrEqual(chunks[0].range.count, budget.minimumSamples)
     }
+
+    /// A budget whose preferred length sits just above its floor keeps a tiny
+    /// segment sandwiched between two normal-length ones as three SEPARATE
+    /// groups (their spans are each too wide for `pack` to merge), while none
+    /// of the three has enough neighbouring room to grow the tiny one to the
+    /// floor on its own. That forces the merge-and-resplit fallback, not just
+    /// the single-range growth path: this configuration used to make
+    /// `AudioChunker` loop forever, because splitting the merged pair back up
+    /// by preferred length alone could hand back a part still under the floor,
+    /// which then merged and split into the exact same too-short part forever.
+    func testC4_sandwichedSubFloorSegmentTriggersMergeFallbackWithoutOverlapOrPadding() {
+        let budget = AudioChunkBudget(minimumSeconds: 0.2, maximumSeconds: 30, preferredSeconds: 0.21)
+        let audio = samples(seconds: 0.43)
+        let segments = [segment(0.00, 0.20), segment(0.21, 0.22), segment(0.23, 0.43)]
+
+        let chunks = AudioChunker.chunks(from: audio, segments: segments, budget: budget)
+
+        XCTAssertEqual(chunks.count, 2, "the tiny middle segment must be absorbed by a merge, not left stranded")
+        XCTAssertLessThan(
+            chunks.count, segments.count,
+            "fewer chunks than VAD groups is the only evidence a merge actually happened"
+        )
+        assertWithinRange(chunks, budget, "sandwiched sub-floor segment")
+        for pair in zip(chunks, chunks.dropFirst()) {
+            XCTAssertLessThanOrEqual(
+                pair.0.range.upperBound, pair.1.range.lowerBound,
+                "the merge fallback must not let chunks overlap"
+            )
+        }
+        for chunk in chunks {
+            XCTAssertEqual(
+                chunk.samples.count, chunk.range.count,
+                "the recording is longer than the floor, so nothing should be zero-padded"
+            )
+        }
+        XCTAssertEqual(
+            uncoveredSpeechSamples(segments: segments, chunks: chunks, sampleCount: audio.count), 0
+        )
+    }
 }
 
 /// The budget is the seam that keeps the chunker engine-neutral: no engine's

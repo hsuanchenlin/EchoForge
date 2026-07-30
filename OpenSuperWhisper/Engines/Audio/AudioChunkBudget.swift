@@ -13,8 +13,9 @@ import Foundation
 /// app is preparing for live in `AudioChunkBudget+FluidAudio.swift`.
 struct AudioChunkBudget: Equatable {
 
-    /// Shared PCM and VAD sample rate.
-    static let sampleRate = 16_000
+    /// Shared PCM and VAD sample rate, derived from `PCMAudioLoader` so the two
+    /// can never drift apart.
+    static let sampleRate = Int(PCMAudioLoader.sampleRate)
 
     /// Hard floor. A chunk shorter than this is not a small chunk, it is an
     /// invalid input: FluidAudio's CoreML preprocessors throw on it.
