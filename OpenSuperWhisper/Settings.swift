@@ -7,10 +7,10 @@ import SwiftUI
 import FluidAudio
 
 class SettingsViewModel: ObservableObject {
-    @Published var selectedEngine: String {
+    @Published var selectedEngine: EngineKind {
         didSet {
             AppPreferences.shared.selectedEngine = selectedEngine
-            if selectedEngine == "whisper" {
+            if selectedEngine == .whisper {
                 loadAvailableModels()
             } else {
                 initializeFluidAudioModels()
@@ -25,7 +25,7 @@ class SettingsViewModel: ObservableObject {
     @Published var fluidAudioModelVersion: String {
         didSet {
             AppPreferences.shared.fluidAudioModelVersion = fluidAudioModelVersion
-            if selectedEngine == "fluidaudio" {
+            if selectedEngine == .fluidaudio {
                 Task { @MainActor in
                     TranscriptionService.shared.reloadEngine()
                 }
@@ -363,7 +363,7 @@ class SettingsViewModel: ObservableObject {
     func cancelDownload() {
         downloadTask?.cancel()
         if let modelName = downloadingModelName {
-            if selectedEngine == "whisper", let model = downloadableModels.first(where: { $0.name == modelName }) {
+            if selectedEngine == .whisper, let model = downloadableModels.first(where: { $0.name == modelName }) {
                 let filename = model.filename
                 WhisperModelManager.shared.cancelDownload(name: filename)
             }
@@ -713,7 +713,7 @@ struct SettingsView: View {
         .safeAreaInset(edge: .bottom) {
             HStack {
                 Button("Done") {
-                    if viewModel.selectedEngine == "whisper" {
+                    if viewModel.selectedEngine == .whisper {
                         if viewModel.selectedModelURL != previousModelURL, let modelPath = viewModel.selectedModelURL?.path {
                             TranscriptionService.shared.reloadModel(with: modelPath)
                         }
@@ -741,12 +741,12 @@ struct SettingsView: View {
         }
         .onAppear {
             previousModelURL = viewModel.selectedModelURL
-            if viewModel.selectedEngine == "fluidaudio" {
+            if viewModel.selectedEngine == .fluidaudio {
                 viewModel.initializeFluidAudioModels()
             }
         }
         .onChange(of: viewModel.selectedEngine) { _, newEngine in
-            if newEngine == "fluidaudio" {
+            if newEngine == .fluidaudio {
                 viewModel.initializeFluidAudioModels()
             }
         }
@@ -756,7 +756,7 @@ struct SettingsView: View {
             }
         }
         .onChange(of: viewModel.selectedModelURL) { _, newURL in
-            if viewModel.selectedEngine == "whisper", let modelPath = newURL?.path {
+            if viewModel.selectedEngine == .whisper, let modelPath = newURL?.path {
                 Task { @MainActor in
                     TranscriptionService.shared.reloadModel(with: modelPath)
                 }
@@ -772,13 +772,13 @@ struct SettingsView: View {
                     .foregroundColor(.primary)
                 
                 Picker("Engine", selection: $viewModel.selectedEngine) {
-                    Text("Parakeet").tag("fluidaudio")
-                    Text("Whisper").tag("whisper")
+                    Text("Parakeet").tag(EngineKind.fluidaudio)
+                    Text("Whisper").tag(EngineKind.whisper)
                 }
                 .pickerStyle(.segmented)
                 .padding(.bottom, 8)
                 
-                if viewModel.selectedEngine == "whisper" {
+                if viewModel.selectedEngine == .whisper {
                     VStack(alignment: .leading, spacing: 16) {
                         Text("Whisper Model")
                             .font(.headline)

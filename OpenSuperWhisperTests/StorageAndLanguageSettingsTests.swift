@@ -68,19 +68,19 @@ final class RecordingRetentionTests: XCTestCase {
 final class LanguageSupportTests: XCTestCase {
 
     func testSupportedLanguages_whisper_returnsFullListWithAuto() {
-        let languages = LanguageUtil.supportedLanguages(engine: "whisper", fluidAudioModelVersion: "v3")
+        let languages = LanguageUtil.supportedLanguages(engine: .whisper, fluidAudioModelVersion: "v3")
         XCTAssertEqual(languages, LanguageUtil.availableLanguages)
         XCTAssertTrue(languages.contains("auto"))
         XCTAssertTrue(languages.contains("zh"))
     }
 
     func testSupportedLanguages_parakeetV2_isEnglishOnly() {
-        let languages = LanguageUtil.supportedLanguages(engine: "fluidaudio", fluidAudioModelVersion: "v2")
+        let languages = LanguageUtil.supportedLanguages(engine: .fluidaudio, fluidAudioModelVersion: "v2")
         XCTAssertEqual(languages, ["en"])
     }
 
     func testSupportedLanguages_parakeetV3_excludesUnsupportedLanguages() {
-        let languages = LanguageUtil.supportedLanguages(engine: "fluidaudio", fluidAudioModelVersion: "v3")
+        let languages = LanguageUtil.supportedLanguages(engine: .fluidaudio, fluidAudioModelVersion: "v3")
 
         for unsupported in ["auto", "zh", "ja", "ko", "ar", "tr", "he", "hi", "id", "ca"] {
             XCTAssertFalse(languages.contains(unsupported), "\(unsupported) must not be offered for Parakeet v3")
@@ -98,8 +98,8 @@ final class LanguageSupportTests: XCTestCase {
     }
 
     func testFallbackLanguage() {
-        XCTAssertEqual(LanguageUtil.fallbackLanguage(engine: "fluidaudio"), "en")
-        XCTAssertEqual(LanguageUtil.fallbackLanguage(engine: "whisper"), "auto")
+        XCTAssertEqual(LanguageUtil.fallbackLanguage(engine: .fluidaudio), "en")
+        XCTAssertEqual(LanguageUtil.fallbackLanguage(engine: .whisper), "auto")
     }
 }
 

@@ -44,17 +44,11 @@ class TranscriptionService: ObservableObject {
         isLoading = true
         
         Task.detached(priority: .userInitiated) {
-            let engine: TranscriptionEngine?
-            
-            if selectedEngine == "fluidaudio" {
-                engine = await FluidAudioEngine()
-            } else {
-                engine = await WhisperEngine()
-            }
-            
+            let engine = await selectedEngine.makeEngine()
+
             do {
-                try await engine?.initialize()
-                
+                try await engine.initialize()
+
                 await MainActor.run {
                     self.currentEngine = engine
                     self.isLoading = false
@@ -72,9 +66,23 @@ class TranscriptionService: ObservableObject {
     func reloadEngine() {
         loadEngine()
     }
+
+    /// Routes an engine's progress reports onto the published `progress`.
+    ///
+    /// Every engine is wired identically through `TranscriptionEngine`; there
+    /// is deliberately no per-engine branch here. Updates arriving after a
+    /// cancellation are dropped so a late callback cannot revive the bar.
+    func observeProgress(of engine: TranscriptionEngine) {
+        engine.onProgressUpdate = { [weak self] newProgress in
+            Task { @MainActor in
+                guard let self = self, !self.isCancelled else { return }
+                self.progress = newProgress
+            }
+        }
+    }
     
     func reloadModel(with path: String) {
-        if AppPreferences.shared.selectedEngine == "whisper" {
+        if AppPreferences.shared.selectedEngine == .whisper {
             AppPreferences.shared.selectedWhisperModelPath = path
             reloadEngine()
         }
@@ -115,23 +123,8 @@ class TranscriptionService: ObservableObject {
             throw TranscriptionError.contextInitializationFailed
         }
         
-        // Setup progress callback for engines
-        if let whisperEngine = engine as? WhisperEngine {
-            whisperEngine.onProgressUpdate = { [weak self] newProgress in
-                Task { @MainActor in
-                    guard let self = self, !self.isCancelled else { return }
-                    self.progress = newProgress
-                }
-            }
-        } else if let fluidEngine = engine as? FluidAudioEngine {
-            fluidEngine.onProgressUpdate = { [weak self] newProgress in
-                Task { @MainActor in
-                    guard let self = self, !self.isCancelled else { return }
-                    self.progress = newProgress
-                }
-            }
-        }
-        
+        observeProgress(of: engine)
+
         let task = Task.detached(priority: .userInitiated) { [weak self] in
             try Task.checkCancellation()
             

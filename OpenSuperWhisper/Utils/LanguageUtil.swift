@@ -51,13 +51,24 @@ class LanguageUtil {
         "uk": "Ukrainian",
     ]
 
-    static func supportedLanguages(engine: String, fluidAudioModelVersion: String) -> [String] {
-        guard engine == "fluidaudio" else { return availableLanguages }
-        return fluidAudioModelVersion == "v2" ? parakeetV2Languages : parakeetV3Languages
+    /// Switched exhaustively on purpose: a new engine must state its language
+    /// scope rather than silently inheriting Whisper's full list.
+    static func supportedLanguages(engine: EngineKind, fluidAudioModelVersion: String) -> [String] {
+        switch engine {
+        case .whisper:
+            return availableLanguages
+        case .fluidaudio:
+            return fluidAudioModelVersion == "v2" ? parakeetV2Languages : parakeetV3Languages
+        }
     }
 
-    static func fallbackLanguage(engine: String) -> String {
-        engine == "fluidaudio" ? "en" : "auto"
+    static func fallbackLanguage(engine: EngineKind) -> String {
+        switch engine {
+        case .whisper:
+            return "auto"
+        case .fluidaudio:
+            return "en"
+        }
     }
 
     static func getSystemLanguage() -> String {

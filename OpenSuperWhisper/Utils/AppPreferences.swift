@@ -11,6 +11,21 @@ struct UserDefault<T> {
     }
 }
 
+/// Stores an enum as its raw string, so the on-disk format stays the plain
+/// string it has always been. Anything unreadable - a value written by a newer
+/// build, a hand-edited key - reads back as `defaultValue` instead of crashing
+/// or leaving the app with no engine.
+@propertyWrapper
+struct RawRepresentableUserDefault<T: RawRepresentable> where T.RawValue == String {
+    let key: String
+    let defaultValue: T
+
+    var wrappedValue: T {
+        get { T(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? defaultValue }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: key) }
+    }
+}
+
 @propertyWrapper
 struct OptionalUserDefault<T> {
     let key: String
@@ -35,19 +50,19 @@ final class AppPreferences {
     }
     
     // Engine settings
-    @UserDefault(key: "selectedEngine", defaultValue: "whisper")
-    var selectedEngine: String
-    
+    @RawRepresentableUserDefault(key: "selectedEngine", defaultValue: EngineKind.fallback)
+    var selectedEngine: EngineKind
+
     // Model settings
     var selectedModelPath: String? {
         get {
-            if selectedEngine == "whisper" {
+            if selectedEngine == .whisper {
                 return selectedWhisperModelPath
             }
             return nil
         }
         set {
-            if selectedEngine == "whisper" {
+            if selectedEngine == .whisper {
                 selectedWhisperModelPath = newValue
             }
         }
@@ -58,9 +73,6 @@ final class AppPreferences {
     
     @UserDefault(key: "fluidAudioModelVersion", defaultValue: "v3")
     var fluidAudioModelVersion: String
-    
-    @UserDefault(key: "qwen3Variant", defaultValue: "f32")
-    var qwen3Variant: String
     
     @UserDefault(key: "whisperLanguage", defaultValue: "en")
     var whisperLanguage: String

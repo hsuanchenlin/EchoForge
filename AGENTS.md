@@ -28,6 +28,11 @@ change - verify against a clean checkout before assuming you broke them:
 Targets use Xcode file-system-synchronized groups, so new source and test files are picked up
 without editing `project.pbxproj`.
 
+## Engines
+
+`OpenSuperWhisper/Engines/EngineKind.swift` owns the engine registration, persistence,
+factory, and language-handling contracts. Follow its documentation when adding an engine.
+
 ## Storage
 
 The recordings database is GRDB, with its full schema history in `RecordingStore.makeMigrator()`
