@@ -103,11 +103,11 @@ class OnboardingViewModel: ObservableObject {
         
         switch model.type {
         case .whisper(let url, _):
-            AppPreferences.shared.selectedEngine = "whisper"
+            AppPreferences.shared.selectedEngine = .whisper
             let modelPath = modelManager.modelsDirectory.appendingPathComponent(url.lastPathComponent).path
             AppPreferences.shared.selectedWhisperModelPath = modelPath
         case .parakeet(let version):
-            AppPreferences.shared.selectedEngine = "fluidaudio"
+            AppPreferences.shared.selectedEngine = .fluidaudio
             AppPreferences.shared.fluidAudioModelVersion = version
         }
     }

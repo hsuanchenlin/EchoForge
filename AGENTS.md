@@ -28,6 +28,14 @@ change - verify against a clean checkout before assuming you broke them:
 Targets use Xcode file-system-synchronized groups, so new source and test files are picked up
 without editing `project.pbxproj`.
 
+## Engines
+
+Adding a speech engine means adding a case to `EngineKind`
+(`OpenSuperWhisper/Engines/EngineKind.swift`); its `makeEngine()` and `LanguageUtil` switch
+exhaustively, so the compiler lists the sites that must handle it. The case raw values are the
+strings persisted under the `selectedEngine` default - they are storage format, not display
+text, and an unrecognised stored value must keep falling back to Whisper.
+
 ## Storage
 
 The recordings database is GRDB, with its full schema history in `RecordingStore.makeMigrator()`
