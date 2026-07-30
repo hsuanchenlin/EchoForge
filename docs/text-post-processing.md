@@ -17,7 +17,7 @@ TranscriptionService.transcribeAudio()     single choke point
         ▼
 TextPostProcessor.process()                TRANSCRIPT STAGE
         │                                  shared by every engine and caller
-        │                                  1. personal terms  (always on)
+        │                                  1. personal terms  (on by default)
         │                                  2. CJK autocorrect (protected spans held out)
         ├──────────────┬───────────────────────────────┐
         ▼              ▼                               ▼
