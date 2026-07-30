@@ -30,11 +30,8 @@ without editing `project.pbxproj`.
 
 ## Engines
 
-Adding a speech engine means adding a case to `EngineKind`
-(`OpenSuperWhisper/Engines/EngineKind.swift`); its `makeEngine()` and `LanguageUtil` switch
-exhaustively, so the compiler lists the sites that must handle it. The case raw values are the
-strings persisted under the `selectedEngine` default - they are storage format, not display
-text, and an unrecognised stored value must keep falling back to Whisper.
+`OpenSuperWhisper/Engines/EngineKind.swift` owns the engine registration, persistence,
+factory, and language-handling contracts. Follow its documentation when adding an engine.
 
 ## Storage
 
