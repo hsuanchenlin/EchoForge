@@ -139,7 +139,7 @@ enum PersonalTermsCorrector {
         let foldedHint = ChineseScriptFolding.fold(hint)
         guard foldedHint.count <= foldedSource.count else { return false }
         for start in 0 ... (foldedSource.count - foldedHint.count) {
-            if Array(foldedSource[start ..< start + foldedHint.count]) == foldedHint {
+            if foldedSource[start ..< start + foldedHint.count].elementsEqual(foldedHint) {
                 return true
             }
         }
@@ -152,7 +152,7 @@ enum PersonalTermsCorrector {
         for candidate in candidates {
             let length = candidate.foldedMatch.count
             guard length > 0, index + length <= foldedSource.count else { continue }
-            guard Array(foldedSource[index ..< index + length]) == candidate.foldedMatch else {
+            guard foldedSource[index ..< index + length].elementsEqual(candidate.foldedMatch) else {
                 continue
             }
             return (candidate.term, length)
