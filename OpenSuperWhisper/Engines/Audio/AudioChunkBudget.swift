@@ -31,7 +31,8 @@ struct AudioChunkBudget: Equatable {
 
     /// - Parameters:
     ///   - minimumSeconds: shortest input the engine accepts.
-    ///   - maximumSeconds: longest input the engine accepts.
+    ///   - maximumSeconds: longest input the engine accepts. Must be at least
+    ///     twice `minimumSeconds`.
     ///   - preferredSeconds: duration-derived chunk length to aim for.
     ///   - tokenBudget: output tokens the engine emits before it stops. Pass it
     ///     when the engine clamps *silently*, so the clamp becomes a chunking
@@ -48,7 +49,11 @@ struct AudioChunkBudget: Equatable {
         tokensPerSecond: Double? = nil
     ) {
         precondition(minimumSeconds > 0, "minimumSeconds must be positive")
-        precondition(maximumSeconds >= minimumSeconds, "maximumSeconds must not be below minimumSeconds")
+        precondition(
+            maximumSeconds >= 2 * minimumSeconds,
+            "maximumSeconds must be at least twice minimumSeconds, or split() cannot always divide an " +
+            "over-long range into parts that all clear the floor"
+        )
 
         func samples(_ seconds: Double) -> Int {
             Int((seconds * Double(Self.sampleRate)).rounded())
