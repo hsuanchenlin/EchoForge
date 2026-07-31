@@ -8,6 +8,7 @@ final class EngineKindRawValueTests: XCTestCase {
     func testRawValues_matchThePersistedStrings() {
         XCTAssertEqual(EngineKind.whisper.rawValue, "whisper")
         XCTAssertEqual(EngineKind.fluidaudio.rawValue, "fluidaudio")
+        XCTAssertEqual(EngineKind.paraformer.rawValue, "paraformer")
     }
 
     func testEveryCase_roundTripsThroughItsRawValue() {
@@ -22,12 +23,18 @@ final class EngineKindRawValueTests: XCTestCase {
     }
 
     func testStoredInit_unknownValue_fallsBackToWhisper() {
-        // "paraformer" and "sensevoice" are the engines this seam is being
-        // prepared for: a user who tries a newer build and then downgrades must
-        // land on Whisper, not on a missing engine.
-        for unknown in ["paraformer", "sensevoice", "Whisper", "", "qwen3"] {
+        // "sensevoice" is the engine this seam is still being prepared for: a
+        // user who tries a newer build and then downgrades must land on Whisper,
+        // not on a missing engine.
+        for unknown in ["sensevoice", "Whisper", "", "qwen3"] {
             XCTAssertEqual(EngineKind(stored: unknown), .whisper, "\(unknown) must fall back to Whisper")
         }
+    }
+
+    /// Paraformer is opt-in by hand-writing this exact string into the
+    /// `selectedEngine` default, so the string is the whole opt-in surface.
+    func testStoredInit_paraformer_isRecognised() {
+        XCTAssertEqual(EngineKind(stored: "paraformer"), .paraformer)
     }
 
     func testStoredInit_missingValue_fallsBackToWhisper() {
@@ -59,11 +66,18 @@ final class EngineKindFactoryTests: XCTestCase {
         XCTAssertEqual(names.count, EngineKind.allCases.count)
     }
 
+    func testMakeEngine_paraformer_buildsTheParaformerEngine() async {
+        let engine = await EngineKind.paraformer.makeEngine()
+        XCTAssertEqual(engine.engineName, "Paraformer")
+        XCTAssertTrue(engine is ParaformerEngine)
+        XCTAssertFalse(engine.isModelLoaded, "A freshly built engine must not claim a loaded model")
+    }
+
     /// The pre-refactor `if selectedEngine == "fluidaudio" { … } else { Whisper }`
     /// chain sent unknown tags to Whisper. Going through the stored-value
     /// initialiser has to keep doing that.
     func testUnknownStoredValue_stillSelectsWhisper() async {
-        let engine = await EngineKind(stored: "paraformer").makeEngine()
+        let engine = await EngineKind(stored: "sensevoice").makeEngine()
         XCTAssertEqual(engine.engineName, "Whisper")
     }
 }
@@ -109,8 +123,19 @@ final class SelectedEnginePreferenceTests: XCTestCase {
     }
 
     func testSelectedEngine_unknownStoredValue_readsAsWhisper() {
-        UserDefaults.standard.set("paraformer", forKey: key)
+        UserDefaults.standard.set("sensevoice", forKey: key)
         XCTAssertEqual(AppPreferences.shared.selectedEngine, .whisper)
+    }
+
+    /// The hand-edited default is the only way into Paraformer in this build.
+    func testSelectedEngine_paraformerStoredByHand_isHonoured() {
+        UserDefaults.standard.set("paraformer", forKey: key)
+        XCTAssertEqual(AppPreferences.shared.selectedEngine, .paraformer)
+    }
+
+    func testSelectedEngine_paraformerIsNotTheDefault() {
+        UserDefaults.standard.removeObject(forKey: key)
+        XCTAssertNotEqual(AppPreferences.shared.selectedEngine, .paraformer)
     }
 
     func testSelectedEngine_nonStringStoredValue_readsAsWhisper() {
@@ -128,8 +153,11 @@ final class SelectedEnginePreferenceTests: XCTestCase {
                        LanguageUtil.parakeetV2Languages)
         XCTAssertEqual(LanguageUtil.supportedLanguages(engine: .fluidaudio, fluidAudioModelVersion: "v3"),
                        LanguageUtil.parakeetV3Languages)
+        XCTAssertEqual(LanguageUtil.supportedLanguages(engine: .paraformer, fluidAudioModelVersion: "v3"),
+                       ["zh"])
         XCTAssertEqual(LanguageUtil.fallbackLanguage(engine: .whisper), "auto")
         XCTAssertEqual(LanguageUtil.fallbackLanguage(engine: .fluidaudio), "en")
+        XCTAssertEqual(LanguageUtil.fallbackLanguage(engine: .paraformer), "zh")
     }
 }
 

@@ -14,6 +14,13 @@ enum EngineKind: String, CaseIterable {
     case whisper
     case fluidaudio
 
+    /// Paraformer-large (zh). Opt-in only: it has no entry in the engine picker
+    /// yet, so it is reachable by writing the `selectedEngine` default by hand
+    /// and nothing else. That is deliberate - the Settings and onboarding
+    /// surfaces it needs (a one-row download of ~653 MB, a language control that
+    /// collapses to Chinese, the model attribution notice) are their own change.
+    case paraformer
+
     /// Used when nothing is stored yet and when the stored value is not one we
     /// know, which is what a downgrade after trying a newer engine looks like.
     static let fallback: EngineKind = .whisper
@@ -38,6 +45,8 @@ enum EngineKind: String, CaseIterable {
             return await WhisperEngine()
         case .fluidaudio:
             return await FluidAudioEngine()
+        case .paraformer:
+            return await ParaformerEngine()
         }
     }
 }

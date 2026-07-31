@@ -91,6 +91,26 @@ final class LanguageSupportTests: XCTestCase {
         XCTAssertEqual(languages.count, 25)
     }
 
+    /// F5. Paraformer-large is Mandarin-only and degrades silently rather than
+    /// failing, so the lock is the only thing standing between an English
+    /// recording and output full of raw `@@` BPE markers.
+    func testSupportedLanguages_paraformer_isMandarinOnly() {
+        for version in ["v2", "v3"] {
+            XCTAssertEqual(
+                LanguageUtil.supportedLanguages(engine: .paraformer, fluidAudioModelVersion: version),
+                ["zh"],
+                "Paraformer's language scope must not depend on the Parakeet model version"
+            )
+        }
+        XCTAssertEqual(LanguageUtil.fallbackLanguage(engine: .paraformer), "zh")
+    }
+
+    /// Selecting Paraformer has to snap the language, and `Settings` has to see
+    /// a Mandarin language so Asian autocorrect stays available for it.
+    func testParaformerFallbackLanguage_isAnAsianLanguage() {
+        XCTAssertTrue(Settings.asianLanguages.contains(LanguageUtil.fallbackLanguage(engine: .paraformer)))
+    }
+
     func testAllParakeetV3LanguagesHaveDisplayNames() {
         for code in LanguageUtil.parakeetV3Languages {
             XCTAssertNotNil(LanguageUtil.languageNames[code], "Missing display name for \(code)")

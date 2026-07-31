@@ -19,26 +19,6 @@ private class ProgressContext {
     }
 }
 
-/// Thread-safe cancellation flag. Owned by the engine for its whole lifetime,
-/// so the pointer passed into whisper's C callback can never dangle.
-private final class AbortFlag {
-    private let lock = NSLock()
-    private var _isSet = false
-    
-    var isSet: Bool {
-        get {
-            lock.lock()
-            defer { lock.unlock() }
-            return _isSet
-        }
-        set {
-            lock.lock()
-            defer { lock.unlock() }
-            _isSet = newValue
-        }
-    }
-}
-
 class WhisperEngine: TranscriptionEngine {
     var engineName: String { "Whisper" }
     
