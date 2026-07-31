@@ -8,6 +8,12 @@ class LanguageUtil {
 
     static let parakeetV2Languages = ["en"]
 
+    /// Paraformer-large (zh) is Mandarin-only, and it does not fail on anything
+    /// else - it mis-transcribes it. English comes back with raw `@@` BPE
+    /// continuation markers in it and Cantonese comes back as wrong Mandarin, so
+    /// the lock is here rather than left to the user to discover.
+    static let paraformerLanguages = ["zh"]
+
     static let parakeetV3Languages = [
         "en", "de", "es", "ru", "fr", "pt", "pl", "nl", "sv", "it", "fi",
         "bg", "hr", "cs", "da", "el", "et", "hu", "lv", "lt", "mt", "ro", "sk", "sl", "uk",
@@ -59,6 +65,8 @@ class LanguageUtil {
             return availableLanguages
         case .fluidaudio:
             return fluidAudioModelVersion == "v2" ? parakeetV2Languages : parakeetV3Languages
+        case .paraformer:
+            return paraformerLanguages
         }
     }
 
@@ -68,6 +76,8 @@ class LanguageUtil {
             return "auto"
         case .fluidaudio:
             return "en"
+        case .paraformer:
+            return "zh"
         }
     }
 

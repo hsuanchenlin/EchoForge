@@ -39,6 +39,10 @@ An engine must not reach into another engine for any of it. Engines whose backen
 silently clamps long input take `AudioChunkSource` with an `AudioChunkBudget`; the budget type
 documents why each limit exists and `OpenSuperWhisperTests/AudioChunkerTests.swift` pins them.
 
+Model weights are downloaded at runtime and never bundled into the `.app` - some are
+redistributed under licences that require attribution and forbid rebranding. Any engine whose
+model the app downloads needs an entry in `docs/speech-model-attribution.md`.
+
 ## Storage
 
 The recordings database is GRDB, with its full schema history in `RecordingStore.makeMigrator()`

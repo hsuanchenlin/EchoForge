@@ -1,5 +1,12 @@
 import Foundation
 
+/// What an engine needs from the audio path, as a protocol so an engine's
+/// chunk-handling loop can be tested without decoding a file or loading the VAD.
+/// `AudioChunkSource` is the only production conformer.
+protocol AudioChunkProviding: AnyObject {
+    func chunks(for url: URL, budget: AudioChunkBudget) async throws -> [AudioChunk]
+}
+
 /// The whole engine-facing audio path in one call: decode to 16 kHz mono PCM,
 /// gate through the bundled VAD, cut into chunks the engine can accept.
 ///
@@ -7,7 +14,7 @@ import Foundation
 /// pieces themselves, because the composition has one mandatory step that is easy
 /// to skip: silence must produce *no* chunks, not a padded one. Hold one instance
 /// per engine so the VAD model is loaded once.
-final class AudioChunkSource {
+final class AudioChunkSource: AudioChunkProviding {
 
     private let segmenter: SpeechSegmenter
 
