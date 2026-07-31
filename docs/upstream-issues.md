@@ -37,18 +37,29 @@ Paraformer's order of magnitude and the per-chunk progress becomes cosmetic rath
 
 **Status:** to be filed against <https://github.com/FunAudioLLM/SenseVoice>. Not filed yet.
 
-**Measured** on SenseVoiceSmall int8 and fp16 alike, `textNorm 14` (withitn), reproducible on
-every run: `语音识别技术在过去十年里…` comes back as `…在过去1年里…`. `十年` ("ten years") should
-normalise to `10年`; it becomes `1年`, which is not a formatting difference, it is a different
-number. Times, prices and dates in the same fixture are all correct (`3点20分`, `1250块钱`,
-`2026年7月30号`).
+**Measured** on SenseVoiceSmall int8 and fp16 alike, `textNorm 14` (withitn):
+`语音识别技术在过去十年里…` came back as `…在过去1年里…`. `十年` ("ten years") should normalise to
+`10年`; it became `1年`, which is not a formatting difference, it is a different number. Times,
+prices and dates in the same fixture are all correct (`3点20分`, `1250块钱`, `2026年7月30号`).
+
+**How reproducible it is, honestly:** not universally. The original investigation hit it
+repeatedly on one machine. Two later attempts on a different Apple-silicon machine, using the
+fixture recipe in `SenseVoiceEngineIntegrationTests` verbatim (`say -v Tingting`, int8,
+`textNorm 14`), got `过去十年` back intact - both through the engine's chunked path and through a
+single unchunked call. So the failure is real and was observed directly, but it depends on
+something not yet isolated: the acoustics of the particular synthesised audio, the exact
+FluidAudio build, or the hardware. Treat it as a defect class - ITN can silently change a
+numeral's value - rather than as a behaviour that fires on every run. That distinction is why
+`EngineCatalog`'s SenseVoice copy says the conversion "can occasionally turn a bare numeral into
+the wrong number" instead of quoting an example that does not reproduce for everyone, and
+`EngineCatalogTests` asserts the copy does not overclaim.
 
 **What the app does:** nothing, on purpose. Punctuation and ITN are one switch in the pinned
 runtime - `14` gives both, `15` gives neither - so turning ITN off means shipping an unpunctuated
 Chinese engine, which is the gap SenseVoice was chosen to close. Post-processing that tried to
 undo ITN for bare numerals would be the app rewriting model output on a guess. The behaviour is
 documented in engine-facing copy instead (`docs/speech-model-attribution.md`,
-`SenseVoiceEngine.textNorm`).
+`SenseVoiceEngine.textNorm`, and the Settings copy in `EngineCatalog`).
 
 **If it were fixed,** or if a future runtime separated punctuation from ITN, the fixed
 `textNorm 14` becomes a choice worth revisiting rather than a forced pairing.

@@ -47,6 +47,39 @@ final class ParaformerEngine: TranscriptionEngine {
     /// precision is asked for, so precision is a load-time choice only.
     private static let precision: ParaformerPrecision = .int8
 
+    /// Where `initialize()` downloads to, for anything that has to show or clear
+    /// the ~653 MB the user paid for.
+    ///
+    /// Asked of FluidAudio rather than rebuilt from the repo slug, because the
+    /// two differ: `Repo.folderName` strips `-coreml`, so the cache is
+    /// `paraformer-large-zh`, not `paraformer-large-zh-coreml`.
+    static var modelCacheDirectory: URL {
+        MLModelConfigurationUtils.defaultModelsDirectory(for: .paraformerLargeZh)
+    }
+
+    /// What a cold machine fetches, in decimal MB, for Settings to state before
+    /// the user commits to it.
+    ///
+    /// Unlike SenseVoice this does not vary with `precision`: the repo is
+    /// fetched whole, both precisions included, whatever is asked for. So there
+    /// is one download row here and no smaller number to advertise.
+    static let approximateDownloadMegabytes = 653
+
+    /// Whether `initialize()` would be a warm load rather than a download.
+    static var isModelDownloaded: Bool {
+        ParaformerModels.modelsExist(at: modelCacheDirectory, precision: precision)
+    }
+
+    /// Downloads the weights and pays the Neural Engine compile up front.
+    ///
+    /// The same work `initialize()` does, offered at a moment the user chose
+    /// rather than in the middle of their first dictation. The loaded models are
+    /// discarded because the point is the populated cache; the engine's own load
+    /// afterwards is ~0.15 s.
+    static func prepareModels(progressHandler: @escaping DownloadUtils.ProgressHandler) async throws {
+        _ = try await ParaformerModels.downloadAndLoad(precision: precision, progressHandler: progressHandler)
+    }
+
     private let chunkSource: AudioChunkProviding
     private let loadTranscriber: () async throws -> ParaformerTranscribing
 

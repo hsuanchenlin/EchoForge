@@ -99,6 +99,31 @@ final class SenseVoiceEngine: TranscriptionEngine {
         MLModelConfigurationUtils.defaultModelsDirectory(for: .senseVoiceSmall)
     }
 
+    /// What a cold machine fetches, in decimal MB, for Settings to state before
+    /// the user commits to it.
+    ///
+    /// Kept next to `precision` because it is a consequence of it: this repo is
+    /// variant-filtered on Hugging Face, so precision decides the *download* and
+    /// not just the load - 240 MB of int8 against 473 MB of fp16. Measured
+    /// against the pinned FluidAudio, not read off a manifest.
+    static let approximateDownloadMegabytes = 240
+
+    /// Whether `initialize()` would be a warm load rather than a download.
+    static var isModelDownloaded: Bool {
+        SenseVoiceModels.modelsExist(at: modelCacheDirectory, precision: precision)
+    }
+
+    /// Downloads the weights and pays the Neural Engine compile up front.
+    ///
+    /// The same work `initialize()` does, offered at a moment the user chose
+    /// rather than in the middle of their first dictation - which is otherwise
+    /// about four minutes of a recording apparently doing nothing. The loaded
+    /// models are discarded because the point is the populated cache; the
+    /// engine's own load afterwards is ~0.15 s.
+    static func prepareModels(progressHandler: @escaping DownloadUtils.ProgressHandler) async throws {
+        _ = try await SenseVoiceModels.downloadAndLoad(precision: precision, progressHandler: progressHandler)
+    }
+
     private let chunkSource: AudioChunkProviding
     private let loadFactory: () async throws -> SenseVoiceTranscriberFactory
 

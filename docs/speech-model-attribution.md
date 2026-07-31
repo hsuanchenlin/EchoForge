@@ -49,12 +49,22 @@ version this project relied on is v1.1.
 
 The engine transcribes with punctuation, and it converts spoken numbers to digits, because in the
 pinned runtime those are the same switch (see `SenseVoiceEngine.textNorm`). The conversion is
-right on times, prices and dates and reproducibly wrong on bare Chinese numerals - `过去十年`
-("the past ten years") comes back as `过去1年`. Say so plainly wherever the engine is described;
-it is an upstream defect (`docs/upstream-issues.md`), not something the app hides or patches over.
+right on times, prices and dates, and it can silently change the value of a bare Chinese numeral -
+`过去十年` ("the past ten years") was observed coming back as `过去1年`, though that example does
+not reproduce on every machine (`docs/upstream-issues.md` has the detail). Say so plainly wherever
+the engine is described, without claiming it happens every time; it is an upstream defect, not
+something the app hides or patches over.
 
-The engine is opt-in and has no UI in this build. When it gets one, this notice needs a reachable
-in-app equivalent - naming the model and linking the card and the licence - not just this file.
+It also writes **Simplified** Chinese, and the app does not convert the transcript to Traditional.
+For a Traditional-Chinese user that is the most surprising thing about the engine, so the Settings
+copy states it.
+
+The in-app equivalent of this notice is `EngineCatalog`: the Settings row for this engine carries
+the credit line "SenseVoiceSmall by FunASR / FunAudioLLM", keeps the model name in its title, and
+links the model card, the model licence and the CoreML conversion. `EngineCatalogTests` asserts
+all four, so shortening that copy fails a test rather than quietly dropping an obligation.
+
+![The SenseVoice-Small entry in Settings, before its weights are downloaded](images/settings-engine-sensevoice.png)
 
 ## Paraformer-large (zh)
 
@@ -80,6 +90,11 @@ this project satisfies it: the model is named and credited here, and any user-fa
 this engine must keep "Paraformer" in it rather than rebranding it to an OpenSuperWhisper-only
 label.
 
-The engine is opt-in and has no UI in this build. When it gets one, this notice needs a
-reachable in-app equivalent - naming the model and linking the cards and the licence - not
-just this file.
+This engine also writes **Simplified** Chinese and spells numbers as spoken (`三点二十分`, not
+`3点20分`), and it emits no punctuation at all. The Settings copy states all three.
+
+The in-app equivalent of this notice is `EngineCatalog`: the Settings row carries the credit line
+"Paraformer-large (zh) by FunASR / FunAudioLLM", keeps the model name in its title, and links the
+model card, the model licence and the CoreML conversion. `EngineCatalogTests` asserts all four.
+
+![The Paraformer-large (zh) entry in Settings, before its weights are downloaded](images/settings-engine-paraformer.png)

@@ -147,8 +147,8 @@ final class LanguageSupportTests: XCTestCase {
         }
     }
 
-    /// The engine picker has none of these languages today, and it will show all
-    /// six - including Cantonese, which no other engine offers.
+    /// The language picker shows all six when SenseVoice is selected - including
+    /// Cantonese, which no other engine offers.
     func testAllSenseVoiceLanguagesHaveDisplayNames() {
         for code in LanguageUtil.senseVoiceLanguages {
             XCTAssertNotNil(LanguageUtil.languageNames[code], "Missing display name for \(code)")
