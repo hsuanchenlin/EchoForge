@@ -1,10 +1,29 @@
 import Foundation
 
-private class ProgressContext {
-    var onProgress: ((Float) -> Void)?
+/// Carries the progress handler across the whisper C progress callback, which
+/// fires on whisper's own worker thread.
+///
+/// `@unchecked Sendable` is the honest annotation here: every stored property is
+/// guarded by `lock`, so the instance can be handed to that callback and to the
+/// main-queue hop that delivers each update.
+private final class ProgressContext: @unchecked Sendable {
+    private var _onProgress: ((Float) -> Void)?
     private var _lastReportedProgress: Float = 0.0
     private let lock = NSLock()
-    
+
+    var onProgress: ((Float) -> Void)? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _onProgress
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            _onProgress = newValue
+        }
+    }
+
     var lastReportedProgress: Float {
         get {
             lock.lock()

@@ -52,37 +52,46 @@ enum PCMAudioLoader {
             // independent converter (flushed at the end), results are concatenated in
             // worker order so no samples are lost or overwritten at boundaries.
             let framesPerWorker = totalFrames / AVAudioFramePosition(workerCount)
-            var segmentResults = [[Float]?](repeating: nil, count: workerCount)
-            let resultLock = NSLock()
+            // `AVAudioFormat` is not `Sendable`, so each worker rebuilds the pair it
+            // needs from the file rather than capturing this scope's formats. The
+            // conversion reopens the file anyway, so nothing is lost by doing so.
+            let channelCount = sourceFormat.channelCount
 
-            let group = DispatchGroup()
-            let queue = DispatchQueue(label: "audio.conversion.parallel", attributes: .concurrent)
-
-            for workerIndex in 0..<workerCount {
-                group.enter()
-                queue.async {
-                    defer { group.leave() }
-
+            var segmentResults = await withTaskGroup(
+                of: (Int, [Float]?).self,
+                returning: [[Float]?].self
+            ) { group in
+                for workerIndex in 0..<workerCount {
                     let startFrame = AVAudioFramePosition(workerIndex) * framesPerWorker
                     let endFrame = workerIndex == workerCount - 1 ? totalFrames : startFrame + framesPerWorker
 
-                    let segment = try? convertSegment(
-                        fileURL: resolvedURL,
-                        sourceFormat: sourceFormat,
-                        targetFormat: targetFormat,
-                        ratio: ratio,
-                        startFrame: startFrame,
-                        frameCount: endFrame - startFrame,
-                        inputChunkSize: 262_144
-                    )
+                    group.addTask {
+                        guard let workerSource = try? AVAudioFile(forReading: resolvedURL).processingFormat,
+                              let workerTarget = makeTargetFormat(channelCount: channelCount) else {
+                            return (workerIndex, nil)
+                        }
 
-                    resultLock.lock()
-                    segmentResults[workerIndex] = segment
-                    resultLock.unlock()
+                        let segment = try? convertSegment(
+                            fileURL: resolvedURL,
+                            sourceFormat: workerSource,
+                            targetFormat: workerTarget,
+                            ratio: workerTarget.sampleRate / workerSource.sampleRate,
+                            startFrame: startFrame,
+                            frameCount: endFrame - startFrame,
+                            inputChunkSize: 262_144
+                        )
+                        return (workerIndex, segment)
+                    }
                 }
-            }
 
-            group.wait()
+                // Workers finish out of order; index them back into worker order so
+                // the concatenation below stays gap-free.
+                var collected = [[Float]?](repeating: nil, count: workerCount)
+                for await (workerIndex, segment) in group {
+                    collected[workerIndex] = segment
+                }
+                return collected
+            }
 
             guard !segmentResults.contains(where: { $0 == nil }) else { return nil }
 
