@@ -8,7 +8,7 @@ How transcribed text is formatted between the engine and the user.
 AudioRecorder / file drop
         │
         ▼
-TranscriptionEngine.transcribeAudio()      WhisperEngine | FluidAudioEngine
+TranscriptionEngine.transcribeAudio()      WhisperEngine | FluidAudioEngine | ParaformerEngine
         │                                  engine-specific cleanup only
         │                                  (marker stripping, trimming)
         ▼
