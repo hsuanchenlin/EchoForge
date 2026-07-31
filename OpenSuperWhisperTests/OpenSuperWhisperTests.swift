@@ -25,10 +25,9 @@ final class OpenSuperWhisperTests: XCTestCase {
     }
 }
 
-final class WhisperEngineMultiChannelTests: XCTestCase {
+final class PCMAudioLoaderMultiChannelTests: XCTestCase {
     func testMakeTargetFormat_withSixChannels_returnsFormat() {
-        let engine = WhisperEngine()
-        let format = engine.makeTargetFormat(channelCount: 6)
+        let format = PCMAudioLoader.makeTargetFormat(channelCount: 6)
         
         XCTAssertNotNil(format)
         XCTAssertEqual(format?.channelCount, 6)
@@ -36,12 +35,11 @@ final class WhisperEngineMultiChannelTests: XCTestCase {
     }
     
     func testMakeTargetFormat_withZeroChannels_returnsNil() {
-        let engine = WhisperEngine()
-        XCTAssertNil(engine.makeTargetFormat(channelCount: 0))
+        XCTAssertNil(PCMAudioLoader.makeTargetFormat(channelCount: 0))
     }
 }
 
-final class WhisperEngineConversionTests: XCTestCase {
+final class PCMAudioLoaderConversionTests: XCTestCase {
 
     private var tempFiles: [URL] = []
 
@@ -96,9 +94,7 @@ final class WhisperEngineConversionTests: XCTestCase {
     // Bug: converter tail is never flushed (.endOfStream), so trailing samples are dropped.
     func testSequentialConversionPreservesFullDuration() async throws {
         let url = try makeSineWAV(duration: 3.0, sampleRate: 44100)
-        let engine = WhisperEngine()
-
-        let samples = try await engine.convertAudioToPCM(fileURL: url)
+        let samples = try await PCMAudioLoader.loadSamples(from: url)
         let result = try XCTUnwrap(samples)
 
         // 3 s * 44100 * (16000/44100) = exactly 48000 output samples.
@@ -120,9 +116,7 @@ final class WhisperEngineConversionTests: XCTestCase {
     func testParallelConversionProducesContinuousAudio() async throws {
         // > 10 seconds triggers the parallel conversion path
         let url = try makeSineWAV(duration: 15.0, sampleRate: 48000)
-        let engine = WhisperEngine()
-
-        let samples = try await engine.convertAudioToPCM(fileURL: url)
+        let samples = try await PCMAudioLoader.loadSamples(from: url)
         let result = try XCTUnwrap(samples)
 
         let expected = Int(15.0 * 16000)
@@ -143,9 +137,7 @@ final class WhisperEngineConversionTests: XCTestCase {
 
     func testParallelConversionMatchesSequentialResult() async throws {
         let url = try makeSineWAV(duration: 15.0, sampleRate: 44100)
-        let engine = WhisperEngine()
-
-        let samples = try await engine.convertAudioToPCM(fileURL: url)
+        let samples = try await PCMAudioLoader.loadSamples(from: url)
         let parallel = try XCTUnwrap(samples)
 
         let expected = Int(15.0 * 16000)
@@ -173,9 +165,7 @@ final class WhisperEngineConversionTests: XCTestCase {
             AVLinearPCMIsFloatKey: false
         ]
         let url = try makeSineWAV(duration: 3.0, sampleRate: 16000, settings: recorderSettings)
-        let engine = WhisperEngine()
-
-        let samples = try await engine.convertAudioToPCM(fileURL: url)
+        let samples = try await PCMAudioLoader.loadSamples(from: url)
         let result = try XCTUnwrap(samples)
 
         let expected = Int(3.0 * 16000)
@@ -210,8 +200,7 @@ final class WhisperStateIsolationTests: XCTestCase {
         let context = try XCTUnwrap(
             MyWhisperContext.initFromFileNoState(path: modelURL.path, params: WhisperContextParams())
         )
-        let engine = WhisperEngine()
-        let converted = try await engine.convertAudioToPCM(fileURL: audioURL)
+        let converted = try await PCMAudioLoader.loadSamples(from: audioURL)
         let speech = try XCTUnwrap(converted)
         let silence = [Float](repeating: 0, count: 16000 * 2)
 
@@ -261,7 +250,7 @@ final class WhisperStateIsolationTests: XCTestCase {
         )
 
         let vadModelPath = try XCTUnwrap(
-            WhisperEngine.vadModelPath,
+            SpeechSegmenter.vadModelPath,
             "Silero VAD model must be bundled with the app"
         )
         let vad = try XCTUnwrap(MyWhisperVadContext(modelPath: vadModelPath))
@@ -273,8 +262,7 @@ final class WhisperStateIsolationTests: XCTestCase {
 
         // Speech padded with 5s of silence on both sides: VAD trims the
         // padding and the trimmed audio still transcribes correctly.
-        let engine = WhisperEngine()
-        let converted = try await engine.convertAudioToPCM(fileURL: audioURL)
+        let converted = try await PCMAudioLoader.loadSamples(from: audioURL)
         let speech = try XCTUnwrap(converted)
         let padding = [Float](repeating: 0, count: 16000 * 5)
         let padded = padding + speech + padding
@@ -282,7 +270,7 @@ final class WhisperStateIsolationTests: XCTestCase {
         let segments = try XCTUnwrap(vad.speechSegments(in: padded))
         XCTAssertFalse(segments.isEmpty, "VAD must detect speech in the padded sample")
 
-        let trimmed = WhisperEngine.speechOnlySamples(from: padded, segments: segments)
+        let trimmed = SpeechSegmenter.speechOnlySamples(from: padded, segments: segments)
         XCTAssertLessThan(
             trimmed.count, padded.count - 8 * 16000,
             "VAD trimming must drop most of the 10s of padded silence"

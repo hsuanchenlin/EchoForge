@@ -33,6 +33,12 @@ without editing `project.pbxproj`.
 `OpenSuperWhisper/Engines/EngineKind.swift` owns the engine registration, persistence,
 factory, and language-handling contracts. Follow its documentation when adding an engine.
 
+`OpenSuperWhisper/Engines/Audio/` is the engine-neutral audio path every engine shares:
+16 kHz PCM decoding, the bundled Silero VAD, and chunking for engines with an input ceiling.
+An engine must not reach into another engine for any of it. Engines whose backend rejects or
+silently clamps long input take `AudioChunkSource` with an `AudioChunkBudget`; the budget type
+documents why each limit exists and `OpenSuperWhisperTests/AudioChunkerTests.swift` pins them.
+
 ## Storage
 
 The recordings database is GRDB, with its full schema history in `RecordingStore.makeMigrator()`
