@@ -9,6 +9,53 @@ runtime, on the user's machine, at the user's request. Keep it that way: the Cor
 conversions the app fetches assert no licence of their own and defer to their upstream, so
 redistributing them inside a build would be making a claim nobody upstream has made.
 
+## SenseVoice-Small
+
+**SenseVoiceSmall by FunASR/FunAudioLLM.** Multilingual speech recognition with punctuation,
+used by the SenseVoice engine (`OpenSuperWhisper/Engines/SenseVoiceEngine.swift`) - the default
+Chinese dictation engine.
+
+| | |
+|---|---|
+| Model | SenseVoiceSmall (Mandarin, Cantonese, English, Japanese, Korean) |
+| Author | FunASR / FunAudioLLM (Alibaba Group) |
+| Upstream model card | <https://huggingface.co/FunAudioLLM/SenseVoiceSmall> - `license: other`, `license_name: model-license` |
+| ModelScope mirror | <https://www.modelscope.cn/models/iic/SenseVoiceSmall> |
+| Model licence | [FunASR Model Open Source License Agreement](https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE) v1.1 |
+| What the app downloads | <https://huggingface.co/FluidInference/sensevoice-small-coreml> - a CoreML format conversion, no retraining, `license: other` deferring to the upstream model licence |
+| Source repository | <https://github.com/FunAudioLLM/SenseVoice> - MIT (source code only; the weights are separate) |
+| Runtime | [FluidAudio](https://github.com/FluidInference/FluidAudio) (Apache-2.0), the version already pinned in `Package.resolved` |
+
+The two first-party cards disagree - Hugging Face publishes the FunASR model licence, ModelScope
+publishes Apache-2.0 - and neither repository ships a licence file. The rights-holder settled it
+on the record: a FunASR maintainer stated in
+[SenseVoice issue #334](https://github.com/QwenAudio/SenseVoice/issues/334) that the official
+SenseVoiceSmall weights are governed by the **FunASR Model Open Source License Agreement v1.1**,
+that commercial use is permitted, and that §2.2 requires you to **attribute the source and author
+and retain the model name**. That is the stricter of the two readings, and it is the one this
+project satisfies, so both readings are satisfied at once.
+
+Two consequences that are not optional:
+
+- **Do not rebrand the engine.** Any user-facing name must keep "SenseVoice" in it. "Chinese
+  (fast)" on its own does not satisfy §2.2; "SenseVoice-Small (中文/多语言)" does.
+- **Do not bundle the weights.** The CoreML conversion asserts no licence of its own, so the app
+  downloads it to the user's machine rather than redistributing it inside a build.
+
+Note also §6 of that licence: it may be revised unilaterally, with effect on publication. The
+version this project relied on is v1.1.
+
+### What to tell users about the output
+
+The engine transcribes with punctuation, and it converts spoken numbers to digits, because in the
+pinned runtime those are the same switch (see `SenseVoiceEngine.textNorm`). The conversion is
+right on times, prices and dates and reproducibly wrong on bare Chinese numerals - `过去十年`
+("the past ten years") comes back as `过去1年`. Say so plainly wherever the engine is described;
+it is an upstream defect (`docs/upstream-issues.md`), not something the app hides or patches over.
+
+The engine is opt-in and has no UI in this build. When it gets one, this notice needs a reachable
+in-app equivalent - naming the model and linking the card and the licence - not just this file.
+
 ## Paraformer-large (zh)
 
 **Paraformer-large (zh) by FunASR/FunAudioLLM.** Mandarin speech recognition, used by the

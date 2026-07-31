@@ -21,9 +21,36 @@ enum EngineKind: String, CaseIterable {
     /// collapses to Chinese, the model attribution notice) are their own change.
     case paraformer
 
+    /// SenseVoice-Small. Opt-in on the same terms as `paraformer` - the picker
+    /// entry and the first-run download are still their own change - but it is
+    /// already the engine `defaultChineseDictation` names, so that change offers
+    /// it first rather than deciding again.
+    case sensevoice
+
     /// Used when nothing is stored yet and when the stored value is not one we
     /// know, which is what a downgrade after trying a newer engine looks like.
     static let fallback: EngineKind = .whisper
+
+    /// The engine Chinese dictation defaults to.
+    ///
+    /// Not `fallback`: this is the answer to "the user wants to dictate Chinese",
+    /// while `fallback` answers "we do not know what the user wants". Whisper
+    /// stays the app-wide default for everyone who has not asked for Chinese.
+    ///
+    /// SenseVoice wins the default because it punctuates - Paraformer's
+    /// `vocab8404` has no punctuation at all, and the app has no second ML
+    /// runtime to add it afterwards - and because it also handles Cantonese,
+    /// English, Japanese and Korean. It loses on raw Mandarin speed (~8x real
+    /// time against ~65x) and slightly on bare-character accuracy, which is what
+    /// `chineseAccuracyAlternative` is for. The trade is a product decision, not
+    /// a measurement, so it is stated here once rather than re-derived in each
+    /// surface that has to pick an engine.
+    static let defaultChineseDictation: EngineKind = .sensevoice
+
+    /// The Chinese engine to offer when the default's trade-offs are the wrong
+    /// ones: measurably better Mandarin characters, at the price of Mandarin
+    /// only and no punctuation.
+    static let chineseAccuracyAlternative: EngineKind = .paraformer
 
     /// Reads a persisted preference value, mapping anything unrecognised onto
     /// `fallback` rather than failing. This preserves the pre-existing
@@ -47,6 +74,8 @@ enum EngineKind: String, CaseIterable {
             return await FluidAudioEngine()
         case .paraformer:
             return await ParaformerEngine()
+        case .sensevoice:
+            return await SenseVoiceEngine()
         }
     }
 }

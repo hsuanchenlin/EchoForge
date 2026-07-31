@@ -111,10 +111,49 @@ final class LanguageSupportTests: XCTestCase {
         XCTAssertTrue(Settings.asianLanguages.contains(LanguageUtil.fallbackLanguage(engine: .paraformer)))
     }
 
+    /// F5. SenseVoice's scope is exactly the six languages its encoder has an
+    /// embedding for. Anything wider is a language the app would ask for with an
+    /// index FluidAudio neither validates nor rejects.
+    func testSupportedLanguages_senseVoice_isTheSixEmbeddedLanguages() {
+        for version in ["v2", "v3"] {
+            XCTAssertEqual(
+                LanguageUtil.supportedLanguages(engine: .sensevoice, fluidAudioModelVersion: version),
+                ["auto", "zh", "yue", "en", "ja", "ko"],
+                "SenseVoice's language scope must not depend on the Parakeet model version"
+            )
+        }
+    }
+
+    /// F5. The embed indices are FunASR's, not ours to renumber - a wrong one
+    /// does not throw, it quietly mis-conditions the model.
+    func testSenseVoiceLanguages_mapToTheVerifiedEmbedIndices() {
+        XCTAssertEqual(SenseVoiceLanguage.allCases.map(\.embedIndex), [0, 3, 7, 4, 11, 12])
+        XCTAssertEqual(SenseVoiceLanguage(languageCode: "zh"), .zh)
+        XCTAssertEqual(
+            SenseVoiceLanguage(languageCode: "de"), .auto,
+            "a language with no embedding must fall back to auto-detect, never to an invented index"
+        )
+    }
+
+    /// Selecting SenseVoice snaps the language to Mandarin, which also has to
+    /// keep `Settings` on the CJK autocorrect path.
+    func testSenseVoiceFallbackLanguage_isAnAsianLanguage() {
+        XCTAssertTrue(Settings.asianLanguages.contains(LanguageUtil.fallbackLanguage(engine: .sensevoice)))
+    }
+
     func testAllParakeetV3LanguagesHaveDisplayNames() {
         for code in LanguageUtil.parakeetV3Languages {
             XCTAssertNotNil(LanguageUtil.languageNames[code], "Missing display name for \(code)")
         }
+    }
+
+    /// The engine picker has none of these languages today, and it will show all
+    /// six - including Cantonese, which no other engine offers.
+    func testAllSenseVoiceLanguagesHaveDisplayNames() {
+        for code in LanguageUtil.senseVoiceLanguages {
+            XCTAssertNotNil(LanguageUtil.languageNames[code], "Missing display name for \(code)")
+        }
+        XCTAssertEqual(LanguageUtil.languageNames["yue"], "Cantonese")
     }
 
     func testFallbackLanguage() {
