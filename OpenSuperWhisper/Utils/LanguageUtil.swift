@@ -14,6 +14,15 @@ class LanguageUtil {
     /// the lock is here rather than left to the user to discover.
     static let paraformerLanguages = ["zh"]
 
+    /// SenseVoice-Small's six language embeddings, in picker order with the
+    /// Chinese pair first: this engine is reached as the Chinese default.
+    ///
+    /// Derived from the embedding rather than written out, because the mapping
+    /// is what the model actually honours - see `SenseVoiceLanguage`, which also
+    /// explains why the model's 100+ `<|lang|>` vocabulary tags are not this
+    /// list.
+    static let senseVoiceLanguages = SenseVoiceLanguage.allCases.map(\.rawValue)
+
     static let parakeetV3Languages = [
         "en", "de", "es", "ru", "fr", "pt", "pl", "nl", "sv", "it", "fi",
         "bg", "hr", "cs", "da", "el", "et", "hu", "lv", "lt", "mt", "ro", "sk", "sl", "uk",
@@ -23,6 +32,9 @@ class LanguageUtil {
         "auto": "Auto-detect",
         "en": "English",
         "zh": "Chinese",
+        // Cantonese is a SenseVoice language, not a Whisper one, so it has a
+        // display name without being in `availableLanguages`.
+        "yue": "Cantonese",
         "de": "German",
         "es": "Spanish",
         "ru": "Russian",
@@ -67,6 +79,8 @@ class LanguageUtil {
             return fluidAudioModelVersion == "v2" ? parakeetV2Languages : parakeetV3Languages
         case .paraformer:
             return paraformerLanguages
+        case .sensevoice:
+            return senseVoiceLanguages
         }
     }
 
@@ -77,6 +91,13 @@ class LanguageUtil {
         case .fluidaudio:
             return "en"
         case .paraformer:
+            return "zh"
+        case .sensevoice:
+            // Mandarin, not auto-detect, even though the model offers both: this
+            // engine is selected to dictate Chinese, and `zh` is also what keeps
+            // `Settings.isAsianLanguage` - and with it the CJK autocorrect
+            // stage - switched on. A user who wants the other four languages can
+            // still pick `auto`.
             return "zh"
         }
     }

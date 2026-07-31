@@ -43,6 +43,14 @@ Model weights are downloaded at runtime and never bundled into the `.app` - some
 redistributed under licences that require attribution and forbid rebranding. Any engine whose
 model the app downloads needs an entry in `docs/speech-model-attribution.md`.
 
+Engine limits are measured against the pinned FluidAudio, not read off its config constants,
+because several of them mislead. Defects found there that the app ships around rather than
+patches - and the reasons - live in `docs/upstream-issues.md`; add to it instead of rediscovering
+them. Model-backed regression tests are opt-in on locally generated fixtures under
+`OpenSuperWhisperTests/Fixtures/` (gitignored); each engine's integration test documents how to
+generate its own, and fixture filenames must be unique across engines because the test bundle
+flattens them all into one Resources directory.
+
 ## Storage
 
 The recordings database is GRDB, with its full schema history in `RecordingStore.makeMigrator()`

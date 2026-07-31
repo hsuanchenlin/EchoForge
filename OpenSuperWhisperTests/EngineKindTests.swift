@@ -9,6 +9,7 @@ final class EngineKindRawValueTests: XCTestCase {
         XCTAssertEqual(EngineKind.whisper.rawValue, "whisper")
         XCTAssertEqual(EngineKind.fluidaudio.rawValue, "fluidaudio")
         XCTAssertEqual(EngineKind.paraformer.rawValue, "paraformer")
+        XCTAssertEqual(EngineKind.sensevoice.rawValue, "sensevoice")
     }
 
     func testEveryCase_roundTripsThroughItsRawValue() {
@@ -22,19 +23,45 @@ final class EngineKindRawValueTests: XCTestCase {
         XCTAssertEqual(EngineKind.fallback, .whisper)
     }
 
+    /// The captain's decision, pinned: Chinese dictation defaults to the engine
+    /// that punctuates, and the Mandarin-accuracy engine stays reachable beside
+    /// it. Both surfaces that will pick an engine - Settings and onboarding -
+    /// read these rather than deciding again.
+    func testChineseDictation_defaultsToSenseVoiceWithParaformerAsTheAlternative() {
+        XCTAssertEqual(EngineKind.defaultChineseDictation, .sensevoice)
+        XCTAssertEqual(EngineKind.chineseAccuracyAlternative, .paraformer)
+        XCTAssertNotEqual(
+            EngineKind.defaultChineseDictation, EngineKind.fallback,
+            "the Chinese default must not silently become the app-wide default"
+        )
+    }
+
+    /// The default Chinese engine has to be one that can actually be asked for
+    /// Chinese - the pairing of an engine with its language scope is what a
+    /// future engine addition is most likely to get wrong.
+    func testChineseEngines_bothSupportChinese() {
+        for kind in [EngineKind.defaultChineseDictation, .chineseAccuracyAlternative] {
+            XCTAssertTrue(
+                LanguageUtil.supportedLanguages(engine: kind, fluidAudioModelVersion: "v3").contains("zh"),
+                "\(kind.rawValue) is offered for Chinese but does not support it"
+            )
+            XCTAssertEqual(LanguageUtil.fallbackLanguage(engine: kind), "zh")
+        }
+    }
+
     func testStoredInit_unknownValue_fallsBackToWhisper() {
-        // "sensevoice" is the engine this seam is still being prepared for: a
-        // user who tries a newer build and then downgrades must land on Whisper,
-        // not on a missing engine.
-        for unknown in ["sensevoice", "Whisper", "", "qwen3"] {
+        // A user who tries a newer build and then downgrades must land on
+        // Whisper, not on a missing engine.
+        for unknown in ["qwen3", "Whisper", "", "SenseVoice"] {
             XCTAssertEqual(EngineKind(stored: unknown), .whisper, "\(unknown) must fall back to Whisper")
         }
     }
 
-    /// Paraformer is opt-in by hand-writing this exact string into the
-    /// `selectedEngine` default, so the string is the whole opt-in surface.
-    func testStoredInit_paraformer_isRecognised() {
+    /// Both Chinese engines are opt-in by hand-writing this exact string into
+    /// the `selectedEngine` default, so the string is the whole opt-in surface.
+    func testStoredInit_chineseEngines_areRecognised() {
         XCTAssertEqual(EngineKind(stored: "paraformer"), .paraformer)
+        XCTAssertEqual(EngineKind(stored: "sensevoice"), .sensevoice)
     }
 
     func testStoredInit_missingValue_fallsBackToWhisper() {
@@ -73,11 +100,27 @@ final class EngineKindFactoryTests: XCTestCase {
         XCTAssertFalse(engine.isModelLoaded, "A freshly built engine must not claim a loaded model")
     }
 
+    func testMakeEngine_sensevoice_buildsTheSenseVoiceEngine() async {
+        let engine = await EngineKind.sensevoice.makeEngine()
+        XCTAssertEqual(engine.engineName, "SenseVoice")
+        XCTAssertTrue(engine is SenseVoiceEngine)
+        XCTAssertFalse(engine.isModelLoaded, "A freshly built engine must not claim a loaded model")
+    }
+
+    /// The FunASR model licence requires the model name to be retained rather
+    /// than rebranded, and the engine name is the first place that shows.
+    func testMakeEngine_chineseEngines_keepTheirModelNames() async {
+        let names = await [EngineKind.sensevoice.makeEngine().engineName,
+                           EngineKind.paraformer.makeEngine().engineName]
+        XCTAssertTrue(names[0].contains("SenseVoice"))
+        XCTAssertTrue(names[1].contains("Paraformer"))
+    }
+
     /// The pre-refactor `if selectedEngine == "fluidaudio" { … } else { Whisper }`
     /// chain sent unknown tags to Whisper. Going through the stored-value
     /// initialiser has to keep doing that.
     func testUnknownStoredValue_stillSelectsWhisper() async {
-        let engine = await EngineKind(stored: "sensevoice").makeEngine()
+        let engine = await EngineKind(stored: "qwen3").makeEngine()
         XCTAssertEqual(engine.engineName, "Whisper")
     }
 }
@@ -123,19 +166,26 @@ final class SelectedEnginePreferenceTests: XCTestCase {
     }
 
     func testSelectedEngine_unknownStoredValue_readsAsWhisper() {
-        UserDefaults.standard.set("sensevoice", forKey: key)
+        UserDefaults.standard.set("qwen3", forKey: key)
         XCTAssertEqual(AppPreferences.shared.selectedEngine, .whisper)
     }
 
-    /// The hand-edited default is the only way into Paraformer in this build.
-    func testSelectedEngine_paraformerStoredByHand_isHonoured() {
-        UserDefaults.standard.set("paraformer", forKey: key)
-        XCTAssertEqual(AppPreferences.shared.selectedEngine, .paraformer)
+    /// The hand-edited default is the only way into either Chinese engine in
+    /// this build - neither has a picker entry yet.
+    func testSelectedEngine_chineseEngineStoredByHand_isHonoured() {
+        for kind in [EngineKind.paraformer, .sensevoice] {
+            UserDefaults.standard.set(kind.rawValue, forKey: key)
+            XCTAssertEqual(AppPreferences.shared.selectedEngine, kind)
+        }
     }
 
-    func testSelectedEngine_paraformerIsNotTheDefault() {
+    /// Being the Chinese default is not being the app default: a fresh install
+    /// with no stored preference still gets Whisper.
+    func testSelectedEngine_noChineseEngineIsTheAppDefault() {
         UserDefaults.standard.removeObject(forKey: key)
         XCTAssertNotEqual(AppPreferences.shared.selectedEngine, .paraformer)
+        XCTAssertNotEqual(AppPreferences.shared.selectedEngine, .sensevoice)
+        XCTAssertEqual(AppPreferences.shared.selectedEngine, .whisper)
     }
 
     func testSelectedEngine_nonStringStoredValue_readsAsWhisper() {
@@ -155,9 +205,12 @@ final class SelectedEnginePreferenceTests: XCTestCase {
                        LanguageUtil.parakeetV3Languages)
         XCTAssertEqual(LanguageUtil.supportedLanguages(engine: .paraformer, fluidAudioModelVersion: "v3"),
                        ["zh"])
+        XCTAssertEqual(LanguageUtil.supportedLanguages(engine: .sensevoice, fluidAudioModelVersion: "v3"),
+                       ["auto", "zh", "yue", "en", "ja", "ko"])
         XCTAssertEqual(LanguageUtil.fallbackLanguage(engine: .whisper), "auto")
         XCTAssertEqual(LanguageUtil.fallbackLanguage(engine: .fluidaudio), "en")
         XCTAssertEqual(LanguageUtil.fallbackLanguage(engine: .paraformer), "zh")
+        XCTAssertEqual(LanguageUtil.fallbackLanguage(engine: .sensevoice), "zh")
     }
 }
 
