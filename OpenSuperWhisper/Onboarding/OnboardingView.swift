@@ -94,7 +94,25 @@ class OnboardingViewModel: ObservableObject {
         
         if selectedModelId == nil, let firstDownloaded = unifiedModels.first(where: { $0.isDownloaded }) {
             selectedModelId = firstDownloaded.id
+
+            let language = firstDownloaded.language(
+                after: selectedLanguage,
+                fluidAudioModelVersion: AppPreferences.shared.fluidAudioModelVersion
+            )
+            if language != selectedLanguage {
+                selectedLanguage = language
+            }
         }
+    }
+
+    /// The languages the top-of-screen picker offers, scoped to the currently
+    /// selected row's engine so an incompatible pairing can never be picked.
+    var offeredLanguages: [String] {
+        let selectedModel = unifiedModels.first { $0.id == selectedModelId }
+        return OnboardingUnifiedModels.offeredLanguages(
+            selectedModel: selectedModel,
+            fluidAudioModelVersion: AppPreferences.shared.fluidAudioModelVersion
+        )
     }
     
     func isFluidAudioModelDownloaded(version: String) -> Bool {
@@ -453,7 +471,7 @@ struct OnboardingView: View {
                 HStack(spacing: 8) {
                     
                     Picker("Language", selection: $viewModel.selectedLanguage) {
-                        ForEach(LanguageUtil.availableLanguages, id: \.self) { code in
+                        ForEach(viewModel.offeredLanguages, id: \.self) { code in
                             Text(LanguageUtil.languageNames[code] ?? code)
                                 .tag(code)
                         }

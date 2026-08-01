@@ -179,4 +179,37 @@ final class OnboardingModelCatalogTests: XCTestCase {
         let parakeet = try XCTUnwrap(models.first { $0.name == "Parakeet v2" })
         XCTAssertEqual(parakeet.language(after: "zh", fluidAudioModelVersion: "v2"), "en")
     }
+
+    // MARK: - What the top picker offers
+
+    /// Before a row is chosen, the picker cannot know which engine to scope
+    /// to - and narrowing it early would fight the visibility rule, which
+    /// needs the full list to decide whether the Chinese rows even show up.
+    func testWithNoRowSelectedThePickerOffersEveryLanguage() {
+        XCTAssertEqual(
+            OnboardingUnifiedModels.offeredLanguages(selectedModel: nil, fluidAudioModelVersion: "v3"),
+            LanguageUtil.availableLanguages
+        )
+    }
+
+    /// Once a Mandarin-only row is selected, the picker can no longer offer a
+    /// language that row would mis-transcribe - the same structural guard
+    /// Settings gives its own picker.
+    func testWithAMandarinOnlyRowSelectedThePickerOffersOnlyMandarin() throws {
+        let paraformer = try row(for: .paraformer)
+        XCTAssertEqual(
+            OnboardingUnifiedModels.offeredLanguages(selectedModel: paraformer, fluidAudioModelVersion: "v3"),
+            ["zh"]
+        )
+    }
+
+    /// A row that understands several languages offers all of them, not just
+    /// the one it was reached with.
+    func testWithTheChineseDefaultSelectedThePickerOffersItsFullLanguageSet() throws {
+        let senseVoice = try row(for: .sensevoice)
+        XCTAssertEqual(
+            OnboardingUnifiedModels.offeredLanguages(selectedModel: senseVoice, fluidAudioModelVersion: "v3"),
+            LanguageUtil.senseVoiceLanguages
+        )
+    }
 }

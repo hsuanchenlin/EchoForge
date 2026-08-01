@@ -218,4 +218,23 @@ struct OnboardingUnifiedModels {
         if model.isDownloaded { return true }
         return selectedLanguage == language || systemLanguage == language
     }
+
+    /// The languages the top-of-screen picker offers.
+    ///
+    /// With no row selected yet - most of a new user's time on this screen -
+    /// the full list stays available, because that choice is what decides
+    /// which model rows (the Chinese engines among them) are even offered.
+    /// Once a row is selected, the picker narrows to what that engine
+    /// actually understands - the same structural guard `Settings` gives its
+    /// own picker via `supportedLanguages` (`Settings.swift:1024`) - so a
+    /// pairing an engine only mis-transcribes can never be selected in the
+    /// picker to begin with.
+    static func offeredLanguages(selectedModel: OnboardingUnifiedModel?,
+                                 fluidAudioModelVersion: String) -> [String] {
+        guard let selectedModel else { return LanguageUtil.availableLanguages }
+        return LanguageUtil.supportedLanguages(
+            engine: selectedModel.engineKind,
+            fluidAudioModelVersion: fluidAudioModelVersion
+        )
+    }
 }
