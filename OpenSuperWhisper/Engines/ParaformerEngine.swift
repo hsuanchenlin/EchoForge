@@ -79,13 +79,8 @@ final class ParaformerEngine: TranscriptionEngine {
     /// discarded because the point is the populated cache; the engine's own load
     /// afterwards is ~0.15 s.
     static func prepareModels(progressHandler: @escaping DownloadUtils.ProgressHandler) async throws {
-        _ = try await modelLoadCoordinator.run {
-            ParaformerManager(
-                models: try await ParaformerModels.downloadAndLoad(
-                    precision: precision,
-                    progressHandler: progressHandler
-                )
-            )
+        _ = try await modelLoadCoordinator.run(progressHandler: progressHandler) {
+            try await loadFluidAudioModels()
         }
     }
 
@@ -182,7 +177,14 @@ final class ParaformerEngine: TranscriptionEngine {
     /// The production `loadTranscriber`. Not private only because it is this
     /// initialiser's default argument.
     static func loadFluidAudioModels() async throws -> ParaformerTranscribing {
-        ParaformerManager(models: try await ParaformerModels.downloadAndLoad(precision: precision))
+        ParaformerManager(
+            models: try await ParaformerModels.downloadAndLoad(
+                precision: precision,
+                progressHandler: { progress in
+                    Task { await modelLoadCoordinator.reportProgress(progress) }
+                }
+            )
+        )
     }
 
     // MARK: - Private

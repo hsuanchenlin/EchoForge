@@ -123,13 +123,8 @@ final class SenseVoiceEngine: TranscriptionEngine {
     /// models are discarded because the point is the populated cache; the
     /// engine's own load afterwards is ~0.15 s.
     static func prepareModels(progressHandler: @escaping DownloadUtils.ProgressHandler) async throws {
-        _ = try await modelLoadCoordinator.run {
-            FluidAudioSenseVoiceFactory(
-                models: try await SenseVoiceModels.downloadAndLoad(
-                    precision: precision,
-                    progressHandler: progressHandler
-                )
-            )
+        _ = try await modelLoadCoordinator.run(progressHandler: progressHandler) {
+            try await loadFluidAudioModels()
         }
     }
 
@@ -229,7 +224,14 @@ final class SenseVoiceEngine: TranscriptionEngine {
     /// The production `loadFactory`. Not private only because it is this
     /// initialiser's default argument.
     static func loadFluidAudioModels() async throws -> SenseVoiceTranscriberFactory {
-        FluidAudioSenseVoiceFactory(models: try await SenseVoiceModels.downloadAndLoad(precision: precision))
+        FluidAudioSenseVoiceFactory(
+            models: try await SenseVoiceModels.downloadAndLoad(
+                precision: precision,
+                progressHandler: { progress in
+                    Task { await modelLoadCoordinator.reportProgress(progress) }
+                }
+            )
+        )
     }
 
     // MARK: - Private
