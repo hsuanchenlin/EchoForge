@@ -1,0 +1,249 @@
+import Foundation
+
+/// One link the app owes a model it downloads but does not own.
+///
+/// Not decoration. The FunASR Model Open Source License v1.1 §2.2 requires
+/// attributing the source and author and retaining the model name, so a Chinese
+/// engine that ships without a reachable model card, licence and conversion-repo
+/// link is a licence problem rather than a documentation gap.
+/// `docs/speech-model-attribution.md` is the long form; this is the in-app
+/// equivalent that file says it needs.
+struct ModelAttributionLink: Identifiable, Hashable {
+    let label: String
+    let url: URL
+
+    var id: URL { url }
+}
+
+/// What the app fetches for an engine whose weights it downloads whole.
+///
+/// Only engines with exactly one set of weights have this. Whisper and Parakeet
+/// offer several models each and keep their own download rows.
+struct EngineModelDownload {
+    /// The upstream model name, retained verbatim because the licence requires
+    /// it - this is the string §2.2 means, and it must survive any later
+    /// rewording of the copy around it.
+    let modelName: String
+
+    /// Roughly what a cold machine fetches, in decimal MB, as measured against
+    /// the pinned FluidAudio rather than read off a config constant.
+    let megabytes: Int
+
+    /// Where `initialize()` puts it, so Settings can show and reveal it.
+    let cacheDirectory: URL
+}
+
+/// Everything a user needs in order to choose an engine, written once.
+///
+/// Settings and onboarding are separate surfaces describing the same engines,
+/// and the parts worth keeping honest - Paraformer emits no punctuation,
+/// SenseVoice rewrites spoken numbers, both write Simplified Chinese - are
+/// exactly the parts a second, hand-written copy of the copy quietly drops. So
+/// the copy lives next to the engines it describes.
+///
+/// Nothing here is a marketing claim. Each note is a measured property of the
+/// pinned model; provenance is in the engine's own documentation comment,
+/// `docs/upstream-issues.md` and `docs/speech-model-attribution.md`.
+struct EngineCatalogEntry {
+    /// Shown in the picker. For the two FunASR engines this keeps the upstream
+    /// model name inside it, which the model licence requires and which is why
+    /// "Chinese (fast)" would not be an acceptable rename.
+    let displayName: String
+
+    /// One line, shown under the name in the picker row.
+    let summary: String
+
+    /// Credit line for a model the app did not train. `nil` for engines whose
+    /// individual model rows already carry their own attribution.
+    let attributionCredit: String?
+
+    /// The honest parts. Each is a sentence a user would rather read here than
+    /// discover in their own transcript.
+    let notes: [String]
+
+    /// `nil` when the engine's weights are picked model by model instead.
+    let download: EngineModelDownload?
+
+    let attribution: [ModelAttributionLink]
+}
+
+/// The engine descriptions, and the order they are offered in.
+enum EngineCatalog {
+
+    /// Picker order, which is deliberately not `EngineKind.allCases`.
+    ///
+    /// `allCases` is declaration order - a storage concern - and it puts
+    /// Paraformer above SenseVoice. Here the two general-purpose engines come
+    /// first because most users want one of them, and among the Chinese pair the
+    /// default (`EngineKind.defaultChineseDictation`) is offered before the
+    /// alternative it is the default over.
+    static let pickerOrder: [EngineKind] = [
+        .whisper, .fluidaudio, EngineKind.defaultChineseDictation, EngineKind.chineseAccuracyAlternative,
+    ]
+
+    /// Switched exhaustively on purpose: a new engine has to say how it presents
+    /// itself rather than inheriting someone else's description.
+    static func entry(for kind: EngineKind) -> EngineCatalogEntry {
+        switch kind {
+        case .whisper: return whisper
+        case .fluidaudio: return parakeet
+        case .sensevoice: return senseVoice
+        case .paraformer: return paraformer
+        }
+    }
+
+    /// Both Chinese engines installed at once, for the one figure a user
+    /// comparing them actually asks for. 240 + 653, and it is not a coincidence
+    /// that it is worth stating: they are separate downloads and keeping both
+    /// costs both.
+    static var bothChineseEnginesMegabytes: Int {
+        SenseVoiceEngine.approximateDownloadMegabytes + ParaformerEngine.approximateDownloadMegabytes
+    }
+
+    /// The engine to suggest for `language`, or `nil` when the selected engine
+    /// is already a reasonable answer.
+    ///
+    /// This is where `EngineKind.defaultChineseDictation` becomes visible to a
+    /// user who never sees onboarding: picking Chinese while on Whisper is a
+    /// legitimate choice, not a mistake, so this offers the default rather than
+    /// switching to it. Only Chinese has a specialised engine to offer, which is
+    /// why nothing else does.
+    static func suggestedEngine(forLanguage language: String, selected: EngineKind) -> EngineKind? {
+        guard language == "zh" else { return nil }
+        guard selected != EngineKind.defaultChineseDictation,
+            selected != EngineKind.chineseAccuracyAlternative
+        else { return nil }
+        return EngineKind.defaultChineseDictation
+    }
+
+    /// The engine's language scope, phrased for a settings row.
+    ///
+    /// Derived from `LanguageUtil` rather than written out, because the language
+    /// picker collapses to the same list: a hand-written summary here is a
+    /// second source of truth that would eventually disagree with the control
+    /// directly below it.
+    static func languageSummary(for kind: EngineKind, fluidAudioModelVersion: String) -> String {
+        let codes = LanguageUtil.supportedLanguages(engine: kind, fluidAudioModelVersion: fluidAudioModelVersion)
+        let auto = codes.contains("auto")
+        let named = codes.filter { $0 != "auto" }
+
+        // Short lists read better named than counted, and both Chinese engines
+        // are short lists - which is the point of showing this at all.
+        let body: String
+        if named.count == 1 {
+            body = "\(displayName(named[0])) only"
+        } else if named.count <= 6 {
+            body = named.map(displayName).joined(separator: ", ")
+        } else {
+            body = "\(named.count) languages"
+        }
+        return auto ? "\(body), or auto-detect" : body
+    }
+
+    // MARK: - Private
+
+    /// `zh` is "Chinese" in the language picker, which is the right label while
+    /// it is the only Chinese entry there. In a summary that also lists
+    /// Cantonese it is not - both are Chinese - so the summary says Mandarin.
+    private static let summaryLanguageNames = ["zh": "Mandarin"]
+
+    private static func displayName(_ code: String) -> String {
+        summaryLanguageNames[code] ?? LanguageUtil.languageNames[code] ?? code
+    }
+
+    private static let whisper = EngineCatalogEntry(
+        displayName: "Whisper",
+        summary: "General purpose, and the widest language coverage. Pick a model below.",
+        attributionCredit: nil,
+        notes: [],
+        download: nil,
+        attribution: []
+    )
+
+    private static let parakeet = EngineCatalogEntry(
+        displayName: "Parakeet",
+        summary: "Fastest, for English and European languages. Pick a model below.",
+        attributionCredit: nil,
+        notes: [],
+        download: nil,
+        attribution: []
+    )
+
+    /// The Chinese default. Every note is reproduced by
+    /// `SenseVoiceEngineIntegrationTests` against the real weights.
+    private static let senseVoice = EngineCatalogEntry(
+        displayName: "SenseVoice-Small",
+        summary: "The default for Chinese. Punctuates, and also handles Cantonese, English, Japanese and Korean.",
+        attributionCredit: "SenseVoiceSmall by FunASR / FunAudioLLM",
+        notes: [
+            // The wording of this one matters. Punctuation and inverse text
+            // normalisation are a single switch in the pinned runtime, so the
+            // conversion cannot be declined; and the meaning-changing failure it
+            // can cause is real but was not reproducible here, so this says
+            // "occasionally" rather than quoting an example that did not
+            // reproduce. See docs/upstream-issues.md.
+            "Adds punctuation, and writes spoken numbers as digits - say 三點二十分 and it transcribes 3点20分. "
+                + "Upstream these are one switch, so punctuation is not available without the conversion, "
+                + "and it can occasionally turn a bare numeral into the wrong number.",
+            "Writes Simplified Chinese. The app does not convert it to Traditional.",
+            "About 8x faster than real time, so a 30-second recording takes a few seconds.",
+        ],
+        download: EngineModelDownload(
+            modelName: "SenseVoiceSmall",
+            megabytes: SenseVoiceEngine.approximateDownloadMegabytes,
+            cacheDirectory: SenseVoiceEngine.modelCacheDirectory
+        ),
+        attribution: [
+            ModelAttributionLink(
+                label: "Model card",
+                url: URL(string: "https://huggingface.co/FunAudioLLM/SenseVoiceSmall")!
+            ),
+            ModelAttributionLink(
+                label: "Model licence",
+                url: URL(string: "https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE")!
+            ),
+            ModelAttributionLink(
+                label: "CoreML conversion",
+                url: URL(string: "https://huggingface.co/FluidInference/sensevoice-small-coreml")!
+            ),
+        ]
+    )
+
+    /// The accuracy alternative. Every note is reproduced by
+    /// `ParaformerEngineIntegrationTests` against the real weights.
+    private static let paraformer = EngineCatalogEntry(
+        displayName: "Paraformer-large (zh)",
+        summary: "More accurate on Mandarin characters, at the price of Mandarin only and no punctuation.",
+        attributionCredit: "Paraformer-large (zh) by FunASR / FunAudioLLM",
+        notes: [
+            "Produces no punctuation at all - its vocabulary contains none, and nothing here invents any.",
+            "Mandarin only. It does not refuse other languages, it mis-transcribes them: Cantonese comes back "
+                + "as fluent but wrong Mandarin.",
+            "Writes Simplified Chinese, and spells numbers as spoken - 三点二十分, not 3点20分.",
+            "Long recordings are split into short pieces before the model sees them, because it silently "
+                + "truncates anything longer.",
+        ],
+        download: EngineModelDownload(
+            modelName: "Paraformer-large (zh)",
+            megabytes: ParaformerEngine.approximateDownloadMegabytes,
+            cacheDirectory: ParaformerEngine.modelCacheDirectory
+        ),
+        attribution: [
+            ModelAttributionLink(
+                label: "Model card",
+                url: URL(
+                    string:
+                        "https://www.modelscope.cn/models/iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
+                )!
+            ),
+            ModelAttributionLink(
+                label: "Model licence",
+                url: URL(string: "https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE")!
+            ),
+            ModelAttributionLink(
+                label: "CoreML conversion",
+                url: URL(string: "https://huggingface.co/FluidInference/paraformer-large-zh-coreml")!
+            ),
+        ]
+    )
+}

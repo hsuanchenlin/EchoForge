@@ -10,17 +10,51 @@ class SettingsViewModel: ObservableObject {
     @Published var selectedEngine: EngineKind {
         didSet {
             AppPreferences.shared.selectedEngine = selectedEngine
-            if selectedEngine == .whisper {
-                loadAvailableModels()
-            } else {
-                initializeFluidAudioModels()
-            }
+            refreshModelState(for: selectedEngine)
             resetLanguageIfUnsupported()
             Task { @MainActor in
-                TranscriptionService.shared.reloadEngine()
+                TranscriptionService.shared.reloadEngine(allowModelDownload: false)
             }
         }
     }
+
+    /// Refreshes whichever download list the engine actually shows.
+    ///
+    /// Switched exhaustively rather than `if whisper { … } else { … }`, which is
+    /// what it was while there were two engines and what would have quietly
+    /// pointed the Chinese engines at Parakeet's model list.
+    private func refreshModelState(for engine: EngineKind) {
+        switch engine {
+        case .whisper:
+            loadAvailableModels()
+        case .fluidaudio:
+            initializeFluidAudioModels()
+        case .sensevoice, .paraformer:
+            refreshDownloadedEngineModels()
+        }
+    }
+
+    /// Which single-model engines already have their weights on disk.
+    ///
+    /// Read from the filesystem rather than remembered in preferences: the user
+    /// can delete the cache from the folder this pane offers to open, and a
+    /// preference that said "downloaded" afterwards would be a lie that turns
+    /// into a surprise 653 MB fetch mid-dictation.
+    @Published var downloadedEngineModels: Set<EngineKind> = []
+
+    func refreshDownloadedEngineModels() {
+        var downloaded: Set<EngineKind> = []
+        if SenseVoiceEngine.isModelDownloaded { downloaded.insert(.sensevoice) }
+        if ParaformerEngine.isModelDownloaded { downloaded.insert(.paraformer) }
+        downloadedEngineModels = downloaded
+    }
+
+    /// True while a download has finished and the Neural Engine compile has not.
+    ///
+    /// Its own flag because it is its own kind of waiting: the compile reports no
+    /// progress and takes 65-88 s the first time, so a bar left sitting at 100 %
+    /// reads as a hang. See `docs/upstream-issues.md` for where the time goes.
+    @Published var isCompilingModel: Bool = false
     
     @Published var fluidAudioModelVersion: String {
         didSet {
@@ -38,6 +72,10 @@ class SettingsViewModel: ObservableObject {
     var supportedLanguages: [String] {
         LanguageUtil.supportedLanguages(engine: selectedEngine, fluidAudioModelVersion: fluidAudioModelVersion)
     }
+
+    /// Whether the whisper.cpp decode controls apply to the selected engine.
+    /// The decision itself belongs to `EngineKind`, which switches exhaustively.
+    var usesWhisperDecodingSettings: Bool { selectedEngine.usesWhisperDecodingSettings }
     
     private func resetLanguageIfUnsupported() {
         if !supportedLanguages.contains(selectedLanguage) {
@@ -233,7 +271,8 @@ class SettingsViewModel: ObservableObject {
         loadAvailableModels()
         initializeDownloadableModels()
         initializeFluidAudioModels()
-        
+        refreshDownloadedEngineModels()
+
         if !supportedLanguages.contains(selectedLanguage) {
             let fallback = LanguageUtil.fallbackLanguage(engine: selectedEngine)
             selectedLanguage = fallback
@@ -376,10 +415,11 @@ class SettingsViewModel: ObservableObject {
             }
         }
         isDownloading = false
+        isCompilingModel = false
         downloadingModelName = nil
         downloadProgress = 0.0
     }
-    
+
     @MainActor
     func downloadFluidAudioModel(_ model: SettingsFluidAudioModel) async throws {
         guard !isDownloading else { return }
@@ -509,6 +549,74 @@ class SettingsViewModel: ObservableObject {
         let versionString = AppPreferences.shared.fluidAudioModelVersion
         if let model = downloadableFluidAudioModels.first(where: { $0.version == versionString }) {
             try await downloadFluidAudioModel(model)
+        }
+    }
+
+    /// Fetches and prepares the weights for an engine that has exactly one set
+    /// of them.
+    ///
+    /// The engine owns the work - this only drives the progress UI. It exists
+    /// because the alternative is that the first recording after picking a
+    /// Chinese engine blocks for minutes behind a download and a Neural Engine
+    /// compile the user never asked for and cannot see.
+    @MainActor
+    func downloadEngineModel(_ kind: EngineKind) async throws {
+        guard !isDownloading, let download = EngineCatalog.entry(for: kind).download else { return }
+        try DiskSpaceUtil.ensureEnoughFreeSpaceForModelDownload()
+
+        isDownloading = true
+        isCompilingModel = false
+        downloadingModelName = download.modelName
+        downloadProgress = 0.0
+
+        downloadTask = Task {
+            defer {
+                Task { @MainActor in
+                    self.isDownloading = false
+                    self.isCompilingModel = false
+                    self.downloadingModelName = nil
+                    self.downloadProgress = 0.0
+                    self.refreshDownloadedEngineModels()
+                }
+            }
+
+            let onProgress: DownloadUtils.ProgressHandler = { [weak self] progress in
+                Task { @MainActor [weak self] in
+                    guard let self, let task = self.downloadTask, !task.isCancelled else { return }
+                    self.downloadProgress = progress.fractionCompleted
+                    // The compile is the phase with nothing to show: FluidAudio
+                    // names the model it is compiling but reports no fraction
+                    // while it does, and it is the longer half of a cold start.
+                    if case .compiling = progress.phase {
+                        self.isCompilingModel = true
+                    }
+                }
+            }
+
+            switch kind {
+            case .sensevoice:
+                try await SenseVoiceEngine.prepareModels(progressHandler: onProgress)
+            case .paraformer:
+                try await ParaformerEngine.prepareModels(progressHandler: onProgress)
+            case .whisper, .fluidaudio:
+                // Unreachable: `EngineCatalog` gives these no single download,
+                // so the guard above already returned.
+                return
+            }
+
+            try Task.checkCancellation()
+
+            // The engine may already have failed to load these weights before
+            // they existed, so it is reloaded rather than left holding that.
+            await MainActor.run {
+                TranscriptionService.shared.reloadEngine()
+            }
+        }
+
+        do {
+            try await downloadTask?.value
+        } catch is CancellationError {
+            // Manual cancellation, not a failure to report.
         }
     }
 }
@@ -744,6 +852,13 @@ struct SettingsView: View {
             if viewModel.selectedEngine == .fluidaudio {
                 viewModel.initializeFluidAudioModels()
             }
+            // Unconditional: the picker shows a downloaded badge for every
+            // engine, not only the selected one, and the cache can have changed
+            // since the pane was last open.
+            viewModel.refreshDownloadedEngineModels()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .engineModelStateChanged)) { _ in
+            viewModel.refreshDownloadedEngineModels()
         }
         .onChange(of: viewModel.selectedEngine) { _, newEngine in
             if newEngine == .fluidaudio {
@@ -764,6 +879,14 @@ struct SettingsView: View {
         }
     }
     
+    /// The catalog entry for the selected engine when that engine has exactly one
+    /// set of weights, which is what decides whether the pane below the picker is
+    /// a model list or a single download row.
+    private var engineDownloadEntry: EngineCatalogEntry? {
+        let entry = EngineCatalog.entry(for: viewModel.selectedEngine)
+        return entry.download == nil ? nil : entry
+    }
+
     private var modelSettings: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -771,14 +894,24 @@ struct SettingsView: View {
                     .font(.headline)
                     .foregroundColor(.primary)
                 
-                Picker("Engine", selection: $viewModel.selectedEngine) {
-                    Text("Parakeet").tag(EngineKind.fluidaudio)
-                    Text("Whisper").tag(EngineKind.whisper)
+                // A list rather than the segmented control this used to be: four
+                // engines do not fit legibly across 550 pt, and the two Chinese
+                // ones cannot be chosen from a name alone - "no punctuation" and
+                // "Mandarin only" are the whole decision.
+                VStack(spacing: 8) {
+                    ForEach(EngineCatalog.pickerOrder, id: \.self) { kind in
+                        EngineChoiceRow(kind: kind, viewModel: viewModel)
+                    }
                 }
-                .pickerStyle(.segmented)
                 .padding(.bottom, 8)
-                
-                if viewModel.selectedEngine == .whisper {
+
+                if let entry = engineDownloadEntry {
+                    EngineModelSectionView(
+                        kind: viewModel.selectedEngine,
+                        entry: entry,
+                        viewModel: viewModel
+                    )
+                } else if viewModel.selectedEngine == .whisper {
                     VStack(alignment: .leading, spacing: 16) {
                         Text("Whisper Model")
                             .font(.headline)
@@ -900,6 +1033,30 @@ struct SettingsView: View {
                         .cornerRadius(8)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         
+                        if let suggested = EngineCatalog.suggestedEngine(
+                            forLanguage: viewModel.selectedLanguage,
+                            selected: viewModel.selectedEngine
+                        ) {
+                            HStack(alignment: .center, spacing: 8) {
+                                Image(systemName: "lightbulb")
+                                    .foregroundColor(.secondary)
+                                Text(
+                                    "\(EngineCatalog.entry(for: suggested).displayName) is the recommended "
+                                        + "engine for Chinese - it punctuates."
+                                )
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+
+                                Spacer(minLength: 0)
+
+                                Button("Switch") { viewModel.selectedEngine = suggested }
+                                    .buttonStyle(.bordered)
+                                    .controlSize(.small)
+                            }
+                            .padding(.top, 4)
+                        }
+
                         if Settings.asianLanguages.contains(viewModel.selectedLanguage) {
                             HStack {
                                 Text("Use Asian Autocorrect")
@@ -925,24 +1082,26 @@ struct SettingsView: View {
                         .foregroundColor(.primary)
                     
                     VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("Show Timestamps")
-                                .font(.subheadline)
-                            Spacer()
-                            Toggle("", isOn: $viewModel.showTimestamps)
-                                .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
-                                .labelsHidden()
+                        if viewModel.usesWhisperDecodingSettings {
+                            HStack {
+                                Text("Show Timestamps")
+                                    .font(.subheadline)
+                                Spacer()
+                                Toggle("", isOn: $viewModel.showTimestamps)
+                                    .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
+                                    .labelsHidden()
+                            }
+
+                            HStack {
+                                Text("Suppress Blank Audio")
+                                    .font(.subheadline)
+                                Spacer()
+                                Toggle("", isOn: $viewModel.suppressBlankAudio)
+                                    .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
+                                    .labelsHidden()
+                            }
                         }
-                        
-                        HStack {
-                            Text("Suppress Blank Audio")
-                                .font(.subheadline)
-                            Spacer()
-                            Toggle("", isOn: $viewModel.suppressBlankAudio)
-                                .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
-                                .labelsHidden()
-                        }
-                        
+
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Add Space After Sentence")
@@ -1005,32 +1164,34 @@ struct SettingsView: View {
                 .cornerRadius(12)
 
                 // Initial Prompt
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Initial Prompt")
-                        .font(.headline)
-                        .foregroundColor(.primary)
-                    
-                    VStack(alignment: .leading, spacing: 8) {
-                        TextEditor(text: $viewModel.initialPrompt)
-                            .frame(height: 60)
-                            .padding(6)
-                            .background(Color(.textBackgroundColor))
-                            .cornerRadius(8)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .stroke(Color.gray.opacity(0.3), lineWidth: 1)
-                            )
-                        
-                        Text("Optional text to guide the model's transcription")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                if viewModel.usesWhisperDecodingSettings {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Initial Prompt")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+
+                        VStack(alignment: .leading, spacing: 8) {
+                            TextEditor(text: $viewModel.initialPrompt)
+                                .frame(height: 60)
+                                .padding(6)
+                                .background(Color(.textBackgroundColor))
+                                .cornerRadius(8)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                                )
+
+                            Text("Optional text to guide the model's transcription")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.controlBackgroundColor).opacity(0.3))
+                    .cornerRadius(12)
                 }
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.controlBackgroundColor).opacity(0.3))
-                .cornerRadius(12)
-                
+
                 // Transcriptions Directory
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Transcriptions Directory")
@@ -1080,81 +1241,86 @@ struct SettingsView: View {
     private var advancedSettings: some View {
         ScrollView {
             VStack(spacing: 20) {
-                // Decoding Strategy
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Decoding Strategy")
-                        .font(.headline)
-                        .foregroundColor(.primary)
-                    
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("Use Beam Search")
-                                .font(.subheadline)
-                            Spacer()
-                            Toggle("", isOn: $viewModel.useBeamSearch)
-                                .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
-                                .labelsHidden()
-                                .help("Beam search can provide better results but is slower")
-                        }
-                        
-                        if viewModel.useBeamSearch {
+                // Decoding Strategy. Whisper-only, along with Model Parameters
+                // below: these are whisper.cpp decode parameters and no other
+                // engine reads them, so showing them for one that does not is a
+                // control that silently does nothing.
+                if viewModel.usesWhisperDecodingSettings {
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Decoding Strategy")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+
+                        VStack(alignment: .leading, spacing: 10) {
                             HStack {
-                                Text("Beam Size:")
+                                Text("Use Beam Search")
                                     .font(.subheadline)
                                 Spacer()
-                                Stepper("\(viewModel.beamSize)", value: $viewModel.beamSize, in: 1...10)
-                                    .help("Number of beams to use in beam search")
-                                    .frame(width: 120)
+                                Toggle("", isOn: $viewModel.useBeamSearch)
+                                    .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
+                                    .labelsHidden()
+                                    .help("Beam search can provide better results but is slower")
+                            }
+
+                            if viewModel.useBeamSearch {
+                                HStack {
+                                    Text("Beam Size:")
+                                        .font(.subheadline)
+                                    Spacer()
+                                    Stepper("\(viewModel.beamSize)", value: $viewModel.beamSize, in: 1...10)
+                                        .help("Number of beams to use in beam search")
+                                        .frame(width: 120)
+                                }
                             }
                         }
                     }
-                }
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.controlBackgroundColor).opacity(0.3))
-                .cornerRadius(12)
-                
-                // Model Parameters
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Model Parameters")
-                        .font(.headline)
-                        .foregroundColor(.primary)
-                    
-                    VStack(alignment: .leading, spacing: 14) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text("Temperature:")
-                                    .font(.subheadline)
-                                Spacer()
-                                Text(String(format: "%.2f", viewModel.temperature))
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.controlBackgroundColor).opacity(0.3))
+                    .cornerRadius(12)
+
+                    // Model Parameters
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Model Parameters")
+                            .font(.headline)
+                            .foregroundColor(.primary)
+
+                        VStack(alignment: .leading, spacing: 14) {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text("Temperature:")
+                                        .font(.subheadline)
+                                    Spacer()
+                                    Text(String(format: "%.2f", viewModel.temperature))
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Slider(value: $viewModel.temperature, in: 0.0...1.0, step: 0.1)
+                                    .help("Higher values make the output more random")
                             }
-                            
-                            Slider(value: $viewModel.temperature, in: 0.0...1.0, step: 0.1)
-                                .help("Higher values make the output more random")
-                        }
-                        
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text("No Speech Threshold:")
-                                    .font(.subheadline)
-                                Spacer()
-                                Text(String(format: "%.2f", viewModel.noSpeechThreshold))
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
+
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text("No Speech Threshold:")
+                                        .font(.subheadline)
+                                    Spacer()
+                                    Text(String(format: "%.2f", viewModel.noSpeechThreshold))
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                }
+
+                                Slider(value: $viewModel.noSpeechThreshold, in: 0.0...1.0, step: 0.1)
+                                    .help("Threshold for detecting speech vs. silence")
                             }
-                            
-                            Slider(value: $viewModel.noSpeechThreshold, in: 0.0...1.0, step: 0.1)
-                                .help("Threshold for detecting speech vs. silence")
                         }
                     }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color(.controlBackgroundColor).opacity(0.3))
+                    .cornerRadius(12)
                 }
-                .padding()
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(.controlBackgroundColor).opacity(0.3))
-                .cornerRadius(12)
-                
+
                 // Debug Options
                 VStack(alignment: .leading, spacing: 16) {
                     Text("Debug Options")
@@ -1632,6 +1798,282 @@ struct FluidAudioModelDownloadItemView: View {
     }
 }
 
+/// One selectable engine in the Model pane.
+///
+/// Carries the language scope and a downloaded badge next to the name because
+/// both are part of choosing: an engine that only does Mandarin, or that would
+/// cost 653 MB the moment it is used, is not interchangeable with the one above
+/// it, and neither fact survives being left to a name.
+struct EngineChoiceRow: View {
+    let kind: EngineKind
+    @ObservedObject var viewModel: SettingsViewModel
+
+    private var entry: EngineCatalogEntry { EngineCatalog.entry(for: kind) }
+    private var isSelected: Bool { viewModel.selectedEngine == kind }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: isSelected ? "largecircle.filled.circle" : "circle")
+                .foregroundColor(isSelected ? .accentColor : .secondary)
+                .imageScale(.medium)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(entry.displayName)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+
+                    if kind == EngineKind.defaultChineseDictation {
+                        Text("Default for Chinese")
+                            .font(.caption2)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.accentColor.opacity(0.15))
+                            .foregroundColor(.accentColor)
+                            .cornerRadius(4)
+                    }
+
+                    if entry.download != nil && viewModel.downloadedEngineModels.contains(kind) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                            .help("Model downloaded")
+                    }
+                }
+
+                Text(entry.summary)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(EngineCatalog.languageSummary(
+                    for: kind,
+                    fluidAudioModelVersion: viewModel.fluidAudioModelVersion
+                ))
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.controlBackgroundColor).opacity(isSelected ? 0.9 : 0.4))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 1)
+        )
+        .cornerRadius(8)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if !isSelected { viewModel.selectedEngine = kind }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+    }
+}
+
+/// The download, the caveats and the attribution for an engine with one model.
+///
+/// The notes are not garnish. Both FunASR engines have behaviour a user will
+/// otherwise meet first in their own transcript - no punctuation at all, or
+/// spoken numbers silently rewritten as digits - and the attribution links are
+/// what the model licence requires of an app that ships these weights at all
+/// (`docs/speech-model-attribution.md`).
+struct EngineModelSectionView: View {
+    let kind: EngineKind
+    let entry: EngineCatalogEntry
+    @ObservedObject var viewModel: SettingsViewModel
+
+    @State private var showError = false
+    @State private var errorMessage = ""
+
+    private var download: EngineModelDownload? { entry.download }
+    private var isDownloaded: Bool { viewModel.downloadedEngineModels.contains(kind) }
+    private var isBusy: Bool {
+        viewModel.isDownloading && viewModel.downloadingModelName == download?.modelName
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if let download {
+                Text("\(entry.displayName) Model")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+
+                downloadRow(download)
+
+                if !entry.notes.isEmpty {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(entry.notes, id: \.self) { note in
+                            HStack(alignment: .top, spacing: 6) {
+                                Text("•")
+                                Text(note)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
+                attributionFooter
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Models Directory:")
+                            .font(.subheadline)
+                        Button(action: {
+                            NSWorkspace.shared.open(download.cacheDirectory.deletingLastPathComponent())
+                        }) {
+                            Label("Open Folder", systemImage: "folder")
+                                .font(.subheadline)
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Open models directory")
+                    }
+                    Text(download.cacheDirectory.path)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .textSelection(.enabled)
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color(.textBackgroundColor).opacity(0.5))
+                        .cornerRadius(6)
+                }
+                .padding(.top, 4)
+            }
+        }
+        .alert("Download Error", isPresented: $showError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(errorMessage)
+        }
+    }
+
+    @ViewBuilder
+    private func downloadRow(_ download: EngineModelDownload) -> some View {
+        // Name and action on one line, explanation on its own full-width line
+        // below: the explanation is two sentences, and sharing a row with the
+        // button squeezes it into a column half the pane wide.
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(download.modelName)
+                    .font(.subheadline)
+                    .fontWeight(.medium)
+
+                Spacer()
+
+                if isBusy {
+                    Button("Cancel") { viewModel.cancelDownload() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                } else if isDownloaded {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundColor(.green)
+                        .imageScale(.large)
+                        .help("Downloaded - this engine is ready to use")
+                } else {
+                    HStack(spacing: 8) {
+                        Text(formatModelSize(megabytes: download.megabytes))
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+
+                        Button(action: startDownload) {
+                            Label("Download", systemImage: "arrow.down.circle")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .disabled(viewModel.isDownloading)
+                    }
+                }
+            }
+
+            Text(statusLine(download))
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if isBusy {
+                // Determinate while bytes are moving, indeterminate once
+                // FluidAudio starts compiling: that phase publishes no fraction
+                // and is the longer half of a cold start, so a bar frozen at
+                // 100 % would read as a hang.
+                if viewModel.isCompilingModel {
+                    ProgressView()
+                        .progressViewStyle(LinearProgressViewStyle())
+                        .frame(height: 6)
+                        .padding(.top, 2)
+                } else {
+                    ProgressView(value: viewModel.downloadProgress)
+                        .progressViewStyle(LinearProgressViewStyle())
+                        .frame(height: 6)
+                        .padding(.top, 2)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.controlBackgroundColor).opacity(0.5))
+        .cornerRadius(8)
+    }
+
+    /// What the user is actually waiting for, or would be. Deliberately states
+    /// the cold-start cost twice over - the download and the one-time Neural
+    /// Engine compile - because the compile is invisible, takes over a minute,
+    /// and is otherwise indistinguishable from the app having hung.
+    private func statusLine(_ download: EngineModelDownload) -> String {
+        if isBusy {
+            return viewModel.isCompilingModel
+                ? "Preparing for the Neural Engine. This takes about a minute the first time."
+                : "Downloading \(formatModelSize(megabytes: download.megabytes))…"
+        }
+        if isDownloaded {
+            return "Downloaded and ready."
+        }
+        // The size is already on the button beside this, so it is not repeated.
+        return "Downloads the first time you dictate with this engine, then takes about a minute to prepare "
+            + "for the Neural Engine. Keeping both "
+            + "\(EngineCatalog.entry(for: EngineKind.defaultChineseDictation).displayName) and "
+            + "\(EngineCatalog.entry(for: EngineKind.chineseAccuracyAlternative).displayName) uses about "
+            + "\(formatModelSize(megabytes: EngineCatalog.bothChineseEnginesMegabytes))."
+    }
+
+    @ViewBuilder
+    private var attributionFooter: some View {
+        if let credit = entry.attributionCredit {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(credit). Downloaded to your Mac, not bundled with the app.")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 12) {
+                    ForEach(entry.attribution) { link in
+                        Link(link.label, destination: link.url)
+                            .font(.caption2)
+                    }
+                }
+            }
+        }
+    }
+
+    private func startDownload() {
+        Task {
+            do {
+                try await viewModel.downloadEngineModel(kind)
+            } catch is CancellationError {
+                // Manual cancellation.
+            } catch {
+                errorMessage = error.localizedDescription
+                showError = true
+            }
+        }
+    }
+}
+
 struct RecordingStorageSettingsView: View {
     @State private var autoDeleteEnabled = AppPreferences.shared.autoDeleteRecordingsEnabled
     @State private var retentionDays = AppPreferences.shared.autoDeleteRecordingsAfterDays
@@ -1874,4 +2316,3 @@ struct ModelDownloadItemView: View {
         }
     }
 }
-

@@ -57,8 +57,8 @@ final class EngineKindRawValueTests: XCTestCase {
         }
     }
 
-    /// Both Chinese engines are opt-in by hand-writing this exact string into
-    /// the `selectedEngine` default, so the string is the whole opt-in surface.
+    /// Settings persists exactly these strings. Renaming one silently resets the
+    /// engine choice of every user who had picked it.
     func testStoredInit_chineseEngines_areRecognised() {
         XCTAssertEqual(EngineKind(stored: "paraformer"), .paraformer)
         XCTAssertEqual(EngineKind(stored: "sensevoice"), .sensevoice)
@@ -66,6 +66,19 @@ final class EngineKindRawValueTests: XCTestCase {
 
     func testStoredInit_missingValue_fallsBackToWhisper() {
         XCTAssertEqual(EngineKind(stored: nil), .whisper)
+    }
+
+    /// The whisper.cpp decode controls are Whisper's alone, and Settings hides
+    /// them for everything else. A new engine that answered `true` here would
+    /// show a user four sliders its transcription never reads.
+    func testOnlyWhisperUsesTheWhisperDecodingSettings() {
+        XCTAssertTrue(EngineKind.whisper.usesWhisperDecodingSettings)
+        for kind in EngineKind.allCases where kind != .whisper {
+            XCTAssertFalse(
+                kind.usesWhisperDecodingSettings,
+                "\(kind.rawValue) does not read whisper_full_params; Settings must not offer them"
+            )
+        }
     }
 }
 

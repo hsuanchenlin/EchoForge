@@ -14,17 +14,15 @@ enum EngineKind: String, CaseIterable {
     case whisper
     case fluidaudio
 
-    /// Paraformer-large (zh). Opt-in only: it has no entry in the engine picker
-    /// yet, so it is reachable by writing the `selectedEngine` default by hand
-    /// and nothing else. That is deliberate - the Settings and onboarding
-    /// surfaces it needs (a one-row download of ~653 MB, a language control that
-    /// collapses to Chinese, the model attribution notice) are their own change.
+    /// Paraformer-large (zh). Selectable in Settings; how it describes itself
+    /// there - a one-row ~653 MB download, a language control that collapses to
+    /// Mandarin, the model attribution notice - is `EngineCatalog`. Onboarding
+    /// still offers only Whisper and Parakeet.
     case paraformer
 
-    /// SenseVoice-Small. Opt-in on the same terms as `paraformer` - the picker
-    /// entry and the first-run download are still their own change - but it is
-    /// already the engine `defaultChineseDictation` names, so that change offers
-    /// it first rather than deciding again.
+    /// SenseVoice-Small. Selectable in Settings on the same terms as
+    /// `paraformer`, and offered before it, because it is the engine
+    /// `defaultChineseDictation` names.
     case sensevoice
 
     /// Used when nothing is stored yet and when the stored value is not one we
@@ -62,6 +60,32 @@ enum EngineKind: String, CaseIterable {
             return
         }
         self = kind
+    }
+
+    /// Whether the whisper.cpp decode controls in Settings do anything for this
+    /// engine.
+    ///
+    /// Beam search, temperature, the no-speech threshold, the initial prompt,
+    /// timestamps and blank suppression are `whisper_full_params` fields and
+    /// `WhisperEngine` is their only reader. Every other engine has ignored them
+    /// silently since Parakeet landed. Settings hides them rather than showing a
+    /// slider that changes nothing, and this switches exhaustively so a new
+    /// engine has to answer the question instead of inheriting `false`.
+    var usesWhisperDecodingSettings: Bool {
+        switch self {
+        case .whisper:
+            return true
+        case .fluidaudio, .paraformer, .sensevoice:
+            return false
+        }
+    }
+
+    var isSingleModelDownloaded: Bool? {
+        switch self {
+        case .sensevoice: return SenseVoiceEngine.isModelDownloaded
+        case .paraformer: return ParaformerEngine.isModelDownloaded
+        case .whisper, .fluidaudio: return nil
+        }
     }
 
     /// The only construction site for engines. Kept next to the case list so a

@@ -82,12 +82,14 @@ final class SenseVoiceEngine: TranscriptionEngine {
     /// an unpunctuated engine and nothing fails to make that visible.
     ///
     /// The cost is honest and worth stating: ITN is right on times, prices and
-    /// dates (`3点20分`, `1250块钱`, `2026年7月30号`) and reproducibly wrong on
-    /// bare Chinese numerals, where `过去十年` ("the past ten years") comes back
-    /// as `过去1年`. No heuristic here tries to undo that - it is one model
-    /// switch, and rewriting model output to guess at it would be worse. It is
-    /// filed upstream instead (`docs/upstream-issues.md`).
+    /// dates (`3点20分`, `1250块钱`, `2026年7月30号`) but can silently change a
+    /// bare Chinese numeral into the wrong value. No heuristic here tries to
+    /// undo that - it is one model switch, and rewriting model output to guess
+    /// at it would be worse. The observed, non-universal failure is documented
+    /// in `docs/upstream-issues.md`.
     static let textNorm: Int32 = 14
+
+    private static let modelLoadCoordinator = ModelLoadCoordinator<SenseVoiceTranscriberFactory>()
 
     /// Where `initialize()` downloads to, for anything that has to show or clear
     /// the ~240 MB the user paid for.
@@ -97,6 +99,33 @@ final class SenseVoiceEngine: TranscriptionEngine {
     /// `sensevoice-small`, not `sensevoice-small-coreml`.
     static var modelCacheDirectory: URL {
         MLModelConfigurationUtils.defaultModelsDirectory(for: .senseVoiceSmall)
+    }
+
+    /// What a cold machine fetches, in decimal MB, for Settings to state before
+    /// the user commits to it.
+    ///
+    /// Kept next to `precision` because it is a consequence of it: this repo is
+    /// variant-filtered on Hugging Face, so precision decides the *download* and
+    /// not just the load - 240 MB of int8 against 473 MB of fp16. Measured
+    /// against the pinned FluidAudio, not read off a manifest.
+    static let approximateDownloadMegabytes = 240
+
+    /// Whether `initialize()` would be a warm load rather than a download.
+    static var isModelDownloaded: Bool {
+        SenseVoiceModels.modelsExist(at: modelCacheDirectory, precision: precision)
+    }
+
+    /// Downloads the weights and pays the Neural Engine compile up front.
+    ///
+    /// The same work `initialize()` does, offered at a moment the user chose
+    /// rather than in the middle of their first dictation - which is otherwise
+    /// about four minutes of a recording apparently doing nothing. The loaded
+    /// models are discarded because the point is the populated cache; the
+    /// engine's own load afterwards is ~0.15 s.
+    static func prepareModels(progressHandler: @escaping DownloadUtils.ProgressHandler) async throws {
+        _ = try await modelLoadCoordinator.run(progressHandler: progressHandler) {
+            try await loadFluidAudioModels()
+        }
     }
 
     private let chunkSource: AudioChunkProviding
@@ -130,7 +159,7 @@ final class SenseVoiceEngine: TranscriptionEngine {
     /// app: the CoreML conversion asserts no licence of its own, so the user
     /// fetches it from Hugging Face directly. Warm loads are ~0.15 s.
     func initialize() async throws {
-        factory = try await loadFactory()
+        factory = try await Self.modelLoadCoordinator.run(loadFactory)
     }
 
     func transcribeAudio(url: URL, settings: Settings) async throws -> String {
@@ -195,7 +224,14 @@ final class SenseVoiceEngine: TranscriptionEngine {
     /// The production `loadFactory`. Not private only because it is this
     /// initialiser's default argument.
     static func loadFluidAudioModels() async throws -> SenseVoiceTranscriberFactory {
-        FluidAudioSenseVoiceFactory(models: try await SenseVoiceModels.downloadAndLoad(precision: precision))
+        FluidAudioSenseVoiceFactory(
+            models: try await SenseVoiceModels.downloadAndLoad(
+                precision: precision,
+                progressHandler: { progress in
+                    Task { await modelLoadCoordinator.reportProgress(progress) }
+                }
+            )
+        )
     }
 
     // MARK: - Private
