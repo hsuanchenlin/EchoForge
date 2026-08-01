@@ -46,6 +46,12 @@ class OnboardingViewModel: ObservableObject {
     @Published var downloadProgress: Double = 0.0
     @Published var downloadingModelName: String?
 
+    /// True once a download has finished moving bytes and CoreML has started
+    /// compiling for the Neural Engine. That phase publishes no fraction and is
+    /// the longer half of a cold start, so the row swaps to an indeterminate bar
+    /// rather than sitting at 100 % looking hung.
+    @Published var isCompilingModel: Bool = false
+
     private let modelManager = WhisperModelManager.shared
     private var downloadTask: Task<Void, Error>?
 
@@ -78,13 +84,35 @@ class OnboardingViewModel: ObservableObject {
                 updatedModel.isDownloaded = modelManager.isModelDownloaded(name: filename)
             case .parakeet(let version):
                 updatedModel.isDownloaded = isFluidAudioModelDownloaded(version: version)
+            case .engine(let kind):
+                // The engine answers this, because it is the one that knows
+                // which precision it loads and therefore which files count.
+                updatedModel.isDownloaded = kind.isSingleModelDownloaded ?? false
             }
             return updatedModel
         }
         
         if selectedModelId == nil, let firstDownloaded = unifiedModels.first(where: { $0.isDownloaded }) {
             selectedModelId = firstDownloaded.id
+
+            let language = firstDownloaded.language(
+                after: selectedLanguage,
+                fluidAudioModelVersion: AppPreferences.shared.fluidAudioModelVersion
+            )
+            if language != selectedLanguage {
+                selectedLanguage = language
+            }
         }
+    }
+
+    /// The languages the top-of-screen picker offers, scoped to the currently
+    /// selected row's engine so an incompatible pairing can never be picked.
+    var offeredLanguages: [String] {
+        let selectedModel = unifiedModels.first { $0.id == selectedModelId }
+        return OnboardingUnifiedModels.offeredLanguages(
+            selectedModel: selectedModel,
+            fluidAudioModelVersion: AppPreferences.shared.fluidAudioModelVersion
+        )
     }
     
     func isFluidAudioModelDownloaded(version: String) -> Bool {
@@ -100,7 +128,7 @@ class OnboardingViewModel: ObservableObject {
     
     func selectModel(_ model: OnboardingUnifiedModel) {
         selectedModelId = model.id
-        
+
         switch model.type {
         case .whisper(let url, _):
             AppPreferences.shared.selectedEngine = .whisper
@@ -109,6 +137,18 @@ class OnboardingViewModel: ObservableObject {
         case .parakeet(let version):
             AppPreferences.shared.selectedEngine = .fluidaudio
             AppPreferences.shared.fluidAudioModelVersion = version
+        case .engine(let kind):
+            AppPreferences.shared.selectedEngine = kind
+        }
+
+        // The engine may not do the language the user picked at the top of this
+        // screen; `language(after:)` is where that is decided.
+        let language = model.language(
+            after: selectedLanguage,
+            fluidAudioModelVersion: AppPreferences.shared.fluidAudioModelVersion
+        )
+        if language != selectedLanguage {
+            selectedLanguage = language
         }
     }
 
@@ -118,18 +158,85 @@ class OnboardingViewModel: ObservableObject {
         try DiskSpaceUtil.ensureEnoughFreeSpaceForModelDownload()
         
         isDownloading = true
+        isCompilingModel = false
         downloadingModelName = model.name
         downloadProgress = 0.0
-        
+
         if let index = unifiedModels.firstIndex(where: { $0.id == model.id }) {
             unifiedModels[index].downloadProgress = 0.0
         }
-        
+
         switch model.type {
         case .whisper(let url, _):
             try await downloadWhisperModel(model: model, url: url)
         case .parakeet(let version):
             try await downloadParakeetModel(model: model, version: version)
+        case .engine(let kind):
+            try await downloadEngineModel(model: model, kind: kind)
+        }
+    }
+
+    /// Fetches the weights for an engine that has exactly one set of them, and
+    /// pays the Neural Engine compile here rather than during the user's first
+    /// recording.
+    ///
+    /// The engine owns the work - this only drives the progress UI - and
+    /// `ModelLoadCoordinator` inside it collapses this download with any other
+    /// request for the same weights, so nothing is fetched twice if Settings is
+    /// somehow open behind onboarding.
+    @MainActor
+    private func downloadEngineModel(model: OnboardingUnifiedModel, kind: EngineKind) async throws {
+        let modelId = model.id
+
+        downloadTask = Task {
+            defer {
+                Task { @MainActor in
+                    self.isDownloading = false
+                    self.isCompilingModel = false
+                    self.downloadingModelName = nil
+                    self.downloadProgress = 0.0
+                }
+            }
+
+            let onProgress: DownloadUtils.ProgressHandler = { [weak self] progress in
+                Task { @MainActor [weak self] in
+                    guard let self, let task = self.downloadTask, !task.isCancelled else { return }
+                    self.downloadProgress = progress.fractionCompleted
+                    if let index = self.unifiedModels.firstIndex(where: { $0.id == modelId }) {
+                        self.unifiedModels[index].downloadProgress = progress.fractionCompleted
+                    }
+                    if case .compiling = progress.phase {
+                        self.isCompilingModel = true
+                    }
+                }
+            }
+
+            switch kind {
+            case .sensevoice:
+                try await SenseVoiceEngine.prepareModels(progressHandler: onProgress)
+            case .paraformer:
+                try await ParaformerEngine.prepareModels(progressHandler: onProgress)
+            case .whisper, .fluidaudio:
+                // Unreachable: these engines pick between several models, so they
+                // reach this screen as `.whisper` / `.parakeet` rows instead.
+                return
+            }
+
+            try Task.checkCancellation()
+
+            await MainActor.run {
+                if let index = self.unifiedModels.firstIndex(where: { $0.id == modelId }) {
+                    self.unifiedModels[index].isDownloaded = true
+                    self.unifiedModels[index].downloadProgress = 1.0
+                }
+                self.selectModel(model)
+            }
+        }
+
+        do {
+            try await downloadTask?.value
+        } catch is CancellationError {
+            // Manual cancellation, not a failure to report.
         }
     }
     
@@ -318,17 +425,28 @@ class OnboardingViewModel: ObservableObject {
             }
         }
         isDownloading = false
+        isCompilingModel = false
         downloadingModelName = nil
         downloadProgress = 0.0
     }
 }
 
 struct OnboardingView: View {
-    @StateObject private var viewModel = OnboardingViewModel()
+    @StateObject private var viewModel: OnboardingViewModel
     @EnvironmentObject private var appState: AppState
     @State private var showError = false
     @State private var errorMessage = ""
-    
+
+    /// The view model is injectable so the screen can be rendered in a known
+    /// state - a Chinese user's first screen, say - by a preview or a
+    /// screenshot. It stays an autoclosure so the default is built once by
+    /// `StateObject`, and not again on every re-render: `OnboardingViewModel`'s
+    /// initialiser writes the language and hotkey preferences, so constructing a
+    /// spare one is not free.
+    init(viewModel: @autoclosure @escaping () -> OnboardingViewModel = OnboardingViewModel()) {
+        _viewModel = StateObject(wrappedValue: viewModel())
+    }
+
     private let keyboardLayoutInfo: KeyboardLayoutInfo? = KeyboardLayoutProvider.shared.resolveInfo()
 
     var body: some View {
@@ -353,13 +471,16 @@ struct OnboardingView: View {
                 HStack(spacing: 8) {
                     
                     Picker("Language", selection: $viewModel.selectedLanguage) {
-                        ForEach(LanguageUtil.availableLanguages, id: \.self) { code in
+                        ForEach(viewModel.offeredLanguages, id: \.self) { code in
                             Text(LanguageUtil.languageNames[code] ?? code)
                                 .tag(code)
                         }
                     }
                     .pickerStyle(.menu)
-                    .frame(width: 150)
+                    // 150 pt left the label and the menu fighting over the same
+                    // space, and "Chinese" came out as "Chine…" on the first
+                    // screen of the users this engine work is for.
+                    .frame(width: 220)
                 }
                 
                 if Settings.asianLanguages.contains(viewModel.selectedLanguage) {
@@ -441,10 +562,35 @@ struct OnboardingView: View {
                         Text("Download a model to get started")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
-                        
+
+                        if offersChineseEngines {
+                            // Written in English with the Chinese terms in
+                            // Traditional characters, because that is the reader
+                            // this paragraph is for: the app's interface is
+                            // English, and the one thing a Traditional-Chinese
+                            // user has to know before downloading either engine
+                            // is that neither writes 繁體字.
+                            Text("Dictating Chinese (中文)? The Mandarin (國語) engines below run on your Mac. "
+                                + "Both write Simplified Chinese (簡體字) and the app does not convert it to "
+                                + "Traditional (繁體字); the notes under each say what else they do to your text.")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
                         VStack(spacing: 8) {
+                            // The Chinese engines are only offered to someone
+                            // dictating Chinese - see
+                            // `OnboardingUnifiedModels.isVisible`, which is the
+                            // rule Settings already uses for the Hebrew model.
                             ForEach($viewModel.unifiedModels) { $model in
-                                OnboardingUnifiedModelItemView(model: $model, viewModel: viewModel)
+                                if OnboardingUnifiedModels.isVisible(
+                                    model,
+                                    selectedLanguage: viewModel.selectedLanguage,
+                                    systemLanguage: LanguageUtil.getSystemLanguage()
+                                ) {
+                                    OnboardingUnifiedModelItemView(model: $model, viewModel: viewModel)
+                                }
                             }
                         }
                     }
@@ -501,6 +647,20 @@ struct OnboardingView: View {
     private func handleContinueButtonTap() {
         appState.hasCompletedOnboarding = true
     }
+
+    /// Whether the Chinese engines are on screen, which is what the paragraph
+    /// above them is explaining. Asked of the same visibility rule the rows use
+    /// so the two cannot disagree.
+    private var offersChineseEngines: Bool {
+        viewModel.unifiedModels.contains { model in
+            model.preferredLanguage == "zh"
+                && OnboardingUnifiedModels.isVisible(
+                    model,
+                    selectedLanguage: viewModel.selectedLanguage,
+                    systemLanguage: LanguageUtil.getSystemLanguage()
+                )
+        }
+    }
 }
 
 struct OnboardingUnifiedModelItemView: View {
@@ -508,80 +668,39 @@ struct OnboardingUnifiedModelItemView: View {
     @ObservedObject var viewModel: OnboardingViewModel
     @State private var showError = false
     @State private var errorMessage = ""
-    
+
     var isSelected: Bool {
         viewModel.selectedModelId == model.id
     }
-    
+
+    private var isBusy: Bool {
+        viewModel.isDownloading && viewModel.downloadingModelName == model.name
+    }
+
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(model.name)
-                        .font(.subheadline)
-                        .fontWeight(.medium)
+        // An engine row's status line and caveats run the full width of the row
+        // rather than sharing a column with the download button: they are
+        // sentences, and half a 450 pt sheet turns them into a ladder of three
+        // and four words.
+        VStack(alignment: .leading, spacing: 10) {
+            summaryRow
 
-                    if let pageURL = model.huggingFacePageURL,
-                       let owner = huggingFaceOwner(fromPageURL: pageURL) {
-                        Link(owner, destination: pageURL)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .help("View on Hugging Face")
+            if let entry = model.catalogEntry {
+                VStack(alignment: .leading, spacing: 8) {
+                    if isBusy {
+                        progressBar
                     }
-                }
-                
-                Text(model.description)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
 
-                if viewModel.isDownloading && viewModel.downloadingModelName == model.name {
-                    ProgressView(value: model.downloadProgress)
-                        .progressViewStyle(LinearProgressViewStyle())
-                        .frame(height: 6)
-                        .padding(.top, 4)
-                }
-            }
-            
-            Spacer()
-            
-            if viewModel.isDownloading && viewModel.downloadingModelName == model.name {
-                Button("Cancel") {
-                    viewModel.cancelDownload()
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            } else if model.isDownloaded {
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                        .imageScale(.large)
-                } else {
-                    Button(action: {
-                        viewModel.selectModel(model)
-                    }) {
-                        Text("Select")
+                    if let status = model.status(isBusy: isBusy, isCompiling: viewModel.isCompilingModel) {
+                        Text(status)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+
+                    OnboardingEngineNotesView(entry: entry)
                 }
-            } else {
-                Button(action: {
-                    Task {
-                        do {
-                            try await viewModel.downloadModel(model)
-                        } catch is CancellationError {
-                            // Don't show error for manual cancellation
-                        } catch {
-                            errorMessage = error.localizedDescription
-                            showError = true
-                        }
-                    }
-                }) {
-                    Label("Download", systemImage: "arrow.down.circle")
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .disabled(viewModel.isDownloading)
             }
         }
         .padding(14)
@@ -605,6 +724,164 @@ struct OnboardingUnifiedModelItemView: View {
         } message: {
             Text(errorMessage)
         }
+    }
+
+    private var summaryRow: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(model.name)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+
+                    if let recommendation = model.recommendation {
+                        Text(recommendation)
+                            .font(.caption2)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(Color.accentColor.opacity(0.15))
+                            .foregroundColor(.accentColor)
+                            .cornerRadius(4)
+                    }
+
+                    if let pageURL = model.huggingFacePageURL,
+                       let owner = huggingFaceOwner(fromPageURL: pageURL) {
+                        Link(owner, destination: pageURL)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .help("View on Hugging Face")
+                    }
+                }
+
+                Text(model.description)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                // Engine rows put their bar full width below instead, beside
+                // the status line that explains what it is doing.
+                if isBusy && model.catalogEntry == nil {
+                    progressBar
+                        .padding(.top, 4)
+                }
+            }
+
+            Spacer()
+
+            actionControl
+        }
+    }
+
+    /// Indeterminate once CoreML starts compiling: that phase publishes no
+    /// fraction and is the longer half of a cold start, so a bar frozen at 100 %
+    /// would read as a hang.
+    @ViewBuilder
+    private var progressBar: some View {
+        if viewModel.isCompilingModel {
+            ProgressView()
+                .progressViewStyle(LinearProgressViewStyle())
+                .frame(height: 6)
+        } else {
+            ProgressView(value: model.downloadProgress)
+                .progressViewStyle(LinearProgressViewStyle())
+                .frame(height: 6)
+        }
+    }
+
+    @ViewBuilder
+    private var actionControl: some View {
+        if isBusy {
+            Button("Cancel") {
+                viewModel.cancelDownload()
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        } else if model.isDownloaded {
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(.green)
+                    .imageScale(.large)
+            } else {
+                Button(action: {
+                    viewModel.selectModel(model)
+                }) {
+                    Text("Select")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
+        } else {
+            HStack(spacing: 8) {
+                // Only the engine rows state a size. The Whisper and Parakeet
+                // rows never have, and this is not the change that starts - but
+                // 240 MB against 653 MB is most of the choice between the two
+                // Chinese engines, so those two say it.
+                if let megabytes = model.downloadMegabytes {
+                    Text(formatModelSize(megabytes: megabytes))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
+                Button(action: {
+                    Task {
+                        do {
+                            try await viewModel.downloadModel(model)
+                        } catch is CancellationError {
+                            // Don't show error for manual cancellation
+                        } catch {
+                            errorMessage = error.localizedDescription
+                            showError = true
+                        }
+                    }
+                }) {
+                    Label("Download", systemImage: "arrow.down.circle")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(viewModel.isDownloading)
+            }
+        }
+    }
+}
+
+/// The honest part of an engine row: what the model will do to the user's text,
+/// and who made it.
+///
+/// Every string here comes from `EngineCatalog`, which is also what Settings
+/// renders. That is not only tidiness: FunASR Model Open Source License v1.1
+/// §2.2 requires the credit and the links, and a second hand-written copy of
+/// this block in onboarding is how one of them would quietly go missing.
+struct OnboardingEngineNotesView: View {
+    let entry: EngineCatalogEntry
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(entry.notes, id: \.self) { note in
+                HStack(alignment: .top, spacing: 6) {
+                    Text("•")
+                    Text(note)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .font(.caption2)
+                .foregroundColor(.secondary)
+            }
+
+            if let credit = entry.attributionCredit {
+                Text("\(credit). Downloaded to your Mac, not bundled with the app.")
+                    .font(.caption2)
+                    .foregroundColor(Color(.tertiaryLabelColor))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 2)
+
+                HStack(spacing: 12) {
+                    ForEach(entry.attribution) { link in
+                        Link(link.label, destination: link.url)
+                            .font(.caption2)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

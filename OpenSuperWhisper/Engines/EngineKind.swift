@@ -5,7 +5,7 @@ import Foundation
 /// The raw values are the strings persisted in `UserDefaults` under
 /// `selectedEngine`, so they are storage format, not display text: renaming one
 /// silently resets every existing user's engine choice. User-facing names live
-/// in the Settings and onboarding views instead.
+/// in `EngineCatalog`, which both Settings and onboarding read.
 ///
 /// Adding an engine means adding a case here; `makeEngine()` switches
 /// exhaustively, so the compiler points at the one place that has to construct
@@ -14,10 +14,10 @@ enum EngineKind: String, CaseIterable {
     case whisper
     case fluidaudio
 
-    /// Paraformer-large (zh). Selectable in Settings; how it describes itself
-    /// there - a one-row ~653 MB download, a language control that collapses to
-    /// Mandarin, the model attribution notice - is `EngineCatalog`. Onboarding
-    /// still offers only Whisper and Parakeet.
+    /// Paraformer-large (zh). Selectable in Settings and offered in onboarding
+    /// to anyone dictating Chinese; how it describes itself in both - a one-row
+    /// ~653 MB download, a language control that collapses to Mandarin, the
+    /// model attribution notice - is `EngineCatalog`.
     case paraformer
 
     /// SenseVoice-Small. Selectable in Settings on the same terms as
