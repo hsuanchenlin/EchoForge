@@ -80,6 +80,14 @@ enum EngineKind: String, CaseIterable {
         }
     }
 
+    var isSingleModelDownloaded: Bool? {
+        switch self {
+        case .sensevoice: return SenseVoiceEngine.isModelDownloaded
+        case .paraformer: return ParaformerEngine.isModelDownloaded
+        case .whisper, .fluidaudio: return nil
+        }
+    }
+
     /// The only construction site for engines. Kept next to the case list so a
     /// new engine cannot be half-added.
     func makeEngine() async -> TranscriptionEngine {

@@ -13,7 +13,7 @@ class SettingsViewModel: ObservableObject {
             refreshModelState(for: selectedEngine)
             resetLanguageIfUnsupported()
             Task { @MainActor in
-                TranscriptionService.shared.reloadEngine()
+                TranscriptionService.shared.reloadEngine(allowModelDownload: false)
             }
         }
     }
@@ -855,6 +855,9 @@ struct SettingsView: View {
             // Unconditional: the picker shows a downloaded badge for every
             // engine, not only the selected one, and the cache can have changed
             // since the pane was last open.
+            viewModel.refreshDownloadedEngineModels()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .engineModelStateChanged)) { _ in
             viewModel.refreshDownloadedEngineModels()
         }
         .onChange(of: viewModel.selectedEngine) { _, newEngine in
@@ -2313,4 +2316,3 @@ struct ModelDownloadItemView: View {
         }
     }
 }
-

@@ -65,6 +65,8 @@ final class ParaformerEngine: TranscriptionEngine {
     /// is one download row here and no smaller number to advertise.
     static let approximateDownloadMegabytes = 653
 
+    private static let modelLoadCoordinator = ModelLoadCoordinator<ParaformerTranscribing>()
+
     /// Whether `initialize()` would be a warm load rather than a download.
     static var isModelDownloaded: Bool {
         ParaformerModels.modelsExist(at: modelCacheDirectory, precision: precision)
@@ -77,7 +79,14 @@ final class ParaformerEngine: TranscriptionEngine {
     /// discarded because the point is the populated cache; the engine's own load
     /// afterwards is ~0.15 s.
     static func prepareModels(progressHandler: @escaping DownloadUtils.ProgressHandler) async throws {
-        _ = try await ParaformerModels.downloadAndLoad(precision: precision, progressHandler: progressHandler)
+        _ = try await modelLoadCoordinator.run {
+            ParaformerManager(
+                models: try await ParaformerModels.downloadAndLoad(
+                    precision: precision,
+                    progressHandler: progressHandler
+                )
+            )
+        }
     }
 
     private let chunkSource: AudioChunkProviding
@@ -110,7 +119,7 @@ final class ParaformerEngine: TranscriptionEngine {
     /// app: the CoreML conversion asserts no licence of its own, so the user
     /// fetches it from Hugging Face directly. Warm loads are ~0.15 s.
     func initialize() async throws {
-        transcriber = try await loadTranscriber()
+        transcriber = try await Self.modelLoadCoordinator.run(loadTranscriber)
     }
 
     func transcribeAudio(url: URL, settings: Settings) async throws -> String {

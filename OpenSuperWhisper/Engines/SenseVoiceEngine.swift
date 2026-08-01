@@ -82,12 +82,14 @@ final class SenseVoiceEngine: TranscriptionEngine {
     /// an unpunctuated engine and nothing fails to make that visible.
     ///
     /// The cost is honest and worth stating: ITN is right on times, prices and
-    /// dates (`3点20分`, `1250块钱`, `2026年7月30号`) and reproducibly wrong on
-    /// bare Chinese numerals, where `过去十年` ("the past ten years") comes back
-    /// as `过去1年`. No heuristic here tries to undo that - it is one model
-    /// switch, and rewriting model output to guess at it would be worse. It is
-    /// filed upstream instead (`docs/upstream-issues.md`).
+    /// dates (`3点20分`, `1250块钱`, `2026年7月30号`) but can silently change a
+    /// bare Chinese numeral into the wrong value. No heuristic here tries to
+    /// undo that - it is one model switch, and rewriting model output to guess
+    /// at it would be worse. The observed, non-universal failure is documented
+    /// in `docs/upstream-issues.md`.
     static let textNorm: Int32 = 14
+
+    private static let modelLoadCoordinator = ModelLoadCoordinator<SenseVoiceTranscriberFactory>()
 
     /// Where `initialize()` downloads to, for anything that has to show or clear
     /// the ~240 MB the user paid for.
@@ -121,7 +123,14 @@ final class SenseVoiceEngine: TranscriptionEngine {
     /// models are discarded because the point is the populated cache; the
     /// engine's own load afterwards is ~0.15 s.
     static func prepareModels(progressHandler: @escaping DownloadUtils.ProgressHandler) async throws {
-        _ = try await SenseVoiceModels.downloadAndLoad(precision: precision, progressHandler: progressHandler)
+        _ = try await modelLoadCoordinator.run {
+            FluidAudioSenseVoiceFactory(
+                models: try await SenseVoiceModels.downloadAndLoad(
+                    precision: precision,
+                    progressHandler: progressHandler
+                )
+            )
+        }
     }
 
     private let chunkSource: AudioChunkProviding
@@ -155,7 +164,7 @@ final class SenseVoiceEngine: TranscriptionEngine {
     /// app: the CoreML conversion asserts no licence of its own, so the user
     /// fetches it from Hugging Face directly. Warm loads are ~0.15 s.
     func initialize() async throws {
-        factory = try await loadFactory()
+        factory = try await Self.modelLoadCoordinator.run(loadFactory)
     }
 
     func transcribeAudio(url: URL, settings: Settings) async throws -> String {

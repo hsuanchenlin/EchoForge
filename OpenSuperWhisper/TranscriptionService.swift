@@ -18,6 +18,8 @@ class TranscriptionService: ObservableObject {
     }
     
     private var currentEngine: TranscriptionEngine?
+    private var currentEngineKind: EngineKind?
+    private var loadGeneration = 0
     private var transcriptionTask: TranscriptionTaskBox? = nil
     private var isCancelled = false
     
@@ -37,9 +39,18 @@ class TranscriptionService: ObservableObject {
         isCancelled = false
     }
     
-    private func loadEngine() {
+    private func loadEngine(allowModelDownload: Bool = true) {
         let selectedEngine = AppPreferences.shared.selectedEngine
+        loadGeneration += 1
+        let generation = loadGeneration
         print("Loading engine: \(selectedEngine)")
+
+        if !allowModelDownload, selectedEngine.isSingleModelDownloaded == false {
+            currentEngine = nil
+            currentEngineKind = nil
+            isLoading = false
+            return
+        }
         
         isLoading = true
         
@@ -50,12 +61,18 @@ class TranscriptionService: ObservableObject {
                 try await engine.initialize()
 
                 await MainActor.run {
+                    guard self.loadGeneration == generation,
+                        AppPreferences.shared.selectedEngine == selectedEngine
+                    else { return }
                     self.currentEngine = engine
+                    self.currentEngineKind = selectedEngine
                     self.isLoading = false
+                    NotificationCenter.default.post(name: .engineModelStateChanged, object: nil)
                     print("Engine loaded: \(selectedEngine)")
                 }
             } catch {
                 await MainActor.run {
+                    guard self.loadGeneration == generation else { return }
                     self.isLoading = false
                     print("Failed to load engine: \(error)")
                 }
@@ -63,8 +80,23 @@ class TranscriptionService: ObservableObject {
         }
     }
     
-    func reloadEngine() {
-        loadEngine()
+    func reloadEngine(allowModelDownload: Bool = true) {
+        loadEngine(allowModelDownload: allowModelDownload)
+    }
+
+    private func engineForTranscription() async throws -> TranscriptionEngine {
+        let selectedEngine = AppPreferences.shared.selectedEngine
+        if currentEngineKind == selectedEngine, let currentEngine { return currentEngine }
+
+        let engine = await selectedEngine.makeEngine()
+        try await engine.initialize()
+        guard AppPreferences.shared.selectedEngine == selectedEngine else {
+            throw TranscriptionError.contextInitializationFailed
+        }
+        currentEngine = engine
+        currentEngineKind = selectedEngine
+        NotificationCenter.default.post(name: .engineModelStateChanged, object: nil)
+        return engine
     }
 
     /// Routes an engine's progress reports onto the published `progress`.
@@ -119,9 +151,7 @@ class TranscriptionService: ObservableObject {
             }
         }
         
-        guard let engine = currentEngine else {
-            throw TranscriptionError.contextInitializationFailed
-        }
+        let engine = try await engineForTranscription()
         
         observeProgress(of: engine)
 
@@ -174,6 +204,10 @@ class TranscriptionService: ObservableObject {
             throw TranscriptionError.processingFailed
         }
     }
+}
+
+extension Notification.Name {
+    static let engineModelStateChanged = Notification.Name("engineModelStateChanged")
 }
 
 enum TranscriptionError: Error {
