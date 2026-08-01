@@ -106,3 +106,7 @@ Both engines are also offered during onboarding to anyone who picks Chinese ther
 Chinese default recommended and the same caveats and links attached:
 
 ![The onboarding model list with Chinese selected](images/onboarding-chinese-engines.png)
+
+Anyone not dictating Chinese sees neither row, so the first screen is unchanged for them:
+
+![Onboarding's first screen for a non-Chinese user, unchanged](images/onboarding-english-unchanged.png)
