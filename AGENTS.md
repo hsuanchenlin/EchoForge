@@ -35,10 +35,16 @@ factory, and language-handling contracts. Follow its documentation when adding a
 
 `OpenSuperWhisper/Engines/EngineCatalog.swift` owns everything user-facing about an engine -
 picker name and order, the honest caveats, download size, cache path and the attribution links.
-Settings reads it; onboarding must too rather than writing a second copy of the copy.
+Settings and onboarding both read it; neither may write a second copy of the copy.
 `OpenSuperWhisperTests/EngineCatalogTests.swift` pins the licence obligations (the model name
 must survive in the UI, the credit and three links must exist) and the caveats, so shortening
 that text fails a test instead of quietly dropping an obligation.
+
+`OpenSuperWhisper/Onboarding/OnboardingModelCatalog.swift` is the first-run model list: which
+rows are offered, in what order, and to whom. A row that exists for one language is shown only
+to users dictating it (or who already downloaded it), the same rule Settings applies to the
+Hebrew Whisper fine-tune. `OnboardingModelCatalogTests` pins the ordering, the recommendation
+and that engine rows take their name, size and caveats from `EngineCatalog`.
 
 `OpenSuperWhisper/Engines/Audio/` is the engine-neutral audio path every engine shares:
 16 kHz PCM decoding, the bundled Silero VAD, and chunking for engines with an input ceiling.

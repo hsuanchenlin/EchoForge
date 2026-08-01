@@ -63,6 +63,8 @@ The in-app equivalent of this notice is `EngineCatalog`: the Settings row for th
 the credit line "SenseVoiceSmall by FunASR / FunAudioLLM", keeps the model name in its title, and
 links the model card, the model licence and the CoreML conversion. `EngineCatalogTests` asserts
 all four, so shortening that copy fails a test rather than quietly dropping an obligation.
+Onboarding shows the same block from the same source (`OnboardingModelCatalogTests`), so a user
+who never opens Settings still sees the credit and the caveats before downloading anything.
 
 ![The SenseVoice-Small entry in Settings, before its weights are downloaded](images/settings-engine-sensevoice.png)
 
@@ -95,6 +97,12 @@ This engine also writes **Simplified** Chinese and spells numbers as spoken (`ä¸
 
 The in-app equivalent of this notice is `EngineCatalog`: the Settings row carries the credit line
 "Paraformer-large (zh) by FunASR / FunAudioLLM", keeps the model name in its title, and links the
-model card, the model licence and the CoreML conversion. `EngineCatalogTests` asserts all four.
+model card, the model licence and the CoreML conversion. `EngineCatalogTests` asserts all four,
+and onboarding renders the same block from the same source.
 
 ![The Paraformer-large (zh) entry in Settings, before its weights are downloaded](images/settings-engine-paraformer.png)
+
+Both engines are also offered during onboarding to anyone who picks Chinese there, with the
+Chinese default recommended and the same caveats and links attached:
+
+![The onboarding model list with Chinese selected](images/onboarding-chinese-engines.png)

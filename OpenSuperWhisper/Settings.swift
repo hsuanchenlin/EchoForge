@@ -1636,73 +1636,9 @@ struct SettingsFluidAudioModels {
     ]
 }
 
-enum OnboardingModelType {
-    case whisper(url: URL, size: Int)
-    case parakeet(version: String)
-}
-
-struct OnboardingUnifiedModel: Identifiable {
-    let id = UUID()
-    let name: String
-    var isDownloaded: Bool
-    let description: String
-    let type: OnboardingModelType
-    var downloadProgress: Double = 0.0
-
-    var huggingFacePageURL: URL? {
-        switch type {
-        case .whisper(let url, _):
-            return makeHuggingFacePageURL(fromDownloadURL: url)
-        case .parakeet(let version):
-            let repo = version == "v2" ? "parakeet-tdt-0.6b-v2-coreml" : "parakeet-tdt-0.6b-v3-coreml"
-            return URL(string: "https://huggingface.co/FluidInference/\(repo)")
-        }
-    }
-}
-
-struct OnboardingUnifiedModels {
-    static let availableModels = [
-        OnboardingUnifiedModel(
-            name: "Whisper V3 Large",
-            isDownloaded: false,
-            description: "High accuracy, best quality",
-            type: .whisper(
-                url: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin?download=true")!,
-                size: 1624
-            )
-        ),
-        OnboardingUnifiedModel(
-            name: "Parakeet v3",
-            isDownloaded: false,
-            description: "Fastest processing and accurate",
-            type: .parakeet(version: "v3")
-        ),
-        OnboardingUnifiedModel(
-            name: "Parakeet v2",
-            isDownloaded: false,
-            description: "Fastest processing and English-only, higher recall",
-            type: .parakeet(version: "v2")
-        ),
-        OnboardingUnifiedModel(
-            name: "Whisper Medium",
-            isDownloaded: false,
-            description: "Balanced speed and accuracy",
-            type: .whisper(
-                url: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q8_0.bin?download=true")!,
-                size: 874
-            )
-        ),
-        OnboardingUnifiedModel(
-            name: "Whisper Small",
-            isDownloaded: false,
-            description: "Very fast processing",
-            type: .whisper(
-                url: URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin?download=true")!,
-                size: 574
-            )
-        )
-    ]
-}
+// The onboarding model list used to live here. It is
+// `OpenSuperWhisper/Onboarding/OnboardingModelCatalog.swift` now, next to the
+// screen that shows it.
 
 struct FluidAudioModelDownloadItemView: View {
     @Binding var model: SettingsFluidAudioModel
