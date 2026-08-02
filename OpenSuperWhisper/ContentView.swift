@@ -1085,8 +1085,9 @@ struct TranscriptionView: View {
             
             guard !Task.isCancelled else { return }
 
+            let highlighted = attributedString
             await MainActor.run {
-                self.highlightedAttributedString = attributedString
+                self.highlightedAttributedString = highlighted
             }
         }
     }
