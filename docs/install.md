@@ -148,7 +148,8 @@ Model licences and attribution for everything the app downloads are listed in
 
 - **"The app is damaged and can't be opened"** - this is the unsigned-build warning.
   See [First launch](#first-launch-getting-past-gatekeeper) above.
-- **Nothing gets pasted** - grant Accessibility permission, then restart the app.
+- **Nothing gets pasted** - grant Accessibility permission in System Settings, then
+  return to EchoForge; it picks up the grant on its own, no restart needed.
 - **The shortcut does nothing** - if it is a single modifier key, grant Input Monitoring.
 - **Anything else** - open an issue with your macOS version, your Mac model, and what
   you did.
