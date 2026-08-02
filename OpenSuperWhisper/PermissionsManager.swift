@@ -9,6 +9,33 @@ enum Permission {
     case inputMonitoring
 }
 
+/// The three TCC facts the permission UI reflects.
+///
+/// This exists as a protocol so the refresh and screen-transition logic can be
+/// tested: `AXIsProcessTrusted()`, `AVCaptureDevice.authorizationStatus(for:)`
+/// and `IOHIDCheckAccess` read the running process's real grants, and a test can
+/// neither grant nor revoke them. Behind this seam only the three one-line
+/// system calls in `SystemPermissionStatusReader` stay untested.
+protocol PermissionStatusReading {
+    func isMicrophoneGranted() -> Bool
+    func isAccessibilityGranted() -> Bool
+    func isInputMonitoringGranted() -> Bool
+}
+
+struct SystemPermissionStatusReader: PermissionStatusReading {
+    func isMicrophoneGranted() -> Bool {
+        AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+    }
+
+    func isAccessibilityGranted() -> Bool {
+        AXIsProcessTrusted()
+    }
+
+    func isInputMonitoringGranted() -> Bool {
+        IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
+    }
+}
+
 class PermissionsManager: ObservableObject {
     @Published var isMicrophonePermissionGranted = false
     @Published var isAccessibilityPermissionGranted = false
@@ -18,38 +45,124 @@ class PermissionsManager: ObservableObject {
     /// otherwise they flash on every settings screen open.
     @Published private(set) var hasCompletedInitialCheck = false
 
+    /// Whether the root view has to show the required-permissions screen instead
+    /// of the app.
+    ///
+    /// Microphone and Accessibility are the two the app cannot run without.
+    /// Input Monitoring is deliberately not part of it: it is only needed by the
+    /// modifier-key and mouse-button shortcut modes, so it is requested from
+    /// Settings by whoever picks one of those, and must never block everyone else.
+    var isMissingRequiredPermission: Bool {
+        hasCompletedInitialCheck
+            && !(isMicrophonePermissionGranted && isAccessibilityPermissionGranted)
+    }
+
     // TCC status queries (AVCaptureDevice.authorizationStatus, IOHIDCheckAccess)
     // are synchronous XPC round-trips to tccd taking 40-100 ms — they must
     // never run on the main thread (traces showed them dropping animation
     // frames every second while the polling timer was active).
     private let checkQueue = DispatchQueue(label: "com.opensuperwhisper.permissions", qos: .utility)
+    private let statusReader: PermissionStatusReading
     private var isCheckInFlight = false
+    /// A refresh that arrived while a check was in flight. Without it a grant
+    /// could be dropped: the in-flight check may have read tccd just before the
+    /// user flipped the switch.
+    private var hasPendingCheck = false
 
     private var permissionCheckTimer: Timer?
     private var windowObservers: [NSObjectProtocol] = []
+    private var distributedObservers: [NSObjectProtocol] = []
+    private var catchUpWorkItems: [DispatchWorkItem] = []
     /// Polling is paused for the whole indicator session (prepare → hidden):
     /// every millisecond of the main runloop there belongs to the animation.
     private var isIndicatorSessionActive = false
 
-    init() {
+    /// The system posts this when an app is added to or removed from the
+    /// Accessibility trust list, to every process, whether or not it is frontmost.
+    private static let accessibilityTrustDidChangeNotification = Notification.Name("com.apple.accessibility.api")
+
+    /// `AXIsProcessTrusted()` can still report the old value for a moment after
+    /// the trust list changes, so a refresh re-reads it a few times rather than
+    /// once. Bounded and sparse on purpose: this is a settle-in, not a poll.
+    private static let refreshCatchUpDelays: [TimeInterval] = [0.3, 1.0, 2.5]
+
+    init(statusReader: PermissionStatusReading = SystemPermissionStatusReader()) {
+        self.statusReader = statusReader
+
         checkAllPermissions()
-
-        NSWorkspace.shared.notificationCenter.addObserver(
-            self,
-            selector: #selector(accessibilityPermissionChanged),
-            name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
-            object: nil
-        )
-
+        setupSystemSettingsObservers()
         setupWindowObservers()
     }
 
     deinit {
         stopPermissionChecking()
-        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        cancelCatchUp()
         for observer in windowObservers {
             NotificationCenter.default.removeObserver(observer)
         }
+        for observer in distributedObservers {
+            DistributedNotificationCenter.default().removeObserver(observer)
+        }
+    }
+
+    /// Accessibility is the one permission granted entirely outside this app: the
+    /// user flips a switch in System Settings, and nothing calls back the way
+    /// `AVCaptureDevice.requestAccess` and `IOHIDRequestAccess` call back for
+    /// microphone and Input Monitoring. Two independent triggers stand in for
+    /// that missing callback:
+    ///
+    /// 1. `com.apple.accessibility.api`, which arrives while the app is still in
+    ///    the background, at the moment of the grant.
+    /// 2. The app becoming active again, which is what "returned from System
+    ///    Settings" actually looks like. This is the backstop, and unlike the
+    ///    idle poll below it does not depend on any window becoming key — an app
+    ///    reactivated into a closed, hidden or menu-bar-only state gets no
+    ///    `didBecomeKey`, and used to sit on the permission screen forever.
+    ///
+    /// `NSWorkspace.accessibilityDisplayOptionsDidChangeNotification` used to be
+    /// observed here instead. It is about display accommodations (Reduce Motion,
+    /// Increase Contrast) and is never posted for a trust change, so it refreshed
+    /// nothing.
+    private func setupSystemSettingsObservers() {
+        let trustObserver = DistributedNotificationCenter.default().addObserver(
+            forName: Self.accessibilityTrustDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshAfterPossibleSystemSettingsChange()
+        }
+        distributedObservers = [trustObserver]
+
+        let activationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.refreshAfterPossibleSystemSettingsChange()
+        }
+        windowObservers.append(activationObserver)
+    }
+
+    /// Re-reads every permission now, then again a few times, because the grant
+    /// this is reacting to may not be visible to TCC yet.
+    func refreshAfterPossibleSystemSettingsChange() {
+        cancelCatchUp()
+        checkAllPermissions()
+
+        for delay in Self.refreshCatchUpDelays {
+            let item = DispatchWorkItem { [weak self] in
+                self?.checkAllPermissions()
+            }
+            catchUpWorkItems.append(item)
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: item)
+        }
+    }
+
+    private func cancelCatchUp() {
+        for item in catchUpWorkItems {
+            item.cancel()
+        }
+        catchUpWorkItems.removeAll()
     }
 
     private func setupWindowObservers() {
@@ -93,8 +206,8 @@ class PermissionsManager: ObservableObject {
             self?.isIndicatorSessionActive = false
         }
 
-        windowObservers = [showObserver, closeObserver, hideObserver,
-                           indicatorShowObserver, indicatorHideObserver]
+        windowObservers.append(contentsOf: [showObserver, closeObserver, hideObserver,
+                                            indicatorShowObserver, indicatorHideObserver])
 
         if let window = NSApplication.shared.mainWindow, window.isKeyWindow {
             startPermissionChecking()
@@ -103,6 +216,9 @@ class PermissionsManager: ObservableObject {
 
     private func startPermissionChecking() {
         guard permissionCheckTimer == nil else { return }
+        // A grant can land while the window is not key, so the window becoming
+        // key is itself a reason to re-read rather than to wait out the interval.
+        checkAllPermissions()
         permissionCheckTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self = self, !self.isIndicatorSessionActive else { return }
             self.checkAllPermissions()
@@ -115,13 +231,17 @@ class PermissionsManager: ObservableObject {
     }
 
     private func checkAllPermissions() {
-        guard !isCheckInFlight else { return }
+        guard !isCheckInFlight else {
+            hasPendingCheck = true
+            return
+        }
         isCheckInFlight = true
 
+        let reader = statusReader
         checkQueue.async { [weak self] in
-            let microphone = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
-            let accessibility = AXIsProcessTrusted()
-            let inputMonitoring = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
+            let microphone = reader.isMicrophoneGranted()
+            let accessibility = reader.isAccessibilityGranted()
+            let inputMonitoring = reader.isInputMonitoringGranted()
 
             DispatchQueue.main.async {
                 guard let self = self else { return }
@@ -130,13 +250,19 @@ class PermissionsManager: ObservableObject {
                 self.isAccessibilityPermissionGranted = accessibility
                 self.isInputMonitoringPermissionGranted = inputMonitoring
                 self.hasCompletedInitialCheck = true
+
+                if self.hasPendingCheck {
+                    self.hasPendingCheck = false
+                    self.checkAllPermissions()
+                }
             }
         }
     }
 
     func checkMicrophonePermission() {
+        let reader = statusReader
         checkQueue.async { [weak self] in
-            let granted = AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+            let granted = reader.isMicrophoneGranted()
             DispatchQueue.main.async {
                 self?.isMicrophonePermissionGranted = granted
             }
@@ -144,8 +270,9 @@ class PermissionsManager: ObservableObject {
     }
 
     func checkAccessibilityPermission() {
+        let reader = statusReader
         checkQueue.async { [weak self] in
-            let granted = AXIsProcessTrusted()
+            let granted = reader.isAccessibilityGranted()
             DispatchQueue.main.async {
                 self?.isAccessibilityPermissionGranted = granted
             }
@@ -153,8 +280,9 @@ class PermissionsManager: ObservableObject {
     }
 
     func checkInputMonitoringPermission() {
+        let reader = statusReader
         checkQueue.async { [weak self] in
-            let granted = IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
+            let granted = reader.isInputMonitoringGranted()
             DispatchQueue.main.async {
                 self?.isInputMonitoringPermissionGranted = granted
             }
@@ -162,7 +290,7 @@ class PermissionsManager: ObservableObject {
     }
 
     func requestAccessibilityPermissionOrOpenSystemPreferences() {
-        if AXIsProcessTrusted() {
+        if statusReader.isAccessibilityGranted() {
             isAccessibilityPermissionGranted = true
         } else {
             openSystemPreferences(for: .accessibility)
@@ -201,10 +329,6 @@ class PermissionsManager: ObservableObject {
         default:
             openSystemPreferences(for: .microphone)
         }
-    }
-
-    @objc private func accessibilityPermissionChanged() {
-        checkAccessibilityPermission()
     }
 
     func openSystemPreferences(for permission: Permission) {
