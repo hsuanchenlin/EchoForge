@@ -21,16 +21,31 @@ OpenSuperWhisper is a macOS application that provides real-time audio transcript
 
 ## Installation
 
+### This fork (includes the Chinese engines)
+
+Download `OpenSuperWhisper.dmg` from
+[this fork's releases page](https://github.com/hsuanchenlin/OpenSuperWhisper/releases),
+drag the app into `Applications`, then right-click it and choose **Open** the first time -
+these builds are unsigned, so macOS blocks a normal double-click until you do.
+
+**[Full install and usage guide → docs/install.md](docs/install.md)** covers the Gatekeeper
+warning and both ways around it, the permissions macOS asks for, how to dictate Chinese
+with SenseVoice-Small or Paraformer-large, and the basics of recording and pasting.
+
+### Upstream builds
+
 ```shell
 brew update # Optional
 brew install opensuperwhisper
 ```
 
-Or from [GitHub releases page](https://github.com/Starmel/OpenSuperWhisper/releases).
+Or from the [upstream GitHub releases page](https://github.com/Starmel/OpenSuperWhisper/releases).
+These are signed and notarized, and do not include this fork's changes.
 
 ## Requirements
 
-- macOS (Apple Silicon/ARM64)
+- macOS 14 (Sonoma) or later
+- Apple Silicon/ARM64
 
 ## Support
 
