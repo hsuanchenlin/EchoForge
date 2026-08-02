@@ -111,6 +111,17 @@ bundle identifier is load-bearing user data - changing it hands every user an em
 EchoForge rename did exactly that once, on purpose (it is what lets an upstream install stay), and
 `docs/install.md` tells users what they lose and how to copy it across. Do not change it again.
 
+## Permissions
+
+`OpenSuperWhisper/PermissionsManager.swift` owns the permission state the root view switches on.
+`isMissingRequiredPermission` is that switch: microphone and Accessibility only - Input Monitoring
+is conditional on the shortcut mode and must never gate the app. Accessibility is the one grant
+made entirely outside the app, with no completion handler to hang off the way microphone and Input
+Monitoring have; the file documents the triggers that stand in for one and why the obvious-looking
+`NSWorkspace` notification is not among them. Statuses are read through `PermissionStatusReading`
+so the refresh and transition logic is testable at all - `PermissionsManagerRefreshTests` pins it,
+and the real TCC calls are exactly what that seam leaves out.
+
 ## Maintaining this file
 
 Keep this file for knowledge useful to almost every future agent session in this project.

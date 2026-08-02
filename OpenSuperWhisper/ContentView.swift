@@ -329,10 +329,7 @@ struct ContentView: View {
 
     var body: some View {
         VStack {
-            if permissionsManager.hasCompletedInitialCheck,
-               !permissionsManager.isMicrophonePermissionGranted
-                || !permissionsManager.isAccessibilityPermissionGranted
-            {
+            if permissionsManager.isMissingRequiredPermission {
                 PermissionsView(permissionsManager: permissionsManager)
             } else {
                 VStack(spacing: 0) {
@@ -679,7 +676,9 @@ struct PermissionsView: View {
                 isGranted: permissionsManager.isAccessibilityPermissionGranted,
                 title: "Accessibility Access",
                 description: "Required for global keyboard shortcuts",
-                action: { permissionsManager.openSystemPreferences(for: .accessibility) }
+                action: {
+                    permissionsManager.requestAccessibilityPermissionOrOpenSystemPreferences()
+                }
             )
 
             Spacer()
@@ -1085,9 +1084,10 @@ struct TranscriptionView: View {
             }
             
             guard !Task.isCancelled else { return }
-            
+
+            let highlighted = attributedString
             await MainActor.run {
-                self.highlightedAttributedString = attributedString
+                self.highlightedAttributedString = highlighted
             }
         }
     }
