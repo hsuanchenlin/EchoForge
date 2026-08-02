@@ -11,6 +11,18 @@ Submodules are required before anything builds - a fresh clone or worktree needs
 then `xcodebuild`); `./run.sh` also launches the app. CI runs exactly `./run.sh build`
 (`.github/workflows/build.yml`) and does not run tests.
 
+## Release
+
+`notarize_app.sh` (and `make_release.sh`, which calls it) needs a "Developer ID Application"
+certificate and a `notarytool` keychain profile. This fork does not have either, so its
+releases are unsigned and unnotarized and users have to get past Gatekeeper by hand.
+`docs/install.md` is the one end-user home for that: install path, the two Gatekeeper
+workarounds, permissions, and how to use the Chinese engines. The README links to it and
+must not grow a second copy. Per-release notes live in `docs/release-notes/vX.Y.Z.md` and
+are what the GitHub release body is created from. Version bumps go in `MARKETING_VERSION`
+in `OpenSuperWhisper.xcodeproj/project.pbxproj`, which carries it once per target and
+configuration - keep all of them in step.
+
 ## Tests
 
 ```
