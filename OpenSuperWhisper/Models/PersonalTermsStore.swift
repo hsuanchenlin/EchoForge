@@ -29,7 +29,7 @@ final class PersonalTermsStore {
             for: .applicationSupportDirectory, in: .userDomainMask
         ).first!
         let appDirectory = applicationSupport.appendingPathComponent(
-            Bundle.main.bundleIdentifier ?? "OpenSuperWhisper"
+            Bundle.main.bundleIdentifier ?? "EchoForge"
         )
         return appDirectory.appendingPathComponent("terms.json")
     }

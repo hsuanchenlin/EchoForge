@@ -89,7 +89,7 @@ Agreement](https://github.com/modelscope/FunASR/blob/main/MODEL_LICENSE) v1.1, w
 commercial use but requires that you **attribute the source and author and retain the model
 name**. The two readings are not identical, and the stricter one costs nothing to satisfy, so
 this project satisfies it: the model is named and credited here, and any user-facing name for
-this engine must keep "Paraformer" in it rather than rebranding it to an OpenSuperWhisper-only
+this engine must keep "Paraformer" in it rather than rebranding it to an EchoForge-only
 label.
 
 This engine also writes **Simplified** Chinese and spells numbers as spoken (`三点二十分`, not

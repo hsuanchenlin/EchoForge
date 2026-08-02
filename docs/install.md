@@ -1,8 +1,12 @@
-# Install and use OpenSuperWhisper
+# Install and use EchoForge
 
 This guide is for people who just want to use the app. It covers installing the build
 published on this fork, getting past the macOS security warning that build triggers,
 dictating Chinese, and the day-to-day basics.
+
+EchoForge is a renamed fork of OpenSuperWhisper. The GitHub repository is still called
+OpenSuperWhisper, and releases 0.2.0 and earlier were published under that name; the app
+itself is EchoForge from here on.
 
 ## What you need
 
@@ -17,22 +21,43 @@ Everything runs on your Mac. No audio is sent anywhere.
 ## Install from this fork's releases
 
 1. Open the [releases page for this fork](https://github.com/hsuanchenlin/OpenSuperWhisper/releases)
-   and download `OpenSuperWhisper.dmg` from the newest release.
-2. Double-click the downloaded `.dmg`. A window opens showing `OpenSuperWhisper.app`.
-3. Drag `OpenSuperWhisper.app` into your `Applications` folder. Running the app from
+   and download `EchoForge.dmg` from the newest release (releases 0.2.0 and earlier ship
+   `OpenSuperWhisper.dmg` instead - same app, older name).
+2. Double-click the downloaded `.dmg`. A window opens showing `EchoForge.app`.
+3. Drag `EchoForge.app` into your `Applications` folder. Running the app from
    inside the mounted disk image works badly, so move it out first.
 4. Eject the disk image (drag it to the Trash, or press ⌘E in Finder).
 
 Builds from the upstream project are a separate thing: they are published on the
 [Starmel releases page](https://github.com/Starmel/OpenSuperWhisper/releases) and via
-`brew install opensuperwhisper`. Those do not include this fork's changes.
+`brew install opensuperwhisper`. Those do not include this fork's changes. EchoForge has
+its own application identifier, so it installs next to an upstream OpenSuperWhisper rather
+than replacing it, and the two keep separate settings, recordings and downloaded models.
+
+### Coming from an OpenSuperWhisper build (0.2.0 or earlier)
+
+EchoForge is a new application as far as macOS is concerned, and everything the app stores
+lives in a folder named after that identity
+(`~/Library/Application Support/com.hsuanchenlin.EchoForge/`, where the old build used
+`~/Library/Application Support/ru.starmel.OpenSuperWhisper/`). So on first launch you get:
+
+- the welcome screen again, and your settings back at their defaults;
+- an empty recordings history and an empty personal terms dictionary;
+- no models, so the one you want has to be downloaded once more.
+
+Nothing is deleted - the old app keeps its own folder, and both apps can stay installed.
+To carry your recordings, personal terms and downloaded models over instead of starting
+fresh, quit both apps and copy the contents of the old folder into the new one, then
+relaunch EchoForge. Settings are not in that folder (macOS keeps them per app elsewhere),
+so those are worth setting again by hand. macOS also asks for Microphone, Accessibility
+and Input Monitoring permission again, because those grants are per app too.
 
 ## First launch: getting past Gatekeeper
 
 Builds on this fork are **not signed with an Apple Developer ID and not notarized**.
 macOS therefore refuses to open the app on the first try, with a message like
-"OpenSuperWhisper.app is damaged and can't be opened" or "Apple could not verify
-OpenSuperWhisper is free of malware". Nothing is wrong with the download; macOS is
+"EchoForge.app is damaged and can't be opened" or "Apple could not verify
+EchoForge is free of malware". Nothing is wrong with the download; macOS is
 telling you it cannot check who built it.
 
 Use either workaround. You only have to do it once.
@@ -40,21 +65,21 @@ Use either workaround. You only have to do it once.
 ### Option 1: right-click to open (no Terminal)
 
 1. Open your `Applications` folder in Finder.
-2. Right-click (or Control-click) `OpenSuperWhisper.app` and choose **Open**.
+2. Right-click (or Control-click) `EchoForge.app` and choose **Open**.
 3. In the dialog that appears, click **Open** again.
 
 Double-clicking the app normally works from then on.
 
 If macOS shows no **Open** button at all, open **System Settings → Privacy & Security**,
 scroll to the Security section, and click **Open Anyway** next to the message about
-OpenSuperWhisper. Then use option 2 if it still refuses.
+EchoForge. Then use option 2 if it still refuses.
 
 ### Option 2: remove the quarantine flag (Terminal)
 
 Open Terminal and run:
 
 ```shell
-xattr -d com.apple.quarantine /Applications/OpenSuperWhisper.app
+xattr -d com.apple.quarantine /Applications/EchoForge.app
 ```
 
 If you put the app somewhere other than `/Applications`, use that path instead. Then

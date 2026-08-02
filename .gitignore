@@ -120,6 +120,7 @@ default.profraw
 *.profraw
 *.dmg
 .cursorrules
+EchoForge.dmg.sha256
 OpenSuperWhisper.dmg.sha256
 dev_config.json
 

@@ -2,6 +2,26 @@
 
 This file is the project's committed home for project-intrinsic agent knowledge: build, test, release, architecture, and sharp-edge notes that should travel with the code.
 
+## Naming
+
+The shipped app is **EchoForge** (`com.hsuanchenlin.EchoForge`); the repository, Xcode project,
+targets, source directories and the Swift module are still `OpenSuperWhisper`. That split is
+deliberate: the product carries the fork's own identity, while the code keeps upstream's paths so
+merges from `Starmel/OpenSuperWhisper` stay clean. So `PRODUCT_NAME` is `EchoForge` with
+`PRODUCT_MODULE_NAME` pinned to `OpenSuperWhisper` (that is what `@testable import
+OpenSuperWhisper` binds to), and the scheme and `-only-testing:` arguments below keep the old
+names. `OpenSuperWhisperTests/AppIdentityTests.swift` pins the user-facing side of it - bundle
+identifier, display name, permission strings, and that the icon ships with every size.
+
+Renaming reached the product, not the models or the upstream credit: engine and model names are
+constrained by their licences (see `docs/speech-model-attribution.md`), and the README and LICENSE
+keep upstream's attribution.
+
+The app icon is generated, not hand-drawn: `Scripts/GenerateAppIcon.swift` is the vector source and
+`Scripts/generate_app_icon.sh` renders `OpenSuperWhisper/AppIcon.icns` from it. The `.icns` is
+committed, so builds never run the script. `CFBundleIconFile` in the Info.plist is what loads it;
+there is no `AppIcon.appiconset`.
+
 ## Build
 
 Submodules are required before anything builds - a fresh clone or worktree needs
@@ -85,6 +105,11 @@ edit an applied one, since the identifier is what decides whether a user's datab
 `terms.json` beside it is the second store: the personal terms dictionary, deliberately a plain
 hand-editable file outside the database because it has a different lifecycle and must not be
 touched by the recordings retention policy. See `docs/personal-terms.md`.
+
+Both live in `~/Library/Application Support/<bundle id>/`, along with downloaded models, so the
+bundle identifier is load-bearing user data - changing it hands every user an empty app. The
+EchoForge rename did exactly that once, on purpose (it is what lets an upstream install stay), and
+`docs/install.md` tells users what they lose and how to copy it across. Do not change it again.
 
 ## Maintaining this file
 

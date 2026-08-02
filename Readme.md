@@ -1,6 +1,11 @@
-# OpenSuperWhisper
+# EchoForge
 
-OpenSuperWhisper is a macOS application that provides real-time audio transcription using on-device speech models. It offers a seamless way to record and transcribe audio with customizable settings and keyboard shortcuts.
+EchoForge is a macOS application that provides real-time audio transcription using on-device speech models. It offers a seamless way to record and transcribe audio with customizable settings and keyboard shortcuts.
+
+It is a fork of [OpenSuperWhisper](https://github.com/Starmel/OpenSuperWhisper) - which this
+repository is still named after - renamed and given its own bundle identifier
+(`com.hsuanchenlin.EchoForge`) so it installs and runs alongside an upstream build instead of
+replacing it. Releases from 0.2.0 and earlier were published under the old name.
 
 <p align="center">
 <img src="docs/image.png" width="400" /> <img src="docs/image_indicator.png" width="400" />
@@ -21,12 +26,13 @@ OpenSuperWhisper is a macOS application that provides real-time audio transcript
 
 ## Installation
 
-### This fork (includes the Chinese engines)
+### EchoForge (this fork, includes the Chinese engines)
 
-Download `OpenSuperWhisper.dmg` from
-[this fork's releases page](https://github.com/hsuanchenlin/OpenSuperWhisper/releases),
-drag the app into `Applications`, then right-click it and choose **Open** the first time -
-these builds are unsigned, so macOS blocks a normal double-click until you do.
+Download the newest `.dmg` from
+[this fork's releases page](https://github.com/hsuanchenlin/OpenSuperWhisper/releases)
+(`EchoForge.dmg`, or `OpenSuperWhisper.dmg` for 0.2.0 and earlier), drag the app into
+`Applications`, then right-click it and choose **Open** the first time - these builds are
+unsigned, so macOS blocks a normal double-click until you do.
 
 **[Full install and usage guide → docs/install.md](docs/install.md)** covers the Gatekeeper
 warning and both ways around it, the permissions macOS asks for, how to dictate Chinese
@@ -40,7 +46,10 @@ brew install opensuperwhisper
 ```
 
 Or from the [upstream GitHub releases page](https://github.com/Starmel/OpenSuperWhisper/releases).
-These are signed and notarized, and do not include this fork's changes.
+These are signed and notarized, and do not include this fork's changes. They install as
+`OpenSuperWhisper.app` under `ru.starmel.OpenSuperWhisper`, so an upstream install and an
+EchoForge install can sit side by side; each keeps its own settings, recordings and
+downloaded models.
 
 ## Requirements
 
@@ -58,7 +67,7 @@ If you encounter any issues or have questions, please:
 
 To build locally, you'll need:
 
-    git clone git@github.com:Starmel/OpenSuperWhisper.git
+    git clone git@github.com:hsuanchenlin/OpenSuperWhisper.git
     cd OpenSuperWhisper
     git submodule update --init --recursive
     brew install cmake libomp rust ruby
@@ -83,7 +92,8 @@ Contributions are welcome! Please feel free to submit pull requests or create is
 
 ## License
 
-OpenSuperWhisper is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+EchoForge is licensed under the MIT License, inherited from OpenSuperWhisper, whose
+copyright notice it keeps. See the [LICENSE](LICENSE) file for details.
 
 Speech models are downloaded at runtime and carry their own licences and attribution
 requirements. See [docs/speech-model-attribution.md](docs/speech-model-attribution.md).

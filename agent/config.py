@@ -22,7 +22,7 @@ FORK_REMOTE = "fork"
 # CA bundle used by aider's HTTP client (this Python build ships without one).
 CA_BUNDLE = "/etc/ssl/cert.pem"
 
-BUILD_APP_PATH = REPO_ROOT / "build" / "Build" / "Products" / "Debug" / "OpenSuperWhisper.app"
+BUILD_APP_PATH = REPO_ROOT / "build" / "Build" / "Products" / "Debug" / "EchoForge.app"
 ISSUES_DIR = REPO_ROOT / "issues"
 LOG_DIR = AGENT_DIR / "logs"
 
