@@ -2,10 +2,10 @@
 set -e
 
 # === Configuration Variables ===
-APP_NAME="OpenSuperWhisper"                                   
-APP_PATH="./build/Build/Products/Release/OpenSuperWhisper.app"                        
-ZIP_PATH="./build/OpenSuperWhisper.zip"                        
-BUNDLE_ID="ru.starmel.OpenSuperWhisper"                       
+APP_NAME="EchoForge"                                   
+APP_PATH="./build/Build/Products/Release/EchoForge.app"                        
+ZIP_PATH="./build/EchoForge.zip"                        
+BUNDLE_ID="com.hsuanchenlin.EchoForge"                       
 KEYCHAIN_PROFILE="Slava"
 CODE_SIGN_IDENTITY="${1}"
 DEVELOPMENT_TEAM="8LLDD7HWZK"
