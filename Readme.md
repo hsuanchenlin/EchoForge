@@ -3,9 +3,9 @@
 EchoForge is a macOS application that provides real-time audio transcription using on-device speech models. It offers a seamless way to record and transcribe audio with customizable settings and keyboard shortcuts.
 
 It is a fork of [OpenSuperWhisper](https://github.com/Starmel/OpenSuperWhisper) - which this
-repository is still named after - renamed and given its own bundle identifier
-(`com.hsuanchenlin.EchoForge`) so it installs and runs alongside an upstream build instead of
-replacing it. Releases from 0.2.0 and earlier were published under the old name.
+repository's source directories are still named after - renamed and given its own bundle
+identifier (`com.hsuanchenlin.EchoForge`) so it installs and runs alongside an upstream build
+instead of replacing it.
 
 <p align="center">
 <img src="docs/image.png" width="400" /> <img src="docs/image_indicator.png" width="400" />
@@ -30,9 +30,9 @@ replacing it. Releases from 0.2.0 and earlier were published under the old name.
 
 Download the newest `.dmg` from
 [this fork's releases page](https://github.com/hsuanchenlin/OpenSuperWhisper/releases)
-(`EchoForge.dmg`, or `OpenSuperWhisper.dmg` for 0.2.0 and earlier), drag the app into
-`Applications`, then right-click it and choose **Open** the first time - these builds are
-unsigned, so macOS blocks a normal double-click until you do.
+(`EchoForge.dmg`), drag the app into `Applications`, then right-click it and choose
+**Open** the first time - these builds are unsigned, so macOS blocks a normal
+double-click until you do.
 
 **[Full install and usage guide → docs/install.md](docs/install.md)** covers the Gatekeeper
 warning and both ways around it, the permissions macOS asks for, how to dictate Chinese

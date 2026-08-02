@@ -4,9 +4,8 @@ This guide is for people who just want to use the app. It covers installing the 
 published on this fork, getting past the macOS security warning that build triggers,
 dictating Chinese, and the day-to-day basics.
 
-EchoForge is a renamed fork of OpenSuperWhisper. The GitHub repository is still called
-OpenSuperWhisper, and releases 0.2.0 and earlier were published under that name; the app
-itself is EchoForge from here on.
+EchoForge is a renamed fork of OpenSuperWhisper. The upstream project it came from keeps
+the old name, and so do this repository's source directories; the app itself is EchoForge.
 
 ## What you need
 
@@ -21,8 +20,7 @@ Everything runs on your Mac. No audio is sent anywhere.
 ## Install from this fork's releases
 
 1. Open the [releases page for this fork](https://github.com/hsuanchenlin/OpenSuperWhisper/releases)
-   and download `EchoForge.dmg` from the newest release (releases 0.2.0 and earlier ship
-   `OpenSuperWhisper.dmg` instead - same app, older name).
+   and download `EchoForge.dmg` from the newest release.
 2. Double-click the downloaded `.dmg`. A window opens showing `EchoForge.app`.
 3. Drag `EchoForge.app` into your `Applications` folder. Running the app from
    inside the mounted disk image works badly, so move it out first.
@@ -34,7 +32,7 @@ Builds from the upstream project are a separate thing: they are published on the
 its own application identifier, so it installs next to an upstream OpenSuperWhisper rather
 than replacing it, and the two keep separate settings, recordings and downloaded models.
 
-### Coming from an OpenSuperWhisper build (0.2.0 or earlier)
+### Coming from an upstream OpenSuperWhisper build
 
 EchoForge is a new application as far as macOS is concerned, and everything the app stores
 lives in a folder named after that identity
