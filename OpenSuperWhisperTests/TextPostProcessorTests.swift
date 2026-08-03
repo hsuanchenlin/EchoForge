@@ -185,7 +185,7 @@ final class TextPostProcessorTests: XCTestCase {
     func testProcess_defaultsToApplyingSafeCorrection() {
         // The toggle is on out of the box and depends on nothing: no model, no
         // network, no macOS version. Reading the unset default is the assertion.
-        UserDefaults.standard.removeObject(forKey: "safeCorrectionEnabled")
+        PreferenceStore.defaults.removeObject(forKey: "safeCorrectionEnabled")
 
         XCTAssertTrue(AppPreferences.shared.safeCorrectionEnabled)
         XCTAssertTrue(Settings().safeCorrectionEnabled)

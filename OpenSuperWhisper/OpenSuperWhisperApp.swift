@@ -97,6 +97,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !OpenSuperWhisperApp.isRunningTests else { return }
 
+        // Before anything constructs an engine - `warmUp()` below does - so an
+        // install left with no usable engine is repaired against what is
+        // actually downloaded rather than failing at the user's first dictation.
+        EngineConfiguration.recoverIfNeeded()
+
         setupStatusBarItem()
 
         // The WindowGroup window usually does not exist yet at this point:

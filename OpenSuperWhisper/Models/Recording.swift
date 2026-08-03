@@ -218,6 +218,42 @@ class RecordingStore: ObservableObject {
         }
     }
     
+    /// Keeps a dictation the app was unable to transcribe, with the reason.
+    ///
+    /// The audio belongs to the user, and a failure to load an engine used to
+    /// take it with it: the temporary file was deleted and the only trace was a
+    /// line on the console. Kept as a `.failed` recording it stays in history
+    /// carrying the message, next to the regenerate button that will transcribe
+    /// it once the thing the message asks for is done.
+    ///
+    /// Returns `nil` only if the audio could not be moved into place, in which
+    /// case there is nothing to show and the caller has already reported the
+    /// failure itself.
+    @discardableResult
+    func keepFailedDictation(temporaryURL: URL, duration: TimeInterval, reason: String) -> Recording? {
+        let timestamp = Date()
+        let recording = Recording(
+            id: UUID(),
+            timestamp: timestamp,
+            fileName: "\(Int(timestamp.timeIntervalSince1970)).wav",
+            transcription: reason,
+            duration: duration,
+            status: .failed,
+            progress: 0.0,
+            sourceFileURL: nil
+        )
+
+        do {
+            try AudioRecorder.shared.moveTemporaryRecording(from: temporaryURL, to: recording.url)
+        } catch {
+            print("Failed to keep untranscribed dictation: \(error)")
+            return nil
+        }
+
+        addRecording(recording)
+        return recording
+    }
+
     func addRecordingSync(_ recording: Recording) async throws {
         try await insertRecording(recording)
         await MainActor.run {

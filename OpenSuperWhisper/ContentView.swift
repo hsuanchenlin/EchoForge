@@ -25,7 +25,13 @@ class ContentViewModel: ObservableObject {
     @Published var recordingDuration: TimeInterval = 0
     @Published var microphoneService = MicrophoneService.shared
     @Published var shouldClearSearch = false
-    
+
+    /// Mirrored out of `TranscriptionService` rather than read through it:
+    /// SwiftUI does not republish a nested `ObservableObject`, so a banner
+    /// driven straight off `transcriptionService.isEngineConfigured` would only
+    /// appear the next time something else redrew this view.
+    @Published var isEngineConfigured = true
+
     private var currentPage = 0
     private let pageSize = 100
     private var currentSearchQuery = ""
@@ -62,6 +68,13 @@ class ContentViewModel: ObservableObject {
                     self.stopDurationTimer()
                     self.recordingDuration = 0
                 }
+            }
+            .store(in: &cancellables)
+
+        transcriptionService.$isEngineConfigured
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isConfigured in
+                self?.isEngineConfigured = isConfigured
             }
             .store(in: &cancellables)
     }
@@ -186,9 +199,9 @@ class ContentViewModel: ObservableObject {
             guard let self = self else { return }
             
             if let tempURL = await self.recorder.stopRecording() {
+                let duration = await AudioUtil.audioDuration(url: tempURL)
                 do {
                     print("start decoding...")
-                    let duration = await AudioUtil.audioDuration(url: tempURL)
                     let text = try await transcriptionService.transcribeAudio(url: tempURL, settings: Settings())
 
                     if text.isEmpty {
@@ -225,7 +238,25 @@ class ContentViewModel: ObservableObject {
                     }
                 } catch {
                     print("Error transcribing audio: \(error)")
-                    try? FileManager.default.removeItem(at: tempURL)
+
+                    switch DictationFailureOutcome.forError(error) {
+                    case .keep(let reason, _):
+                        // The recording lands in the list carrying the reason;
+                        // the banner above says what to do about it, and the
+                        // row's regenerate button transcribes it once that is
+                        // done.
+                        await MainActor.run {
+                            if let kept = self.recordingStore.keepFailedDictation(
+                                temporaryURL: tempURL,
+                                duration: duration,
+                                reason: reason
+                            ) {
+                                self.recordings.insert(kept, at: 0)
+                            }
+                        }
+                    case .discard:
+                        try? FileManager.default.removeItem(at: tempURL)
+                    }
                 }
 
                 await MainActor.run {
@@ -484,6 +515,16 @@ struct ContentView: View {
                     }
 
                     VStack(spacing: 16) {
+                        // Above the record button rather than in place of it:
+                        // recording still works and the audio is kept, it just
+                        // cannot be turned into text yet.
+                        if !viewModel.isEngineConfigured {
+                            EngineUnavailableBanner {
+                                isSettingsPresented = true
+                            }
+                            .padding(.top, 12)
+                        }
+
                         Button(action: {
                             if viewModel.isRecording {
                                 viewModel.startDecoding()
@@ -651,6 +692,48 @@ struct ContentView: View {
                 viewModel.shouldClearSearch = false
             }
         }
+    }
+}
+
+/// The main window's statement that nothing can transcribe, and the one action
+/// that fixes it.
+///
+/// The dictation indicator has room for four words and a recording that failed
+/// has room for a sentence; this is where the user is actually looking, so this
+/// is where the button lives.
+struct EngineUnavailableBanner: View {
+    let openSettings: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.orange)
+                .imageScale(.medium)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("No transcription engine is set up")
+                    .font(.subheadline.weight(.semibold))
+
+                Text("Recordings are kept, but nothing is transcribed until you choose one.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 8)
+
+            Button("Open Settings", action: openSettings)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        }
+        .padding(12)
+        .background(Color.orange.opacity(colorScheme == .dark ? 0.12 : 0.10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.orange.opacity(0.35), lineWidth: 1)
+        )
+        .cornerRadius(10)
     }
 }
 

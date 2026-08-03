@@ -138,25 +138,12 @@ final class EngineKindFactoryTests: XCTestCase {
     }
 }
 
-final class SelectedEnginePreferenceTests: XCTestCase {
+/// Runs against a throwaway defaults suite: these rewrite `selectedEngine`,
+/// which the parallel test hosts read while building view models - see
+/// `IsolatedPreferencesTestCase`.
+final class SelectedEnginePreferenceTests: IsolatedPreferencesTestCase {
 
     private let key = "selectedEngine"
-    private var originalValue: Any?
-
-    override func setUp() {
-        super.setUp()
-        originalValue = UserDefaults.standard.object(forKey: key)
-        UserDefaults.standard.removeObject(forKey: key)
-    }
-
-    override func tearDown() {
-        if let originalValue {
-            UserDefaults.standard.set(originalValue, forKey: key)
-        } else {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-        super.tearDown()
-    }
 
     func testSelectedEngine_defaultsToWhisper() {
         XCTAssertEqual(AppPreferences.shared.selectedEngine, .whisper)
@@ -165,21 +152,21 @@ final class SelectedEnginePreferenceTests: XCTestCase {
     func testSelectedEngine_persistsAsAPlainString() {
         AppPreferences.shared.selectedEngine = .fluidaudio
 
-        XCTAssertEqual(UserDefaults.standard.string(forKey: key), "fluidaudio",
+        XCTAssertEqual(PreferenceStore.defaults.string(forKey: key), "fluidaudio",
                        "The stored format must stay the bare tag older builds wrote")
         XCTAssertEqual(AppPreferences.shared.selectedEngine, .fluidaudio)
     }
 
     func testSelectedEngine_readsStringsWrittenByEarlierBuilds() {
-        UserDefaults.standard.set("fluidaudio", forKey: key)
+        PreferenceStore.defaults.set("fluidaudio", forKey: key)
         XCTAssertEqual(AppPreferences.shared.selectedEngine, .fluidaudio)
 
-        UserDefaults.standard.set("whisper", forKey: key)
+        PreferenceStore.defaults.set("whisper", forKey: key)
         XCTAssertEqual(AppPreferences.shared.selectedEngine, .whisper)
     }
 
     func testSelectedEngine_unknownStoredValue_readsAsWhisper() {
-        UserDefaults.standard.set("qwen3", forKey: key)
+        PreferenceStore.defaults.set("qwen3", forKey: key)
         XCTAssertEqual(AppPreferences.shared.selectedEngine, .whisper)
     }
 
@@ -187,7 +174,7 @@ final class SelectedEnginePreferenceTests: XCTestCase {
     /// this build - neither has a picker entry yet.
     func testSelectedEngine_chineseEngineStoredByHand_isHonoured() {
         for kind in [EngineKind.paraformer, .sensevoice] {
-            UserDefaults.standard.set(kind.rawValue, forKey: key)
+            PreferenceStore.defaults.set(kind.rawValue, forKey: key)
             XCTAssertEqual(AppPreferences.shared.selectedEngine, kind)
         }
     }
@@ -195,14 +182,14 @@ final class SelectedEnginePreferenceTests: XCTestCase {
     /// Being the Chinese default is not being the app default: a fresh install
     /// with no stored preference still gets Whisper.
     func testSelectedEngine_noChineseEngineIsTheAppDefault() {
-        UserDefaults.standard.removeObject(forKey: key)
+        PreferenceStore.defaults.removeObject(forKey: key)
         XCTAssertNotEqual(AppPreferences.shared.selectedEngine, .paraformer)
         XCTAssertNotEqual(AppPreferences.shared.selectedEngine, .sensevoice)
         XCTAssertEqual(AppPreferences.shared.selectedEngine, .whisper)
     }
 
     func testSelectedEngine_nonStringStoredValue_readsAsWhisper() {
-        UserDefaults.standard.set(42, forKey: key)
+        PreferenceStore.defaults.set(42, forKey: key)
         XCTAssertEqual(AppPreferences.shared.selectedEngine, .whisper)
     }
 
@@ -252,10 +239,10 @@ final class TranscriptionProgressForwardingTests: XCTestCase {
         // `TranscriptionService.init` loads whatever engine the host machine has
         // selected. Pin it to Whisper with no model so the load fails fast
         // instead of downloading Parakeet weights from the network.
-        originalEngine = UserDefaults.standard.object(forKey: engineKey)
-        originalModelPath = UserDefaults.standard.object(forKey: modelPathKey)
-        UserDefaults.standard.set("whisper", forKey: engineKey)
-        UserDefaults.standard.removeObject(forKey: modelPathKey)
+        originalEngine = PreferenceStore.defaults.object(forKey: engineKey)
+        originalModelPath = PreferenceStore.defaults.object(forKey: modelPathKey)
+        PreferenceStore.defaults.set("whisper", forKey: engineKey)
+        PreferenceStore.defaults.removeObject(forKey: modelPathKey)
     }
 
     override func tearDown() {
@@ -266,9 +253,9 @@ final class TranscriptionProgressForwardingTests: XCTestCase {
 
     private func restore(_ value: Any?, forKey key: String) {
         if let value {
-            UserDefaults.standard.set(value, forKey: key)
+            PreferenceStore.defaults.set(value, forKey: key)
         } else {
-            UserDefaults.standard.removeObject(forKey: key)
+            PreferenceStore.defaults.removeObject(forKey: key)
         }
     }
 

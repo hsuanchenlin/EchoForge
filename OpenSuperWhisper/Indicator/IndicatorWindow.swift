@@ -2,13 +2,39 @@ import Cocoa
 import Combine
 import SwiftUI
 
-enum RecordingState {
+enum RecordingState: Equatable {
     case idle
     case connecting
     case recording
     case decoding
     case busy
     case noMicrophone
+
+    /// Reached when a recording decoded with no engine set up. The card states
+    /// it in the fewest words that fit; the sentence the user can act on is in
+    /// the main window's banner and on the kept recording.
+    case noEngine
+}
+
+/// What a dictation that failed to transcribe does with the user's audio.
+///
+/// One rule for both places a dictation can be started - the mini indicator and
+/// the main window - so a failure the user can fix cannot keep the recording in
+/// one of them and delete it in the other.
+enum DictationFailureOutcome: Equatable {
+    /// Delete the temporary audio, as every failure did before: there is nothing
+    /// the user could do with it that would go any better.
+    case discard
+
+    /// Keep the audio and say why it has no transcript yet. The reason is stored
+    /// on the recording, so it is still there after the indicator has gone, and
+    /// the regenerate button transcribes it once the reason is dealt with.
+    case keep(reason: String, indicatorState: RecordingState)
+
+    static func forError(_ error: Error) -> DictationFailureOutcome {
+        guard EngineConfiguration.isNotConfigured(error) else { return .discard }
+        return .keep(reason: EngineConfiguration.unavailableMessage, indicatorState: .noEngine)
+    }
 }
 
 @MainActor
@@ -164,11 +190,11 @@ class IndicatorViewModel: ObservableObject {
             guard let self = self else { return }
             
             if let tempURL = await self.recorder.stopRecording() {
+                let duration = await AudioUtil.audioDuration(url: tempURL)
                 do {
                     print("start decoding...")
-                    let duration = await AudioUtil.audioDuration(url: tempURL)
                     let text = try await transcriptionService.transcribeAudio(url: tempURL, settings: Settings())
-                    
+
                     if text.isEmpty {
                         try? FileManager.default.removeItem(at: tempURL)
                         print("No speech detected, dictation discarded")
@@ -198,9 +224,25 @@ class IndicatorViewModel: ObservableObject {
                     }
                 } catch {
                     print("Error transcribing audio: \(error)")
-                    try? FileManager.default.removeItem(at: tempURL)
+
+                    switch DictationFailureOutcome.forError(error) {
+                    case .keep(let reason, let indicatorState):
+                        // The message's own timer hides the window, which is why
+                        // this does not fall through to `didFinishDecoding()`.
+                        await MainActor.run {
+                            self.recordingStore.keepFailedDictation(
+                                temporaryURL: tempURL,
+                                duration: duration,
+                                reason: reason
+                            )
+                            self.showAutoDismissingMessage(indicatorState)
+                        }
+                        return
+                    case .discard:
+                        try? FileManager.default.removeItem(at: tempURL)
+                    }
                 }
-                
+
                 await MainActor.run {
                     self.delegate?.didFinishDecoding()
                 }
@@ -404,6 +446,22 @@ struct IndicatorWindow: View {
                     Text("No microphone")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.orange)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            case .noEngine:
+                HStack(spacing: 8) {
+                    Image(systemName: "waveform.slash")
+                        .foregroundColor(.orange)
+                        .frame(width: 24)
+
+                    // Two words shorter than "No microphone" is as much as this
+                    // 200 pt card holds on one line at this weight, and the
+                    // recording it just kept carries the full sentence.
+                    Text("No engine set up")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.orange)
+                        .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 

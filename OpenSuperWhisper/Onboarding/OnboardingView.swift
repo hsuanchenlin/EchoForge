@@ -55,7 +55,32 @@ class OnboardingViewModel: ObservableObject {
     private let modelManager = WhisperModelManager.shared
     private var downloadTask: Task<Void, Error>?
 
-    init() {
+    /// Whether a row's weights are already on this Mac.
+    ///
+    /// Injectable so the two rules this screen has to keep - which row is
+    /// auto-selected, and that selecting one persists its engine - can be tested
+    /// without a 900 MB download and without depending on whichever caches
+    /// happen to be on the machine running the tests.
+    typealias DownloadStateReader = (OnboardingModelType) -> Bool
+
+    static let downloadStateFromDisk: DownloadStateReader = { type in
+        switch type {
+        case .whisper(let url, _):
+            return WhisperModelManager.shared.isModelDownloaded(name: url.lastPathComponent)
+        case .parakeet(let version):
+            return EngineAvailability.isFluidAudioDownloaded(version: version)
+        case .engine(let kind):
+            // The engine answers this, because it is the one that knows which
+            // precision it loads and therefore which files count.
+            return kind.isSingleModelDownloaded ?? false
+        }
+    }
+
+    private let isDownloaded: DownloadStateReader
+
+    init(isDownloaded: @escaping DownloadStateReader = OnboardingViewModel.downloadStateFromDisk) {
+        self.isDownloaded = isDownloaded
+
         let systemLanguage = LanguageUtil.getSystemLanguage()
         AppPreferences.shared.whisperLanguage = systemLanguage
         self.selectedLanguage = systemLanguage
@@ -78,30 +103,19 @@ class OnboardingViewModel: ObservableObject {
     func initializeUnifiedModels() {
         unifiedModels = OnboardingUnifiedModels.availableModels.map { model in
             var updatedModel = model
-            switch model.type {
-            case .whisper(let url, _):
-                let filename = url.lastPathComponent
-                updatedModel.isDownloaded = modelManager.isModelDownloaded(name: filename)
-            case .parakeet(let version):
-                updatedModel.isDownloaded = isFluidAudioModelDownloaded(version: version)
-            case .engine(let kind):
-                // The engine answers this, because it is the one that knows
-                // which precision it loads and therefore which files count.
-                updatedModel.isDownloaded = kind.isSingleModelDownloaded ?? false
-            }
+            updatedModel.isDownloaded = isDownloaded(model.type)
             return updatedModel
         }
-        
-        if selectedModelId == nil, let firstDownloaded = unifiedModels.first(where: { $0.isDownloaded }) {
-            selectedModelId = firstDownloaded.id
 
-            let language = firstDownloaded.language(
-                after: selectedLanguage,
-                fluidAudioModelVersion: AppPreferences.shared.fluidAudioModelVersion
-            )
-            if language != selectedLanguage {
-                selectedLanguage = language
-            }
+        // A row that is already downloaded is auto-selected, and that goes
+        // through `selectModel` like every other selection: the row draws
+        // itself with the green checkmark and `canContinue` lets the user
+        // through, so the engine behind it has to be the one actually
+        // persisted. Setting only `selectedModelId` here is what left users
+        // past onboarding with no `selectedEngine` at all - every dictation
+        // then failed to load an engine and was discarded in silence.
+        if selectedModelId == nil, let firstDownloaded = unifiedModels.first(where: { $0.isDownloaded }) {
+            selectModel(firstDownloaded)
         }
     }
 
@@ -115,17 +129,29 @@ class OnboardingViewModel: ObservableObject {
         )
     }
     
-    func isFluidAudioModelDownloaded(version: String) -> Bool {
-        let asrVersion: AsrModelVersion = version == "v2" ? .v2 : .v3
-        let cacheDirectory = AsrModels.defaultCacheDirectory(for: asrVersion)
-        return AsrModels.modelsExist(at: cacheDirectory, version: asrVersion)
-    }
-    
     var canContinue: Bool {
         guard let selectedId = selectedModelId else { return false }
         return unifiedModels.contains { $0.id == selectedId && $0.isDownloaded }
     }
-    
+
+    /// Persists the selected row once more and answers whether onboarding may
+    /// be considered finished.
+    ///
+    /// `selectModel` already writes on every selection, including the automatic
+    /// one; this is the same write at the one moment that decides whether the
+    /// user is ever shown this screen again. It is the guard, not the mechanism:
+    /// no future path can reach `hasCompletedOnboarding = true` leaving the app
+    /// with an engine it cannot load.
+    func commitSelectedModel() -> Bool {
+        guard let selected = unifiedModels.first(where: { $0.id == selectedModelId }),
+              isDownloaded(selected.type)
+        else {
+            return false
+        }
+        selectModel(selected)
+        return true
+    }
+
     func selectModel(_ model: OnboardingUnifiedModel) {
         selectedModelId = model.id
 
@@ -637,7 +663,9 @@ struct OnboardingView: View {
                 )
             }
         )
-        .alert("Download Error", isPresented: $showError) {
+        // The row's own download failures are reported by the row; this one is
+        // the screen's, raised when Continue cannot be honoured.
+        .alert("Model Unavailable", isPresented: $showError) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage)
@@ -645,6 +673,16 @@ struct OnboardingView: View {
     }
 
     private func handleContinueButtonTap() {
+        guard viewModel.commitSelectedModel() else {
+            // Only reachable if the model went missing between selecting it and
+            // pressing Continue. Re-reading the rows puts the screen back in
+            // step with the disk rather than sending the user on with an engine
+            // that cannot load.
+            viewModel.initializeUnifiedModels()
+            errorMessage = "That model is no longer on this Mac. Download one to continue."
+            showError = true
+            return
+        }
         appState.hasCompletedOnboarding = true
     }
 

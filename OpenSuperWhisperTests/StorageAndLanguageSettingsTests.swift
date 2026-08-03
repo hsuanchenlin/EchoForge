@@ -275,25 +275,11 @@ final class MainWindowResolutionTests: XCTestCase {
     }
 }
 
-final class StartHiddenPreferenceTests: XCTestCase {
+/// Runs against a throwaway defaults suite rather than the developer's own
+/// settings - see `IsolatedPreferencesTestCase`.
+final class StartHiddenPreferenceTests: IsolatedPreferencesTestCase {
 
     private let key = "startHiddenInMenuBar"
-    private var originalValue: Any?
-
-    override func setUp() {
-        super.setUp()
-        originalValue = UserDefaults.standard.object(forKey: key)
-        UserDefaults.standard.removeObject(forKey: key)
-    }
-
-    override func tearDown() {
-        if let originalValue {
-            UserDefaults.standard.set(originalValue, forKey: key)
-        } else {
-            UserDefaults.standard.removeObject(forKey: key)
-        }
-        super.tearDown()
-    }
 
     func testStartHiddenInMenuBar_defaultsToFalse() {
         XCTAssertFalse(AppPreferences.shared.startHiddenInMenuBar)
@@ -302,7 +288,7 @@ final class StartHiddenPreferenceTests: XCTestCase {
     func testStartHiddenInMenuBar_persistsChanges() {
         AppPreferences.shared.startHiddenInMenuBar = true
         XCTAssertTrue(AppPreferences.shared.startHiddenInMenuBar)
-        XCTAssertTrue(UserDefaults.standard.bool(forKey: key))
+        XCTAssertEqual(storedPreference(key) as? Bool, true)
 
         AppPreferences.shared.startHiddenInMenuBar = false
         XCTAssertFalse(AppPreferences.shared.startHiddenInMenuBar)

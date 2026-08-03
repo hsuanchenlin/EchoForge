@@ -11,7 +11,14 @@ class TranscriptionService: ObservableObject {
     @Published private(set) var progress: Float = 0.0
     @Published private(set) var isConverting = false
     @Published private(set) var conversionProgress: Float = 0.0
-    
+
+    /// False when no engine on this Mac can transcribe, which is what the main
+    /// window's banner and the indicator's message are both driven by.
+    ///
+    /// Refreshed from disk rather than remembered: the model caches can be
+    /// deleted while the app is running.
+    @Published private(set) var isEngineConfigured = true
+
     private final class TranscriptionTaskBox {
         let task: Task<String, Error>
         init(_ task: Task<String, Error>) { self.task = task }
@@ -39,8 +46,33 @@ class TranscriptionService: ObservableObject {
         isCancelled = false
     }
     
+    /// Re-checks what is downloaded, recovering the stored engine onto another
+    /// downloaded one if the stored one cannot load.
+    ///
+    /// Returns the engine to use, or `nil` when nothing can transcribe.
+    @discardableResult
+    private func resolveEngine() -> EngineKind? {
+        let outcome = EngineConfiguration.recoverIfNeeded()
+        switch outcome {
+        case .usable(let kind):
+            isEngineConfigured = true
+            return kind
+        case .recovered(let kind, _, _):
+            isEngineConfigured = true
+            return kind
+        case .unavailable:
+            isEngineConfigured = false
+            return nil
+        }
+    }
+
     private func loadEngine(allowModelDownload: Bool = true) {
-        let selectedEngine = AppPreferences.shared.selectedEngine
+        guard let selectedEngine = resolveEngine() else {
+            currentEngine = nil
+            currentEngineKind = nil
+            isLoading = false
+            return
+        }
         loadGeneration += 1
         let generation = loadGeneration
         print("Loading engine: \(selectedEngine)")
@@ -85,7 +117,13 @@ class TranscriptionService: ObservableObject {
     }
 
     private func engineForTranscription() async throws -> TranscriptionEngine {
-        let selectedEngine = AppPreferences.shared.selectedEngine
+        // Checked here rather than left to `initialize()` to fail: this is the
+        // one point every transcription passes through, and the difference
+        // between "no engine is set up" and "the engine did not load" is the
+        // difference between an error the user can act on and one they cannot.
+        guard let selectedEngine = resolveEngine() else {
+            throw TranscriptionError.engineNotConfigured
+        }
         if currentEngineKind == selectedEngine, let currentEngine { return currentEngine }
 
         let engine = await selectedEngine.makeEngine()
@@ -210,8 +248,34 @@ extension Notification.Name {
     static let engineModelStateChanged = Notification.Name("engineModelStateChanged")
 }
 
-enum TranscriptionError: Error {
+enum TranscriptionError: LocalizedError, Equatable {
     case contextInitializationFailed
     case audioConversionFailed
     case processingFailed
+
+    /// Nothing on this Mac can transcribe: no engine's weights are present, or
+    /// the stored Whisper model has been deleted and no other engine is there
+    /// to recover onto.
+    ///
+    /// Kept apart from `contextInitializationFailed` because it is the one
+    /// failure the user can fix, and the only one worth a sentence of their
+    /// attention rather than a console line.
+    case engineNotConfigured
+
+    /// `LocalizedError` so the failure reaches the user as an instruction
+    /// rather than as "OpenSuperWhisper.TranscriptionError error 0" - the queue
+    /// has always shown `localizedDescription` on a failed recording, which
+    /// until now said nothing anyone could act on.
+    var errorDescription: String? {
+        switch self {
+        case .engineNotConfigured:
+            return EngineConfiguration.unavailableMessage
+        case .contextInitializationFailed:
+            return "The transcription engine could not be loaded."
+        case .audioConversionFailed:
+            return "The audio could not be read."
+        case .processingFailed:
+            return "The audio could not be transcribed."
+        }
+    }
 }
