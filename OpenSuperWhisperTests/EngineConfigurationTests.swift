@@ -370,20 +370,17 @@ final class EngineConfigurationRecoveryWriteTests: IsolatedPreferencesTestCase {
     }
 }
 
-/// `TranscriptionService.reloadEngine` is what `SettingsViewModel.selectedEngine`'s
-/// `didSet` calls right after persisting a user's tap in the engine picker - before
-/// any download has started. That load must never silently rewrite the choice it
-/// was just given: it only recovers at launch and before a transcription, both of
-/// which call `EngineConfiguration.recoverIfNeeded` directly, not through here.
+/// `TranscriptionService.reloadEngine` and `.transcribeAudio` are the two ways a
+/// stored engine gets checked outside of launch - a Settings tap and an actual
+/// dictation attempt. Neither may rewrite the stored selection: recovery that
+/// does that (`EngineConfiguration.recoverIfNeeded`) only runs once, at launch.
 @MainActor
 final class TranscriptionServiceEngineSelectionTests: IsolatedPreferencesTestCase {
 
     /// The concrete failing sequence this closes: a user with a working Whisper
     /// setup taps an engine (e.g. Paraformer) whose weights are not downloaded
     /// yet. Even though Whisper was available to "recover" onto, the reload this
-    /// tap triggers must leave the explicit choice stored exactly as made -
-    /// `EngineConfiguration.recoverIfNeeded` only runs at launch and before a
-    /// transcription, not from here.
+    /// tap triggers must leave the explicit choice stored exactly as made.
     func testReloadEngineWithoutDownload_afterExplicitSwitch_leavesTheChosenEngineStored() {
         AppPreferences.shared.selectedEngine = .paraformer
         let onlyWhisperIsDownloaded = EngineAvailability(
@@ -398,5 +395,27 @@ final class TranscriptionServiceEngineSelectionTests: IsolatedPreferencesTestCas
             .paraformer,
             "loading a just-chosen, not-yet-downloaded engine must not revert to a previously working one"
         )
+    }
+
+    /// The narrower gap the reload fix left open: dictating during the window
+    /// between picking an engine and its download finishing (or after a cache
+    /// was removed while the app ran) must fail with the actionable error, not
+    /// silently transcribe on - and persist - a different engine.
+    func testTranscribeAudio_withAnUnconfiguredStoredEngine_failsVisiblyWithoutRewritingTheSelection() async {
+        AppPreferences.shared.selectedEngine = .whisper
+        AppPreferences.shared.selectedWhisperModelPath = "/definitely/does-not-exist.bin"
+
+        do {
+            _ = try await TranscriptionService.shared.transcribeAudio(
+                url: URL(fileURLWithPath: "/tmp/echoforge-tests-does-not-exist.wav"),
+                settings: Settings()
+            )
+            XCTFail("expected engineNotConfigured to be thrown")
+        } catch {
+            XCTAssertEqual(error as? TranscriptionError, .engineNotConfigured)
+        }
+
+        XCTAssertEqual(AppPreferences.shared.selectedEngine, .whisper)
+        XCTAssertEqual(AppPreferences.shared.selectedWhisperModelPath, "/definitely/does-not-exist.bin")
     }
 }

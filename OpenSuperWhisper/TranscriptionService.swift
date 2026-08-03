@@ -46,31 +46,12 @@ class TranscriptionService: ObservableObject {
         isCancelled = false
     }
     
-    /// Re-checks what is downloaded, recovering the stored engine onto another
-    /// downloaded one if the stored one cannot load.
-    ///
-    /// Returns the engine to use, or `nil` when nothing can transcribe.
-    @discardableResult
-    private func resolveEngine() -> EngineKind? {
-        let outcome = EngineConfiguration.recoverIfNeeded()
-        switch outcome {
-        case .usable(let kind):
-            isEngineConfigured = true
-            return kind
-        case .recovered(let kind, _, _):
-            isEngineConfigured = true
-            return kind
-        case .unavailable:
-            isEngineConfigured = false
-            return nil
-        }
-    }
-
     /// Whether the stored engine can load right now, given what is actually
-    /// downloaded. Read-only: unlike `resolveEngine()`, it never writes
-    /// `AppPreferences` - so a load triggered by the user having just picked a
-    /// not-yet-downloaded engine in Settings leaves their choice stored exactly
-    /// as they made it, instead of a recovery guess silently overwriting it.
+    /// downloaded. Read-only: it never writes `AppPreferences`, unlike
+    /// `EngineConfiguration.recoverIfNeeded()` - so neither a load triggered by
+    /// a just-picked, not-yet-downloaded Settings selection nor a transcription
+    /// attempted against one silently overwrites the user's choice with a
+    /// recovery guess.
     private func isSelectedEngineConfigured(_ selectedEngine: EngineKind, availability: EngineAvailability) -> Bool {
         EngineConfiguration.isConfigured(
             engine: selectedEngine,
@@ -141,7 +122,17 @@ class TranscriptionService: ObservableObject {
         // one point every transcription passes through, and the difference
         // between "no engine is set up" and "the engine did not load" is the
         // difference between an error the user can act on and one they cannot.
-        guard let selectedEngine = resolveEngine() else {
+        //
+        // Read-only, like `loadEngine()`: recovery that rewrites the stored
+        // engine only runs at launch (`EngineConfiguration.recoverIfNeeded`). A
+        // transcription attempted against a fresh, not-yet-downloaded selection
+        // - or a cache removed while the app was running - must not silently
+        // fall back onto a different engine; it fails visibly and leaves the
+        // user's choice exactly as they made it.
+        let selectedEngine = AppPreferences.shared.selectedEngine
+        let availability = EngineAvailability.current(fluidAudioModelVersion: AppPreferences.shared.fluidAudioModelVersion)
+        isEngineConfigured = isSelectedEngineConfigured(selectedEngine, availability: availability)
+        guard isEngineConfigured else {
             throw TranscriptionError.engineNotConfigured
         }
         if currentEngineKind == selectedEngine, let currentEngine { return currentEngine }

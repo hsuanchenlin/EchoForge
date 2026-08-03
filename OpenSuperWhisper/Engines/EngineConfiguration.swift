@@ -172,9 +172,13 @@ enum EngineConfiguration {
 
     /// Resolves the stored preferences and writes back whatever recovery chose.
     ///
-    /// Called once at launch, before anything constructs an engine, and again
-    /// whenever a transcription is about to start - the cache can be deleted
-    /// while the app is running.
+    /// Called once at launch, before anything constructs an engine, to repair a
+    /// configuration left over from a previous session. Deliberately not called
+    /// again before each transcription: by then any "not configured" state is
+    /// either a fresh, deliberate selection still waiting on its download or a
+    /// cache the user removed while the app was running, and both must surface
+    /// as the visible `engineNotConfigured` error rather than silently rewrite
+    /// what the user chose - see `TranscriptionService.engineForTranscription()`.
     @discardableResult
     static func recoverIfNeeded(preferences: AppPreferences = .shared,
                                 availability: EngineAvailability? = nil) -> EngineConfigurationOutcome {
