@@ -137,7 +137,7 @@ enum UpdateManifest {
 
         guard let host = url.host, url.scheme?.lowercased() == "https",
             allowedDownloadHosts.contains(host.lowercased()),
-            url.path.contains(repositoryPath)
+            url.path.hasPrefix("/\(repositoryPath)/")
         else {
             throw UpdateManifestError.untrustedDownloadHost(url.host ?? urlString)
         }
@@ -156,5 +156,22 @@ enum UpdateManifest {
             downloadURL: url,
             sizeInBytes: size
         )
+    }
+
+    /// Whether a URL the download's `URLSession` is about to follow a redirect
+    /// to is still one of `allowedDownloadHosts`.
+    ///
+    /// `parse` only ever sees `browser_download_url`, which GitHub's API always
+    /// returns as a `github.com` URL; the actual bytes are served from a
+    /// redirect to its object store. Without re-checking the redirect target,
+    /// the host allow-list is enforced on a URL nothing ever downloads from and
+    /// not on the one that matters. Deliberately looser than `parse`'s check:
+    /// the object-store URL is a signed, opaque path that never contains
+    /// `repositoryPath`, so only the host and scheme are re-checked here.
+    static func isAllowedRedirectHost(_ url: URL?) -> Bool {
+        guard let url, url.scheme?.lowercased() == "https", let host = url.host?.lowercased() else {
+            return false
+        }
+        return allowedDownloadHosts.contains(host)
     }
 }

@@ -26,19 +26,34 @@ enum UpdateState: Equatable {
 /// requirement, and it is a property of this type rather than of the view.
 @MainActor
 final class UpdateViewModel: ObservableObject {
-    @Published private(set) var state: UpdateState = .idle
+    // A staged bundle must not outlive the decision to install it: whenever a
+    // `.readyToInstall` state is left behind - "Not Now", a failed install, or
+    // starting another check or download - the staged copy it was offering is
+    // discarded here. Quitting before installing is instead handled by
+    // `UpdateInstaller.removeStaleStagingDirectories()`, since nothing in this
+    // view model runs once the app has already quit.
+    @Published private(set) var state: UpdateState = .idle {
+        didSet {
+            if case .readyToInstall(_, let stagedApp) = oldValue {
+                discardStagedBundle(stagedApp)
+            }
+        }
+    }
 
     let identity: AppBuildIdentity
 
     private let checker: UpdateChecker
     private let installer: UpdateInstaller
+    private let fileManager: FileManager
 
     init(identity: AppBuildIdentity = .current(),
          checker: UpdateChecker? = nil,
-         installer: UpdateInstaller? = nil) {
+         installer: UpdateInstaller? = nil,
+         fileManager: FileManager = .default) {
         self.identity = identity
         self.checker = checker ?? UpdateChecker(current: identity)
         self.installer = installer ?? UpdateInstaller()
+        self.fileManager = fileManager
     }
 
     var isBusy: Bool {
@@ -68,12 +83,16 @@ final class UpdateViewModel: ObservableObject {
     /// Downloads and verifies, and stops there. The bundle is staged but nothing
     /// has been replaced, so a user who changes their mind at this point simply
     /// does not press the second button.
-    func download(_ release: PublishedRelease) {
+    ///
+    /// `session` defaults to `.shared`, matching `UpdateInstaller`'s own
+    /// default; overriding it is a test seam, not something production code has
+    /// a reason to do.
+    func download(_ release: PublishedRelease, session: URLSession = .shared) {
         guard !isBusy else { return }
         state = .downloading(release, fraction: 0)
         Task {
             do {
-                let staged = try await installer.downloadAndVerify(release) { fraction in
+                let staged = try await installer.downloadAndVerify(release, session: session) { fraction in
                     Task { @MainActor [weak self] in
                         guard let self, case .downloading = self.state else { return }
                         self.state = .downloading(release, fraction: fraction)
@@ -99,6 +118,10 @@ final class UpdateViewModel: ObservableObject {
 
     func dismissMessage() {
         state = .idle
+    }
+
+    private func discardStagedBundle(_ stagedApp: URL) {
+        try? fileManager.removeItem(at: stagedApp.deletingLastPathComponent())
     }
 }
 

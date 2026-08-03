@@ -145,10 +145,16 @@ struct SystemCommandRunner: CommandRunning {
 final class UpdateInstaller {
     private let commandRunner: CommandRunning
     private let fileManager: FileManager
+    private let installedAppURL: URL
 
-    init(commandRunner: CommandRunning = SystemCommandRunner(), fileManager: FileManager = .default) {
+    init(
+        commandRunner: CommandRunning = SystemCommandRunner(),
+        fileManager: FileManager = .default,
+        installedAppURL: URL = Bundle.main.bundleURL
+    ) {
         self.commandRunner = commandRunner
         self.fileManager = fileManager
+        self.installedAppURL = installedAppURL
     }
 
     /// Downloads and verifies the release, returning the staged bundle that is
@@ -169,29 +175,35 @@ final class UpdateInstaller {
 
         let mountPoint = fileManager.temporaryDirectory
             .appendingPathComponent("EchoForgeUpdate-\(UUID().uuidString)", isDirectory: true)
-        let attach = try commandRunner.run(
+        let attach = try await run(
             "/usr/bin/hdiutil",
             ["attach", downloaded.path, "-nobrowse", "-readonly", "-mountpoint", mountPoint.path]
         )
         guard attach.status == 0 else {
             throw UpdateInstallError.diskImageCouldNotBeOpened(attach.output)
         }
-        defer { try? commandRunner.run("/usr/bin/hdiutil", ["detach", mountPoint.path, "-force"]) }
+        defer { detachDiskImage(at: mountPoint) }
 
         let mountedApp = mountPoint.appendingPathComponent("EchoForge.app", isDirectory: true)
         guard fileManager.fileExists(atPath: mountedApp.path) else {
             throw UpdateInstallError.noApplicationInDiskImage
         }
 
-        try verify(mountedApp, against: .forOffered(release))
+        try await verify(mountedApp, against: .forOffered(release))
+
+        // A staged copy from an earlier attempt that was never installed - "Not
+        // Now", a crash, or the app quitting before install - would otherwise
+        // sit here forever; this is the one place guaranteed to run again
+        // before another one is staged.
+        removeStaleStagingDirectories()
 
         // Staged beside the installed app so the final move is a same-volume
         // rename rather than a copy that could be interrupted half way.
-        let staging = Bundle.main.bundleURL.deletingLastPathComponent()
+        let staging = installedAppURL.deletingLastPathComponent()
             .appendingPathComponent(".EchoForgeUpdate-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
         let staged = staging.appendingPathComponent("EchoForge.app", isDirectory: true)
-        let copy = try commandRunner.run("/usr/bin/ditto", [mountedApp.path, staged.path])
+        let copy = try await run("/usr/bin/ditto", [mountedApp.path, staged.path])
         guard copy.status == 0 else {
             try? fileManager.removeItem(at: staging)
             throw UpdateInstallError.replacementFailed(copy.output)
@@ -201,7 +213,7 @@ final class UpdateInstaller {
 
     /// Checks the identity and the signature of a bundle that is about to be
     /// installed. Throws on the first thing that is wrong.
-    func verify(_ app: URL, against requirements: DownloadedBuildRequirements) throws {
+    func verify(_ app: URL, against requirements: DownloadedBuildRequirements) async throws {
         let info = Bundle(url: app)?.infoDictionary
         if let failure = requirements.validateIdentity(
             bundleIdentifier: info?["CFBundleIdentifier"] as? String,
@@ -210,9 +222,23 @@ final class UpdateInstaller {
             throw failure
         }
 
-        let signature = try commandRunner.run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path])
+        let signature = try await run("/usr/bin/codesign", ["--verify", "--deep", "--strict", app.path])
         guard signature.status == 0 else {
             throw UpdateInstallError.signatureRejected(signature.output)
+        }
+    }
+
+    /// Removes any `.EchoForgeUpdate-*` staging directory left beside the
+    /// installed app by an earlier attempt that was never installed. Not
+    /// `private` so a test can drive it directly against a throwaway directory
+    /// rather than a real download.
+    func removeStaleStagingDirectories() {
+        let parent = installedAppURL.deletingLastPathComponent()
+        guard let entries = try? fileManager.contentsOfDirectory(at: parent, includingPropertiesForKeys: nil) else {
+            return
+        }
+        for entry in entries where entry.lastPathComponent.hasPrefix(".EchoForgeUpdate-") {
+            try? fileManager.removeItem(at: entry)
         }
     }
 
@@ -224,25 +250,49 @@ final class UpdateInstaller {
     /// avoid. Once the script is launched this function terminates the app; the
     /// script does the rest.
     func installAndRelaunch(stagedApp: URL) throws {
-        let installed = Bundle.main.bundleURL
+        let installed = installedAppURL
         let staging = stagedApp.deletingLastPathComponent()
         let script = staging.appendingPathComponent("install.sh")
         let pid = ProcessInfo.processInfo.processIdentifier
+        let log = fileManager.temporaryDirectory.appendingPathComponent("EchoForge-update-install.log")
 
         // `while kill -0` polls for the old process actually being gone rather
         // than sleeping a guessed number of seconds. The `mv` pair is two
         // same-volume renames, so the window in which neither bundle is in place
-        // is as short as the filesystem can make it.
+        // is as short as the filesystem can make it. A trap on EXIT restores the
+        // original bundle if anything after the first `mv` fails, so a failed
+        // swap never leaves the user with no app at its expected path, and
+        // relaunches either way. Everything the script prints goes to a fixed
+        // log file rather than `/dev/null`, since it is detached and has no
+        // other way to report a failure.
         let body = """
             #!/bin/sh
+            exec >> "\(log.path)" 2>&1
+            echo "---- $(date) EchoForge update install ----"
             set -e
             while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done
-            rm -rf "\(installed.path).old"
-            mv "\(installed.path)" "\(installed.path).old"
-            mv "\(stagedApp.path)" "\(installed.path)"
-            rm -rf "\(installed.path).old"
-            rm -rf "\(staging.path)"
-            open "\(installed.path)"
+
+            installed="\(installed.path)"
+            staged="\(stagedApp.path)"
+            staging="\(staging.path)"
+            old="$installed.old"
+
+            rollback_and_relaunch() {
+                status=$?
+                if [ "$status" -ne 0 ] && [ -d "$old" ] && [ ! -e "$installed" ]; then
+                    echo "swap failed with status $status, restoring original bundle"
+                    mv "$old" "$installed"
+                fi
+                open "$installed"
+                exit "$status"
+            }
+            trap rollback_and_relaunch EXIT
+
+            rm -rf "$old"
+            mv "$installed" "$old"
+            mv "$staged" "$installed"
+            rm -rf "$old"
+            rm -rf "$staging"
             """
         try body.write(to: script, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
@@ -253,6 +303,27 @@ final class UpdateInstaller {
     }
 
     // MARK: - Private
+
+    /// Runs a blocking command off the main actor. `Task.detached` genuinely
+    /// runs its body on a background thread, so mounting, copying and
+    /// verifying a real app bundle - each of which can take seconds - never
+    /// freezes the UI; this method only awaits the result.
+    private func run(_ executable: String, _ arguments: [String]) async throws -> (status: Int32, output: String) {
+        let runner = commandRunner
+        return try await Task.detached(priority: .utility) {
+            try runner.run(executable, arguments)
+        }.value
+    }
+
+    /// Detaches the mounted disk image without waiting for or blocking on it,
+    /// matching the original best-effort `try?` semantics while keeping the
+    /// `Process` wait off the main actor.
+    private func detachDiskImage(at mountPoint: URL) {
+        let runner = commandRunner
+        Task.detached(priority: .utility) {
+            try? runner.run("/usr/bin/hdiutil", ["detach", mountPoint.path, "-force"])
+        }
+    }
 
     /// Streams the asset to a temporary file, reporting a byte fraction as it
     /// goes.
@@ -286,8 +357,12 @@ final class UpdateInstaller {
     }
 }
 
-/// Turns `URLSession`'s byte counts into the fraction the About pane shows.
-private final class DownloadProgressObserver: NSObject, URLSessionTaskDelegate, URLSessionDownloadDelegate {
+/// Turns `URLSession`'s byte counts into the fraction the About pane shows, and
+/// re-checks every redirect the download follows against the host allow-list.
+///
+/// Not `private`: a test constructs one directly to exercise the redirect
+/// check without a real network call.
+final class DownloadProgressObserver: NSObject, URLSessionTaskDelegate, URLSessionDownloadDelegate {
     private let expectedBytes: Int
     private let report: @Sendable (Double) -> Void
 
@@ -314,5 +389,22 @@ private final class DownloadProgressObserver: NSObject, URLSessionTaskDelegate, 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         // Required by the protocol; the async `download(from:delegate:)` takes
         // care of handing the file back to the caller.
+    }
+
+    /// GitHub's API only ever hands back a `github.com` URL; the bytes
+    /// actually come from a redirect to its object store. `UpdateManifest`
+    /// documents `allowedDownloadHosts` as the only hosts this app will ever
+    /// download from, but nothing enforced that at the point a redirect is
+    /// actually followed - this is that enforcement. Declining the redirect
+    /// (by handing back `nil`) fails the download rather than silently
+    /// following it, since the response becomes the un-followed 3xx.
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(UpdateManifest.isAllowedRedirectHost(request.url) ? request : nil)
     }
 }

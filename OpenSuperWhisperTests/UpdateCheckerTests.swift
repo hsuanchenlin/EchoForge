@@ -100,6 +100,22 @@ final class UpdateManifestTests: XCTestCase {
         )
     }
 
+    /// The repository check is a path-prefix match, not "contains somewhere in
+    /// the path". A URL that merely mentions the repository path lower down -
+    /// which `.contains` would have accepted - must still be refused.
+    func testRefusesAUrlThatOnlyContainsTheRepositoryPathAsASubstring() {
+        for url in [
+            "https://github.com/someone/hsuanchenlin/OpenSuperWhisper/releases/download/v9.9.9/EchoForge.dmg",
+            "https://github.com/hsuanchenlin/OpenSuperWhisper-fork/releases/download/v9.9.9/EchoForge.dmg",
+        ] {
+            XCTAssertThrowsError(try UpdateManifest.parse(metadata(downloadURL: url)), url) { error in
+                guard case UpdateManifestError.untrustedDownloadHost = error else {
+                    return XCTFail("\(url) was refused for the wrong reason: \(error)")
+                }
+            }
+        }
+    }
+
     /// Exact name. Not "contains", not "ends with .dmg".
     func testRefusesAnAssetThatIsNotTheExpectedDiskImage() {
         for name in ["EchoForge.dmg.zip", "echoforge.dmg", "EchoForge-0.3.0.dmg", "Installer.dmg"] {
@@ -150,6 +166,38 @@ final class UpdateManifestTests: XCTestCase {
             XCTAssertFalse(error.localizedDescription.isEmpty, "\(error)")
             XCTAssertFalse(error.localizedDescription.contains("UpdateManifestError"), "\(error)")
         }
+    }
+}
+
+/// The redirect target GitHub's object store actually serves the bytes from,
+/// re-checked at the one point that matters: the download itself.
+final class UpdateManifestRedirectHostTests: XCTestCase {
+
+    func testAllowsGitHubsOwnDownloadHosts() {
+        for host in ["github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"] {
+            let url = URL(string: "https://\(host)/some/signed/path?token=x")
+            XCTAssertTrue(UpdateManifest.isAllowedRedirectHost(url), host)
+        }
+    }
+
+    /// The redirect check is deliberately looser than `parse`'s: the object
+    /// store's URL is a signed, opaque path that never contains the repository
+    /// path, so only the host is re-checked here.
+    func testAllowsAnObjectStoreURLWithNoRepositoryPathInIt() {
+        let url = URL(string: "https://objects.githubusercontent.com/github-production-release-asset/12345/abcdef")
+        XCTAssertTrue(UpdateManifest.isAllowedRedirectHost(url))
+    }
+
+    func testRefusesAnyOtherHost() {
+        XCTAssertFalse(UpdateManifest.isAllowedRedirectHost(URL(string: "https://evil.example.com/EchoForge.dmg")))
+    }
+
+    func testRefusesPlainHTTPEvenOnAnAllowedHost() {
+        XCTAssertFalse(UpdateManifest.isAllowedRedirectHost(URL(string: "http://objects.githubusercontent.com/x")))
+    }
+
+    func testRefusesNoURLAtAll() {
+        XCTAssertFalse(UpdateManifest.isAllowedRedirectHost(nil))
     }
 }
 
