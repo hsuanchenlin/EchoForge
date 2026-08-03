@@ -77,10 +77,14 @@ factory, and language-handling contracts. Follow its documentation when adding a
 `OpenSuperWhisper/Engines/EngineConfiguration.swift` is the single answer to "can this app
 transcribe, and with what?" - it checks the stored engine against what is downloaded, recovers
 onto another downloaded engine when it cannot load, and reports `.unavailable` when nothing can.
-It runs at launch and before every transcription, because a model cache can be deleted while the
-app is running. Anything that would leave the app with an engine it cannot load - a new
-onboarding path, a new engine, a new way to reach `hasCompletedOnboarding` - has to go through
-it. `EngineConfigurationTests` pins the recovery order and that a working configuration is never
+`recoverIfNeeded`, the call that writes that recovery, runs only once - at launch, before anything
+constructs an engine. Every check after that - Settings loading an engine, a transcription about to
+start - is read-only: it reports whether the stored engine can load without rewriting it, so a
+fresh selection still waiting on its download, or a cache removed mid-session, surfaces as the
+visible `engineNotConfigured` error instead of a recovery guess silently overwriting what the user
+chose. Anything that would leave the app with an engine it cannot load - a new onboarding path, a
+new engine, a new way to reach `hasCompletedOnboarding` - has to go through it.
+`EngineConfigurationTests` pins the recovery order and that a working configuration is never
 changed behind the user's back; when nothing can transcribe the user is told
 (`DictationFailureOutcome`) and their audio is kept as a failed recording rather than deleted.
 
