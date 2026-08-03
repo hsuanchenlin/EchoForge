@@ -63,10 +63,30 @@ change - verify against a clean checkout before assuming you broke them:
 Targets use Xcode file-system-synchronized groups, so new source and test files are picked up
 without editing `project.pbxproj`.
 
+Every preference goes through `PreferenceStore.defaults` (`Utils/AppPreferences.swift`) rather
+than `UserDefaults.standard`, so a test can redirect the lot to a throwaway suite by subclassing
+`IsolatedPreferencesTestCase`. Any test that writes a preference must: the suite runs in several
+parallel host processes against one real defaults domain, and one clearing `selectedEngine` while
+another builds a view model from it is a flake, not a failure.
+
 ## Engines
 
 `OpenSuperWhisper/Engines/EngineKind.swift` owns the engine registration, persistence,
 factory, and language-handling contracts. Follow its documentation when adding an engine.
+
+`OpenSuperWhisper/Engines/EngineConfiguration.swift` is the single answer to "can this app
+transcribe, and with what?" - it checks the stored engine against what is downloaded, recovers
+onto another downloaded engine when it cannot load, and reports `.unavailable` when nothing can.
+`recoverIfNeeded`, the call that writes that recovery, runs only once - at launch, before anything
+constructs an engine. Every check after that - Settings loading an engine, a transcription about to
+start - is read-only: it reports whether the stored engine can load without rewriting it, so a
+fresh selection still waiting on its download, or a cache removed mid-session, surfaces as the
+visible `engineNotConfigured` error instead of a recovery guess silently overwriting what the user
+chose. Anything that would leave the app with an engine it cannot load - a new onboarding path, a
+new engine, a new way to reach `hasCompletedOnboarding` - has to go through it.
+`EngineConfigurationTests` pins the recovery order and that a working configuration is never
+changed behind the user's back; when nothing can transcribe the user is told
+(`DictationFailureOutcome`) and their audio is kept as a failed recording rather than deleted.
 
 `OpenSuperWhisper/Engines/EngineCatalog.swift` owns everything user-facing about an engine -
 picker name and order, the honest caveats, download size, cache path and the attribution links.
@@ -80,6 +100,12 @@ rows are offered, in what order, and to whom. A row that exists for one language
 to users dictating it (or who already downloaded it), the same rule Settings applies to the
 Hebrew Whisper fine-tune. `OnboardingModelCatalogTests` pins the ordering, the recommendation
 and that engine rows take their name, size and caveats from `EngineCatalog`.
+
+Onboarding's one obligation is that the row it shows as selected is the row whose engine is
+persisted - including the automatic selection of an already-downloaded row, which for one release
+set only `selectedModelId` and shipped users past onboarding with no engine at all. Every
+selection goes through `selectModel`, and `commitSelectedModel` is the guard on the way out;
+`OnboardingEngineSelectionTests` injects the download state so both hold without a download.
 
 `OpenSuperWhisper/Engines/Audio/` is the engine-neutral audio path every engine shares:
 16 kHz PCM decoding, the bundled Silero VAD, and chunking for engines with an input ceiling.

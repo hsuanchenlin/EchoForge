@@ -1,13 +1,24 @@
 import Foundation
 
+/// Where every preference below is stored.
+///
+/// `UserDefaults.standard` in the app, and redirectable to a throwaway suite by
+/// a test. That matters because the tests run in several parallel host
+/// processes against one real defaults domain: one of them clearing
+/// `selectedEngine` while another is loading an engine from it is a flake, not
+/// a test. Nothing in the app ever writes this.
+enum PreferenceStore {
+    nonisolated(unsafe) static var defaults: UserDefaults = .standard
+}
+
 @propertyWrapper
 struct UserDefault<T> {
     let key: String
     let defaultValue: T
-    
+
     var wrappedValue: T {
-        get { UserDefaults.standard.object(forKey: key) as? T ?? defaultValue }
-        set { UserDefaults.standard.set(newValue, forKey: key) }
+        get { PreferenceStore.defaults.object(forKey: key) as? T ?? defaultValue }
+        set { PreferenceStore.defaults.set(newValue, forKey: key) }
     }
 }
 
@@ -21,8 +32,8 @@ struct RawRepresentableUserDefault<T: RawRepresentable> where T.RawValue == Stri
     let defaultValue: T
 
     var wrappedValue: T {
-        get { T(rawValue: UserDefaults.standard.string(forKey: key) ?? "") ?? defaultValue }
-        set { UserDefaults.standard.set(newValue.rawValue, forKey: key) }
+        get { T(rawValue: PreferenceStore.defaults.string(forKey: key) ?? "") ?? defaultValue }
+        set { PreferenceStore.defaults.set(newValue.rawValue, forKey: key) }
     }
 }
 
@@ -31,8 +42,8 @@ struct OptionalUserDefault<T> {
     let key: String
     
     var wrappedValue: T? {
-        get { UserDefaults.standard.object(forKey: key) as? T }
-        set { UserDefaults.standard.set(newValue, forKey: key) }
+        get { PreferenceStore.defaults.object(forKey: key) as? T }
+        set { PreferenceStore.defaults.set(newValue, forKey: key) }
     }
 }
 
@@ -43,9 +54,9 @@ final class AppPreferences {
     }
     
     private func migrateOldPreferences() {
-        if let oldPath = UserDefaults.standard.string(forKey: "selectedModelPath"),
-           UserDefaults.standard.string(forKey: "selectedWhisperModelPath") == nil {
-            UserDefaults.standard.set(oldPath, forKey: "selectedWhisperModelPath")
+        if let oldPath = PreferenceStore.defaults.string(forKey: "selectedModelPath"),
+           PreferenceStore.defaults.string(forKey: "selectedWhisperModelPath") == nil {
+            PreferenceStore.defaults.set(oldPath, forKey: "selectedWhisperModelPath")
         }
     }
     

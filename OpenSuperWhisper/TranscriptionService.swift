@@ -11,7 +11,14 @@ class TranscriptionService: ObservableObject {
     @Published private(set) var progress: Float = 0.0
     @Published private(set) var isConverting = false
     @Published private(set) var conversionProgress: Float = 0.0
-    
+
+    /// False when no engine on this Mac can transcribe, which is what the main
+    /// window's banner and the indicator's message are both driven by.
+    ///
+    /// Refreshed from disk rather than remembered: the model caches can be
+    /// deleted while the app is running.
+    @Published private(set) var isEngineConfigured = true
+
     private final class TranscriptionTaskBox {
         let task: Task<String, Error>
         init(_ task: Task<String, Error>) { self.task = task }
@@ -39,8 +46,34 @@ class TranscriptionService: ObservableObject {
         isCancelled = false
     }
     
-    private func loadEngine(allowModelDownload: Bool = true) {
+    /// Whether the stored engine can load right now, given what is actually
+    /// downloaded. Read-only: it never writes `AppPreferences`, unlike
+    /// `EngineConfiguration.recoverIfNeeded()` - so neither a load triggered by
+    /// a just-picked, not-yet-downloaded Settings selection nor a transcription
+    /// attempted against one silently overwrites the user's choice with a
+    /// recovery guess.
+    private func isSelectedEngineConfigured(_ selectedEngine: EngineKind, availability: EngineAvailability) -> Bool {
+        EngineConfiguration.isConfigured(
+            engine: selectedEngine,
+            whisperModelPath: AppPreferences.shared.selectedWhisperModelPath,
+            availability: availability
+        )
+    }
+
+    /// `availability` is overridable so tests can pin what recovery would have
+    /// found without depending on which engines happen to be downloaded on the
+    /// machine running them; production callers always take the `nil` default.
+    private func loadEngine(allowModelDownload: Bool = true, availability: EngineAvailability? = nil) {
         let selectedEngine = AppPreferences.shared.selectedEngine
+        let availability = availability
+            ?? EngineAvailability.current(fluidAudioModelVersion: AppPreferences.shared.fluidAudioModelVersion)
+        isEngineConfigured = isSelectedEngineConfigured(selectedEngine, availability: availability)
+        guard isEngineConfigured else {
+            currentEngine = nil
+            currentEngineKind = nil
+            isLoading = false
+            return
+        }
         loadGeneration += 1
         let generation = loadGeneration
         print("Loading engine: \(selectedEngine)")
@@ -80,12 +113,28 @@ class TranscriptionService: ObservableObject {
         }
     }
     
-    func reloadEngine(allowModelDownload: Bool = true) {
-        loadEngine(allowModelDownload: allowModelDownload)
+    func reloadEngine(allowModelDownload: Bool = true, availability: EngineAvailability? = nil) {
+        loadEngine(allowModelDownload: allowModelDownload, availability: availability)
     }
 
     private func engineForTranscription() async throws -> TranscriptionEngine {
+        // Checked here rather than left to `initialize()` to fail: this is the
+        // one point every transcription passes through, and the difference
+        // between "no engine is set up" and "the engine did not load" is the
+        // difference between an error the user can act on and one they cannot.
+        //
+        // Read-only, like `loadEngine()`: recovery that rewrites the stored
+        // engine only runs at launch (`EngineConfiguration.recoverIfNeeded`). A
+        // transcription attempted against a fresh, not-yet-downloaded selection
+        // - or a cache removed while the app was running - must not silently
+        // fall back onto a different engine; it fails visibly and leaves the
+        // user's choice exactly as they made it.
         let selectedEngine = AppPreferences.shared.selectedEngine
+        let availability = EngineAvailability.current(fluidAudioModelVersion: AppPreferences.shared.fluidAudioModelVersion)
+        isEngineConfigured = isSelectedEngineConfigured(selectedEngine, availability: availability)
+        guard isEngineConfigured else {
+            throw TranscriptionError.engineNotConfigured
+        }
         if currentEngineKind == selectedEngine, let currentEngine { return currentEngine }
 
         let engine = await selectedEngine.makeEngine()
@@ -210,8 +259,34 @@ extension Notification.Name {
     static let engineModelStateChanged = Notification.Name("engineModelStateChanged")
 }
 
-enum TranscriptionError: Error {
+enum TranscriptionError: LocalizedError, Equatable {
     case contextInitializationFailed
     case audioConversionFailed
     case processingFailed
+
+    /// Nothing on this Mac can transcribe: no engine's weights are present, or
+    /// the stored Whisper model has been deleted and no other engine is there
+    /// to recover onto.
+    ///
+    /// Kept apart from `contextInitializationFailed` because it is the one
+    /// failure the user can fix, and the only one worth a sentence of their
+    /// attention rather than a console line.
+    case engineNotConfigured
+
+    /// `LocalizedError` so the failure reaches the user as an instruction
+    /// rather than as "OpenSuperWhisper.TranscriptionError error 0" - the queue
+    /// has always shown `localizedDescription` on a failed recording, which
+    /// until now said nothing anyone could act on.
+    var errorDescription: String? {
+        switch self {
+        case .engineNotConfigured:
+            return EngineConfiguration.unavailableMessage
+        case .contextInitializationFailed:
+            return "The transcription engine could not be loaded."
+        case .audioConversionFailed:
+            return "The audio could not be read."
+        case .processingFailed:
+            return "The audio could not be transcribed."
+        }
+    }
 }
