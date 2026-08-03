@@ -40,8 +40,11 @@ releases are unsigned and unnotarized and users have to get past Gatekeeper by h
 workarounds, permissions, and how to use the Chinese engines. The README links to it and
 must not grow a second copy. Per-release notes live in `docs/release-notes/vX.Y.Z.md` and
 are what the GitHub release body is created from. Version bumps go in `MARKETING_VERSION`
-in `OpenSuperWhisper.xcodeproj/project.pbxproj`, which carries it once per target and
-configuration - keep all of them in step.
+and `CURRENT_PROJECT_VERSION` in `OpenSuperWhisper.xcodeproj/project.pbxproj`, which carry
+them once per target and configuration - keep all of them in step, the way `make_release.sh`
+does. `OpenSuperWhisperTests/ReleaseVersionTests.swift` pins that: the two settings agree
+across every target and configuration, and the version the app reports has notes carrying
+its number and the Gatekeeper workaround.
 
 ## Tests
 
