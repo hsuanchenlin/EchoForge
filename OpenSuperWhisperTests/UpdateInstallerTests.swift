@@ -110,6 +110,7 @@ final class UpdateInstallerStagingTests: XCTestCase {
         super.tearDown()
     }
 
+    @MainActor
     func testRemovesStaleStagingDirectoriesButLeavesTheInstalledAppAlone() throws {
         let stale = workDirectory.appendingPathComponent(".EchoForgeUpdate-crashed-attempt")
         try FileManager.default.createDirectory(at: stale, withIntermediateDirectories: true)
@@ -144,7 +145,7 @@ final class UpdateInstallerStagingTests: XCTestCase {
         StubURLProtocol.responseData = Data(repeating: 0x1, count: 42)
         StubURLProtocol.statusCode = 200
         let runner = MockCommandRunner()
-        let installer = UpdateInstaller(commandRunner: runner, installedAppURL: installedApp)
+        let installer = await UpdateInstaller(commandRunner: runner, installedAppURL: installedApp)
 
         let staged = try await installer.downloadAndVerify(
             release(sizeInBytes: 42),
@@ -213,6 +214,7 @@ final class UpdateInstallerStagingTests: XCTestCase {
 /// this process has quit.
 final class UpdateInstallerSwapScriptTests: XCTestCase {
 
+    @MainActor
     func testWritesARollbackScriptThatLogsInsteadOfDiscardingItsOutput() throws {
         let workDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let installedApp = workDirectory.appendingPathComponent("EchoForge.app")

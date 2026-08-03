@@ -59,6 +59,10 @@ everything else with a reason. `DownloadedBuildRequirements` then checks the dow
 identifier and version, and `codesign --verify --deep --strict` checks it was not modified since
 signing. That signature is **ad-hoc**, so it proves integrity and not authorship; the allow-list is
 what carries the rest. Do not weaken either half - `UpdateCheckerTests` asserts the refusals.
+The allow-list check on the initial URL is not enough by itself: GitHub's API always returns a
+`github.com` link, but the bytes are served from a redirect to its object store, so the download
+re-checks every redirect it follows against the same host allow-list
+(`UpdateManifest.isAllowedRedirectHost`) before continuing.
 
 The swap runs in a detached shell script that waits for the app to exit first, because a running
 bundle cannot replace itself; `UpdateInstaller` documents the sequence.

@@ -270,7 +270,7 @@ final class UpdateInstaller {
             exec >> "\(log.path)" 2>&1
             echo "---- $(date) EchoForge update install ----"
             set -e
-            while kill -0 \(pid) 2>/dev/null; do sleep 0.2; done
+            while kill -0 \(pid); do sleep 0.2; done
 
             installed="\(installed.path)"
             staged="\(stagedApp.path)"
