@@ -131,3 +131,7 @@ agent/logs/
 
 # Opt-in test fixtures, generated locally - see ParaformerEngineIntegrationTests
 OpenSuperWhisperTests/Fixtures/
+
+# The starter speech model: ~240 MB of third-party CoreML weights, supplied as a
+# build input at release time and never committed. See docs/starter-model.md.
+/StarterModel/

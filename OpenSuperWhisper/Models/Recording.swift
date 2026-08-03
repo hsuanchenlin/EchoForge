@@ -350,7 +350,11 @@ class RecordingStore: ObservableObject {
     }
 
     nonisolated func updateSourceFileURL(_ id: UUID, sourceURL: String) async throws {
-        try await dbQueue.write { db in
+        // `updateAll` returns the number of rows it changed, which nothing here
+        // acts on: the row is looked up by primary key and a miss is not an error
+        // worth failing an import over. Discarded explicitly so it is a decision
+        // rather than a warning.
+        _ = try await dbQueue.write { db in
             try Recording
                 .filter(Recording.Columns.id == id)
                 .updateAll(db, [

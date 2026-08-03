@@ -115,6 +115,28 @@ final class SenseVoiceEngine: TranscriptionEngine {
         SenseVoiceModels.modelsExist(at: modelCacheDirectory, precision: precision)
     }
 
+    /// The entries `modelCacheDirectory` has to contain for `isModelDownloaded`
+    /// to be true, as file names.
+    ///
+    /// Exists so `StarterModel` can install the weights that ship with the app
+    /// without holding a second opinion about which files those are - the
+    /// encoder among them is decided by `precision`, which is private on
+    /// purpose. `SenseVoiceModels.modelsExist` is the authority and this list is
+    /// pinned against it by `StarterModelTests`.
+    static var requiredCacheEntries: [String] {
+        let encoder: String
+        switch precision {
+        case .fp16: encoder = ModelNames.SenseVoice.encoderFile
+        case .int8: encoder = ModelNames.SenseVoice.encoderInt8File
+        case .fp32: encoder = ModelNames.SenseVoice.encoderFp32File
+        }
+        return [
+            ModelNames.SenseVoice.preprocessorFile,
+            encoder,
+            ModelNames.SenseVoice.vocabularyFile,
+        ]
+    }
+
     /// Downloads the weights and pays the Neural Engine compile up front.
     ///
     /// The same work `initialize()` does, offered at a moment the user chose

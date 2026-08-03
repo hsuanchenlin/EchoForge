@@ -4,10 +4,19 @@ This is the app's attribution surface for speech models it downloads but does no
 An entry lands here in the same change as the engine that uses it, and must name the model,
 its author, and the licence its weights are distributed under.
 
-No model weights are bundled into the `.app`. Every model is fetched from Hugging Face at
-runtime, on the user's machine, at the user's request. Keep it that way: the CoreML
-conversions the app fetches assert no licence of their own and defer to their upstream, so
-redistributing them inside a build would be making a claim nobody upstream has made.
+Every model except one is fetched from Hugging Face at runtime, on the user's machine, at the
+user's request. Keep it that way for anything new: the CoreML conversions the app fetches assert
+no licence of their own and defer to their upstream, so redistributing them inside a build is a
+claim that has to be justified per model rather than taken as the default.
+
+**The one exception is the starter model.** A release may be packaged with SenseVoiceSmall so a
+fresh install can dictate without a first-run download ([starter-model.md](starter-model.md)).
+That is redistribution, and the obligations it carries are set out under SenseVoice-Small below.
+It is deliberately limited to that one model: Paraformer is still download-only, and nothing else
+may be added to a build without the same paragraph being written for it first. Builds are
+produced both with and without the starter from the same source, so the app states which it is
+(`EngineCatalog.provenanceLine`, pinned by `StarterModelProvenanceTests`) rather than carrying one
+fixed sentence that would be wrong half the time.
 
 ## SenseVoice-Small
 
@@ -39,8 +48,30 @@ Two consequences that are not optional:
 
 - **Do not rebrand the engine.** Any user-facing name must keep "SenseVoice" in it. "Chinese
   (fast)" on its own does not satisfy §2.2; "SenseVoice-Small (中文/多语言)" does.
-- **Do not bundle the weights.** The CoreML conversion asserts no licence of its own, so the app
-  downloads it to the user's machine rather than redistributing it inside a build.
+- **Attribute wherever the model appears.** The credit line, the retained model name and the three
+  links have to travel with the engine into every surface that offers it - Settings, onboarding,
+  and now the progress copy shown while it is being prepared (`ModelPreparation.modelName`).
+
+### Redistributing these weights in a build
+
+This project used to state flatly that it bundled no weights. That is no longer true of every
+build: a release may be packaged with these weights as the starter model
+([starter-model.md](starter-model.md)). What that changes, and what it does not:
+
+- **It is permitted by the licence relied on here.** FunASR Model Open Source License v1.1 allows
+  redistribution, including commercially, provided §2.2's attribution and model-name retention are
+  satisfied - which is the stricter of the two published readings and the one this project already
+  meets. It does not become permitted merely because it is convenient, and the ModelScope
+  Apache-2.0 reading permits it too, so both readings are satisfied at once.
+- **The CoreML conversion still asserts no licence of its own.** Redistributing it is a claim about
+  the upstream weights, so it is scoped to the one model documented here and linked to the model
+  card, licence and conversion in-app, exactly as the downloaded path is.
+- **What the app says changes with the build.** A packaged build tells the user the model is
+  included with it and points at the licence; an unpackaged build keeps saying the model is
+  downloaded and not bundled. `EngineCatalog.provenanceLine` is the single source of that sentence
+  and `StarterModelProvenanceTests` asserts both forms, so a build cannot claim the wrong one.
+- **Nothing here extends to any other model.** Adding a second bundled model means writing this
+  section for it first.
 
 Note also §6 of that licence: it may be revised unilaterally, with effect on publication. The
 version this project relied on is v1.1.

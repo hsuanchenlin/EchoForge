@@ -46,6 +46,23 @@ does. `OpenSuperWhisperTests/ReleaseVersionTests.swift` pins that: the two setti
 across every target and configuration, and the version the app reports has notes carrying
 its number and the Gatekeeper workaround.
 
+## Updates
+
+`OpenSuperWhisper/Updates/` is the About pane and the in-app updater. Nothing there runs on its
+own: checking, downloading and installing are three separate user actions, and there is no
+launch-time or background check to add one to.
+
+`UpdateManifest` is the security boundary, not a parser: it is the only thing standing between
+release metadata and "replace the running application", so it accepts an exact asset name, an
+HTTPS URL on GitHub's release hosts under this repository, and a `vX.Y.Z` tag - and refuses
+everything else with a reason. `DownloadedBuildRequirements` then checks the downloaded bundle's
+identifier and version, and `codesign --verify --deep --strict` checks it was not modified since
+signing. That signature is **ad-hoc**, so it proves integrity and not authorship; the allow-list is
+what carries the rest. Do not weaken either half - `UpdateCheckerTests` asserts the refusals.
+
+The swap runs in a detached shell script that waits for the app to exit first, because a running
+bundle cannot replace itself; `UpdateInstaller` documents the sequence.
+
 ## Tests
 
 ```
@@ -74,19 +91,47 @@ another builds a view model from it is a flake, not a failure.
 `OpenSuperWhisper/Engines/EngineKind.swift` owns the engine registration, persistence,
 factory, and language-handling contracts. Follow its documentation when adding an engine.
 
+The engine the user *chose* and the engine that can transcribe *now* are two different values, and
+keeping them apart is the load-bearing rule of this area. `EngineSelector`
+(`Engines/EngineSelection.swift`) is the pure function that picks the active one: the desired
+engine when it can load, else the last one that actually loaded (`lastReadyEngine`), else the
+starter model - and the interim tiers must also support the dictation language, since Paraformer
+returns fluent Mandarin for German rather than refusing it. Nothing in that path ever writes
+`selectedEngine`. `TranscriptionService` publishes the result as `selection`, prepares the desired
+engine in the background (`ModelPreparation`), and switches over when it is ready.
+
 `OpenSuperWhisper/Engines/EngineConfiguration.swift` is the single answer to "can this app
 transcribe, and with what?" - it checks the stored engine against what is downloaded, recovers
 onto another downloaded engine when it cannot load, and reports `.unavailable` when nothing can.
 `recoverIfNeeded`, the call that writes that recovery, runs only once - at launch, before anything
-constructs an engine. Every check after that - Settings loading an engine, a transcription about to
-start - is read-only: it reports whether the stored engine can load without rewriting it, so a
-fresh selection still waiting on its download, or a cache removed mid-session, surfaces as the
-visible `engineNotConfigured` error instead of a recovery guess silently overwriting what the user
-chose. Anything that would leave the app with an engine it cannot load - a new onboarding path, a
-new engine, a new way to reach `hasCompletedOnboarding` - has to go through it.
-`EngineConfigurationTests` pins the recovery order and that a working configuration is never
-changed behind the user's back; when nothing can transcribe the user is told
-(`DictationFailureOutcome`) and their audio is kept as a failed recording rather than deleted.
+constructs an engine - and it skips a selection whose download was in flight when the app quit
+(`pendingEnginePreparation`), so quitting mid-download does not undo the choice that started it.
+Every check after that is read-only. Anything that would leave the app with an engine it cannot
+load - a new onboarding path, a new engine, a new way to reach `hasCompletedOnboarding` - has to go
+through it. `EngineConfigurationTests`, `EngineSelectionTests` and
+`BackgroundModelPreparationTests` pin the recovery order, that a working configuration is never
+changed behind the user's back, and that no fallback ever becomes the user's selection; when
+nothing can transcribe the user is told (`DictationFailureOutcome`) and their audio is kept as a
+failed recording rather than deleted.
+
+Model preparation is never modal. History stays open, searchable and playable throughout, and
+dictation is disabled only when `EngineSelector` finds nothing at all. Progress is a percentage
+only for byte-download phases and an indeterminate `Preparing model…` otherwise -
+`ModelPreparationStage` is the one place that decides which, and `docs/upstream-issues.md` records
+why FluidAudio's own fraction cannot be used as-is. Transcription progress and model-preparation
+progress are separate published values and must stay that way; they overlap routinely.
+
+A release can ship with SenseVoice-Small already installed. The weights are a build input, never
+committed: `docs/starter-model.md` is the whole story - staging, the `Package Starter Model` build
+phase, and `StarterModel.installIfNeeded()` at launch. A checkout without the artifact builds and
+behaves exactly as before, which is what CI does. Bundling weights changed a licence position that
+`docs/speech-model-attribution.md` had stated absolutely; read that file before bundling anything
+else.
+
+Tests must not download models. `TranscriptionService` skips both the engine load and background
+preparation under `OpenSuperWhisperApp.isRunningTests`, because a test pins `availability` to
+describe a Mac it is not running on; assert the decision through `refreshSelection(availability:)`,
+which is pure.
 
 `OpenSuperWhisper/Engines/EngineCatalog.swift` owns everything user-facing about an engine -
 picker name and order, the honest caveats, download size, cache path and the attribution links.

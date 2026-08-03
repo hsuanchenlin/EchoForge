@@ -63,6 +63,14 @@ enum EngineConfigurationOutcome: Equatable {
     /// stored one unless the replacement cannot do it.
     case recovered(engine: EngineKind, whisperModelPath: String?, language: String)
 
+    /// The stored choice cannot transcribe *yet*, because its weights were still
+    /// being fetched when the app last quit. Nothing is written: an unfinished
+    /// download is a choice in progress, not a stale configuration, and
+    /// overruling it would mean that quitting during a 240 MB fetch silently
+    /// undid the selection that started it. The download is resumed instead, and
+    /// `EngineSelector` keeps dictation running on something else meanwhile.
+    case preparing(EngineKind)
+
     /// Nothing on this Mac can transcribe. The app has to say so rather than
     /// accept dictation it will silently throw away.
     case unavailable
@@ -111,6 +119,27 @@ enum EngineConfiguration {
         }
     }
 
+    /// Whether the app can fetch this engine's weights on its own, given time.
+    ///
+    /// True for every engine whose weights are one identified download the app
+    /// can start unattended, which is what background preparation needs in order
+    /// to make a just-chosen engine ready without the user driving it.
+    ///
+    /// Whisper is the exception, and switched exhaustively so a new engine has to
+    /// answer rather than inherit: a Whisper configuration names a *file*, and
+    /// when that file is gone the app cannot tell whether the user wants the
+    /// 1.6 GB Turbo Large back or something else. That is a choice, so it is left
+    /// to Settings - and it is why a Whisper model deleted from disk is still a
+    /// stale configuration for `resolve` to recover from.
+    static func isPreparable(engine: EngineKind) -> Bool {
+        switch engine {
+        case .whisper:
+            return false
+        case .fluidaudio, .sensevoice, .paraformer:
+            return true
+        }
+    }
+
     /// The order recovery tries engines in, for someone dictating `language`.
     ///
     /// Whisper leads because it is `EngineKind.fallback` - the app-wide default
@@ -140,13 +169,23 @@ enum EngineConfiguration {
         return capable ?? usable.first
     }
 
+    /// - Parameter pendingEngine: the engine whose download was in flight when
+    ///   the app last quit (`AppPreferences.pendingEnginePreparation`). It is the
+    ///   one thing that distinguishes "this configuration is stale" from "this
+    ///   configuration is still arriving", and without it a quit during a model
+    ///   download reads as the former.
     static func resolve(selectedEngine: EngineKind,
                         whisperModelPath: String?,
                         language: String,
                         fluidAudioModelVersion: String,
-                        availability: EngineAvailability) -> EngineConfigurationOutcome {
+                        availability: EngineAvailability,
+                        pendingEngine: EngineKind? = nil) -> EngineConfigurationOutcome {
         if isConfigured(engine: selectedEngine, whisperModelPath: whisperModelPath, availability: availability) {
             return .usable(selectedEngine)
+        }
+
+        if pendingEngine == selectedEngine, let pendingEngine {
+            return .preparing(pendingEngine)
         }
 
         guard let replacement = recoveryCandidate(
@@ -179,6 +218,11 @@ enum EngineConfiguration {
     /// cache the user removed while the app was running, and both must surface
     /// as the visible `engineNotConfigured` error rather than silently rewrite
     /// what the user chose - see `TranscriptionService.engineForTranscription()`.
+    ///
+    /// Nor does it fire for a selection whose download had simply not finished:
+    /// `AppPreferences.pendingEnginePreparation` marks that case and it comes
+    /// back as `.preparing`, leaving the preference exactly as the user set it
+    /// while `EngineSelector` keeps dictation running on whatever is ready.
     @discardableResult
     static func recoverIfNeeded(preferences: AppPreferences = .shared,
                                 availability: EngineAvailability? = nil) -> EngineConfigurationOutcome {
@@ -190,7 +234,8 @@ enum EngineConfiguration {
             whisperModelPath: preferences.selectedWhisperModelPath,
             language: preferences.whisperLanguage,
             fluidAudioModelVersion: preferences.fluidAudioModelVersion,
-            availability: availability
+            availability: availability,
+            pendingEngine: preferences.pendingEnginePreparation
         )
 
         if case .recovered(let engine, let whisperModelPath, let language) = outcome {

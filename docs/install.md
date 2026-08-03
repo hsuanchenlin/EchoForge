@@ -134,13 +134,47 @@ you, so the picker never promises something the engine cannot do.
 
 ### What the first download looks like
 
-Downloading takes as long as your connection needs for 240 MB or 653 MB. After that the
-app spends **about a minute preparing the model for the Neural Engine**, once, before
-your first dictation. The app has not hung; that step is invisible work and only happens
-the first time. Installing both engines costs both downloads, 893 MB in total.
+Downloading takes as long as your connection needs for 240 MB or 653 MB, and the app shows
+the percentage while bytes are moving. After that it spends **about a minute preparing the
+model for the Neural Engine**, once. That step reports no percentage - the app says
+"Preparing model…" instead of freezing a number - and it only happens the first time.
+Installing both engines costs both downloads, 893 MB in total.
+
+None of this blocks you. Your history stays open and searchable throughout, and if you
+already had a model working, dictation keeps using it until the new one is ready and then
+switches over on its own. Your choice of engine in Settings is not changed by any of that:
+what is shown as selected is what you picked, even while something else is doing the
+transcribing.
+
+### Dictating before anything is downloaded
+
+Some releases ship with SenseVoice-Small already included, so a brand-new install can
+dictate straight away with no download at all. When that is the case the Settings row for
+it says so. If your release does not include it, the app downloads it the first time you
+need it, exactly as above.
 
 Model licences and attribution for everything the app downloads are listed in
 [speech-model-attribution.md](speech-model-attribution.md).
+
+## Which version am I running, and updating
+
+**Settings → About** shows the version and build number this copy reports, and its bundle
+identifier. It is also the only place that offers to update, and it never does anything on
+its own: checking, downloading and installing are three separate things you ask for. There
+is no background update check and nothing installs automatically.
+
+When an update is offered you see its release notes and download size first. If you take it,
+EchoForge downloads the DMG from this repository's GitHub releases - and only from there -
+then checks that what arrived really is EchoForge, really is the version it offered, and
+passes signature verification, before it will replace anything. Anything that does not check
+out is discarded with a reason rather than installed. Installing quits the app, swaps it, and
+opens it again.
+
+These builds are signed **ad-hoc** and are not notarized (this fork has no Developer ID
+certificate), so that signature check proves the download was not modified after it was built,
+not who built it. What covers the rest is that the download can only ever come from this
+repository's release URLs. You can always skip the in-app path and install the DMG by hand from
+the release page instead.
 
 ## Trouble
 

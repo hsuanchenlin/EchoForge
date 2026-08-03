@@ -32,6 +32,14 @@ class ContentViewModel: ObservableObject {
     /// appear the next time something else redrew this view.
     @Published var isEngineConfigured = true
 
+    /// The same mirroring for the model-preparation state, which is what makes
+    /// preparation non-modal: it is a strip above the record button, not a sheet
+    /// over the history. The list below stays scrollable, searchable and
+    /// playable throughout.
+    @Published var selection: EngineSelection?
+    @Published var modelPreparation: ModelPreparation?
+    @Published var preparationFailure: String?
+
     private var currentPage = 0
     private let pageSize = 100
     private var currentSearchQuery = ""
@@ -75,6 +83,27 @@ class ContentViewModel: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] isConfigured in
                 self?.isEngineConfigured = isConfigured
+            }
+            .store(in: &cancellables)
+
+        transcriptionService.$selection
+            .receive(on: RunLoop.main)
+            .sink { [weak self] selection in
+                self?.selection = selection
+            }
+            .store(in: &cancellables)
+
+        transcriptionService.$modelPreparation
+            .receive(on: RunLoop.main)
+            .sink { [weak self] preparation in
+                self?.modelPreparation = preparation
+            }
+            .store(in: &cancellables)
+
+        transcriptionService.$preparationFailure
+            .receive(on: RunLoop.main)
+            .sink { [weak self] failure in
+                self?.preparationFailure = failure
             }
             .store(in: &cancellables)
     }
@@ -515,13 +544,31 @@ struct ContentView: View {
                     }
 
                     VStack(spacing: 16) {
-                        // Above the record button rather than in place of it:
-                        // recording still works and the audio is kept, it just
-                        // cannot be turned into text yet.
+                        // Above the record button rather than in place of it,
+                        // and never over the history: preparing a model is a
+                        // strip of status here, and everything below stays
+                        // scrollable, searchable and playable while it runs.
                         if !viewModel.isEngineConfigured {
-                            EngineUnavailableBanner {
-                                isSettingsPresented = true
-                            }
+                            EngineUnavailableBanner(
+                                openSettings: { isSettingsPresented = true },
+                                retry: { viewModel.transcriptionService.retryPreparingDesiredEngine() }
+                            )
+                            .padding(.top, 12)
+                        } else if let preparation = viewModel.modelPreparation {
+                            ModelPreparationBanner(
+                                preparation: preparation,
+                                activeEngine: viewModel.selection?.active,
+                                cancel: { viewModel.transcriptionService.cancelDesiredEnginePreparation() }
+                            )
+                            .padding(.top, 12)
+                        } else if let failure = viewModel.preparationFailure,
+                                  let selection = viewModel.selection,
+                                  selection.isDesiredEnginePending {
+                            ModelPreparationFailedBanner(
+                                engine: selection.desired,
+                                message: failure,
+                                retry: { viewModel.transcriptionService.retryPreparingDesiredEngine() }
+                            )
                             .padding(.top, 12)
                         }
 
@@ -542,7 +589,12 @@ struct ContentView: View {
                             }
                         }
                         .buttonStyle(.plain)
-                        .disabled(viewModel.transcriptionService.isLoading || viewModel.transcriptionService.isTranscribing || viewModel.transcriptionQueue.isProcessing || viewModel.state == .decoding || viewModel.microphoneService.availableMicrophones.isEmpty)
+                        // Preparing a model deliberately does not appear here:
+                        // dictation is disabled only when there is no ready
+                        // model at all, which is what `isEngineConfigured` now
+                        // means. A download running in the background is not a
+                        // reason to take the record button away.
+                        .disabled(!viewModel.isEngineConfigured || viewModel.transcriptionService.isTranscribing || viewModel.transcriptionQueue.isProcessing || viewModel.state == .decoding || viewModel.microphoneService.availableMicrophones.isEmpty)
                         .padding(.top, 24)
                         .padding(.bottom, 16)
                         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.isRecording)
@@ -659,24 +711,12 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: RecordingStore.recordingsDidUpdateNotification)) { _ in
             viewModel.loadInitialData()
         }
-        .overlay {
-            let isPermissionsGranted = permissionsManager.isMicrophonePermissionGranted
-                && permissionsManager.isAccessibilityPermissionGranted
-
-            if viewModel.transcriptionService.isLoading && isPermissionsGranted {
-                ZStack {
-                    Color.black.opacity(0.3)
-                    VStack(spacing: 16) {
-                        ProgressView()
-                            .scaleEffect(1.5)
-                        Text("Loading Whisper Model...")
-                            .foregroundColor(.white)
-                            .font(.headline)
-                    }
-                }
-                .ignoresSafeArea()
-            }
-        }
+        // There used to be a full-window scrim here whenever a model was
+        // loading - "Loading Whisper Model..." over a dimmed, unusable history.
+        // It is gone on purpose. Loading a model is background work the user did
+        // not ask to watch, and it now takes minutes rather than seconds when a
+        // download is involved, so it says what it is doing in the status strip
+        // above the record button and leaves the window alone.
         .fileDropHandler()
         .sheet(isPresented: $isSettingsPresented) {
             SettingsView()
@@ -703,6 +743,7 @@ struct ContentView: View {
 /// is where the button lives.
 struct EngineUnavailableBanner: View {
     let openSettings: () -> Void
+    let retry: () -> Void
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -712,10 +753,10 @@ struct EngineUnavailableBanner: View {
                 .imageScale(.medium)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("No transcription engine is set up")
+                Text("No transcription engine is ready")
                     .font(.subheadline.weight(.semibold))
 
-                Text("Recordings are kept, but nothing is transcribed until you choose one.")
+                Text("Dictation is off until a model is ready. Try again, or choose one in Settings.")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -723,7 +764,122 @@ struct EngineUnavailableBanner: View {
 
             Spacer(minLength: 8)
 
-            Button("Open Settings", action: openSettings)
+            VStack(spacing: 6) {
+                Button("Try Again", action: retry)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+
+                Button("Settings", action: openSettings)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+            }
+        }
+        .padding(12)
+        .background(Color.orange.opacity(colorScheme == .dark ? 0.12 : 0.10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.orange.opacity(0.35), lineWidth: 1)
+        )
+        .cornerRadius(10)
+    }
+}
+
+/// What the app is fetching, while it carries on working.
+///
+/// Non-modal by design: this is a strip above the record button, not a sheet.
+/// The bar is determinate only while bytes are moving - the Neural Engine
+/// compile that follows publishes no fraction and is the longer half of a cold
+/// start, so it switches to an indeterminate bar and says `Preparing model…`
+/// rather than freezing a number that has stopped meaning anything.
+struct ModelPreparationBanner: View {
+    let preparation: ModelPreparation
+    let activeEngine: EngineKind?
+    let cancel: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// Which engine is doing the transcribing meanwhile. Named rather than
+    /// implied: dictating on a different model than the one you just chose is
+    /// exactly the kind of thing a user should not have to infer from results.
+    private var meanwhileLine: String? {
+        guard let activeEngine, activeEngine != preparation.engine else { return nil }
+        return "Dictation is using \(EngineCatalog.entry(for: activeEngine).displayName) until it is ready."
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "arrow.down.circle")
+                .foregroundColor(.accentColor)
+                .imageScale(.medium)
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(preparation.statusLine)
+                    .font(.subheadline.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let meanwhileLine {
+                    Text(meanwhileLine)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Group {
+                    if case .downloading(let fraction) = preparation.stage {
+                        ProgressView(value: fraction)
+                    } else {
+                        ProgressView()
+                    }
+                }
+                .progressViewStyle(LinearProgressViewStyle())
+                .frame(height: 6)
+            }
+
+            Spacer(minLength: 8)
+
+            Button("Cancel", action: cancel)
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+        }
+        .padding(12)
+        .background(ThemePalette.panelSurface(colorScheme))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(ThemePalette.panelBorder(colorScheme), lineWidth: 1)
+        )
+        .cornerRadius(10)
+    }
+}
+
+/// A preparation that stopped short, and the way back.
+///
+/// Separate from `EngineUnavailableBanner` because the app is still working:
+/// something is transcribing, it is just not the model that was asked for.
+struct ModelPreparationFailedBanner: View {
+    let engine: EngineKind
+    let message: String
+    let retry: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.circle")
+                .foregroundColor(.orange)
+                .imageScale(.medium)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("\(EngineCatalog.entry(for: engine).displayName) is not ready yet")
+                    .font(.subheadline.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(message)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 8)
+
+            Button("Try Again", action: retry)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
         }

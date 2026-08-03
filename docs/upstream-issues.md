@@ -65,3 +65,35 @@ documented in engine-facing copy instead (`docs/speech-model-attribution.md`,
 `textNorm 14` becomes a choice worth revisiting rather than a forced pairing.
 `SenseVoiceEngineIntegrationTests.testPunctuationAndInverseTextNormalisationAreOneSwitch` is what
 notices the separation.
+
+## FluidAudio: model-preparation progress is only half a download
+
+**What was measured**, against the pinned FluidAudio: the `fractionCompleted` on
+`DownloadUtils.DownloadProgress` is not the fraction of the thing the user is waiting for. In
+`DownloadUtils.downloadRepo` every byte-progress report is scaled by `0.5` and explicitly capped
+there (`fractionCompleted: min(fraction, 0.5)`, with the comment "Download phase occupies
+0.0–0.5 of the overall range"), and `DownloadUtils.loadModels` spends `0.5...1.0` emitting
+`.compiling`. So a finished 240 MB download reports `0.5`.
+
+The compile half is worse than merely coarse: it reports `0.5 + 0.5 * index / count` over the
+*model count*, which for SenseVoice is two models. It jumps 0.5 → 0.75 → 1.0 across a phase that
+takes 65-88 s on a cold machine, so as a progress signal it is three values and a long silence.
+
+**What the app does:** `ModelPreparationStage.from(_:)` is the one place that reads these reports,
+and it makes exactly two kinds of statement:
+
+- `.downloading` → a percentage, rescaled by `downloadShareOfOverallProgress` (0.5) so the bar
+  spans the download the user is actually waiting on rather than stopping at half. The result is
+  clamped to `0...1`, so a producer that ever reports the full range renders as a full bar rather
+  than as 160 %.
+- `.listing` and `.compiling` → no number at all. Both are shown as an indeterminate bar and
+  `Preparing model…`. `.listing` reports `0.0` however much of the repository index has been read,
+  and the compile's three steps are not a progress bar; a bar that keeps moving through a phase it
+  cannot measure is a worse lie than one that admits it is waiting.
+
+`ModelPreparationTests` pins all of it, including the clamp.
+
+**If it were fixed** - if the phases carried their own fraction, or if the compile reported real
+progress - `downloadShareOfOverallProgress` disappears and `.compiling` could become determinate.
+`ModelPreparationTests.testDownloadFractionIsRescaledToTheDownloadsOwnSpan` is what notices the
+scaling changing underneath.

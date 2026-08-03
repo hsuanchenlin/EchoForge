@@ -81,7 +81,45 @@ final class AppPreferences {
     
     @OptionalUserDefault(key: "selectedWhisperModelPath")
     var selectedWhisperModelPath: String?
-    
+
+    /// The engine that last actually loaded and transcribed, which is not the
+    /// same thing as `selectedEngine`.
+    ///
+    /// `selectedEngine` is what the user asked for and is written only when they
+    /// ask; this is written only when a load succeeds. Keeping them apart is
+    /// what lets the app keep dictating on the previous model while a newly
+    /// chosen one downloads, without a fallback ever overwriting the choice -
+    /// see `EngineSelector`. Optional because a fresh install has no such engine
+    /// yet, which is the case the bundled starter answers.
+    @OptionalUserDefault(key: "lastReadyEngine")
+    var lastReadyEngineRawValue: String?
+
+    var lastReadyEngine: EngineKind? {
+        get { lastReadyEngineRawValue.flatMap(EngineKind.init(rawValue:)) }
+        set { lastReadyEngineRawValue = newValue?.rawValue }
+    }
+
+    /// The Whisper file that was loaded alongside `lastReadyEngine`, for the one
+    /// engine where naming the engine is only half of a configuration.
+    @OptionalUserDefault(key: "lastReadyWhisperModelPath")
+    var lastReadyWhisperModelPath: String?
+
+    /// The engine whose weights were being fetched when the app last quit.
+    ///
+    /// It exists for exactly one decision: launch-time recovery
+    /// (`EngineConfiguration.recoverIfNeeded`) must not treat a selection whose
+    /// download had simply not finished as a stale configuration to repair. A
+    /// download interrupted by a quit is resumed, not overruled - otherwise
+    /// quitting during a 240 MB fetch would silently undo the choice that
+    /// started it.
+    @OptionalUserDefault(key: "pendingEnginePreparation")
+    var pendingEnginePreparationRawValue: String?
+
+    var pendingEnginePreparation: EngineKind? {
+        get { pendingEnginePreparationRawValue.flatMap(EngineKind.init(rawValue:)) }
+        set { pendingEnginePreparationRawValue = newValue?.rawValue }
+    }
+
     @UserDefault(key: "fluidAudioModelVersion", defaultValue: "v3")
     var fluidAudioModelVersion: String
     
