@@ -737,7 +737,7 @@ struct OnboardingUnifiedModelItemView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    OnboardingEngineNotesView(entry: entry)
+                    OnboardingEngineNotesView(engineKind: model.engineKind, entry: entry)
                 }
             }
         }
@@ -890,6 +890,7 @@ struct OnboardingUnifiedModelItemView: View {
 /// §2.2 requires the credit and the links, and a second hand-written copy of
 /// this block in onboarding is how one of them would quietly go missing.
 struct OnboardingEngineNotesView: View {
+    let engineKind: EngineKind
     let entry: EngineCatalogEntry
 
     var body: some View {
@@ -905,7 +906,7 @@ struct OnboardingEngineNotesView: View {
             }
 
             if let credit = entry.attributionCredit {
-                Text("\(credit). Downloaded to your Mac, not bundled with the app.")
+                Text("\(credit). \(EngineCatalog.provenanceLine(for: engineKind))")
                     .font(.caption2)
                     .foregroundColor(Color(.tertiaryLabelColor))
                     .fixedSize(horizontal: false, vertical: true)

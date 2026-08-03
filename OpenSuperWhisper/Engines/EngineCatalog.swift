@@ -116,6 +116,29 @@ enum EngineCatalog {
         return EngineKind.defaultChineseDictation
     }
 
+    /// Where this engine's weights came from, in the sentence that follows the
+    /// credit line.
+    ///
+    /// It is not decoration and it is not always the same. Until a build shipped
+    /// with a starter model, the honest answer for every engine was "downloaded
+    /// to your Mac, not bundled with the app" - and that sentence was itself part
+    /// of the licence position recorded in `docs/speech-model-attribution.md`. A
+    /// build that packages the starter weights redistributes them, which is a
+    /// different claim, so it makes a different one rather than leaving the old
+    /// sentence standing where it is no longer true.
+    ///
+    /// - Parameter isBundled: whether *this build* carries the weights. Asked of
+    ///   `StarterModel` rather than assumed, because the same source produces
+    ///   builds with and without them.
+    static func provenanceLine(for kind: EngineKind,
+                               isBundled: Bool = StarterModel.isBundledWithThisBuild) -> String {
+        guard isBundled, kind == StarterModel.engine else {
+            return "Downloaded to your Mac, not bundled with the app."
+        }
+        return "Included with this build of EchoForge and installed on your Mac on first launch, "
+            + "under the model licence linked below."
+    }
+
     /// The engine's language scope, phrased for a settings row.
     ///
     /// Derived from `LanguageUtil` rather than written out, because the language

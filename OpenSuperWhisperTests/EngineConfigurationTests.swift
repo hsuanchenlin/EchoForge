@@ -377,6 +377,11 @@ final class EngineConfigurationRecoveryWriteTests: IsolatedPreferencesTestCase {
 @MainActor
 final class TranscriptionServiceEngineSelectionTests: IsolatedPreferencesTestCase {
 
+    override func tearDown() {
+        MainActor.assumeIsolated { TranscriptionService.shared.availabilityOverride = nil }
+        super.tearDown()
+    }
+
     /// The concrete failing sequence this closes: a user with a working Whisper
     /// setup taps an engine (e.g. Paraformer) whose weights are not downloaded
     /// yet. Even though Whisper was available to "recover" onto, the reload this
@@ -397,13 +402,21 @@ final class TranscriptionServiceEngineSelectionTests: IsolatedPreferencesTestCas
         )
     }
 
-    /// The narrower gap the reload fix left open: dictating during the window
-    /// between picking an engine and its download finishing (or after a cache
-    /// was removed while the app ran) must fail with the actionable error, not
-    /// silently transcribe on - and persist - a different engine.
-    func testTranscribeAudio_withAnUnconfiguredStoredEngine_failsVisiblyWithoutRewritingTheSelection() async {
+    /// Dictating with nothing on the Mac at all still fails with the actionable
+    /// error and still leaves the selection exactly as the user made it.
+    ///
+    /// The window this used to cover - dictating between picking an engine and
+    /// its download finishing - is no longer a failure at all: `EngineSelector`
+    /// keeps a previous or starter model running through it, which is what
+    /// `EngineSelectionTests` covers. What remains here is the case where there
+    /// is genuinely nothing to stand in.
+    func testTranscribeAudio_withNothingAvailable_failsVisiblyWithoutRewritingTheSelection() async {
         AppPreferences.shared.selectedEngine = .whisper
         AppPreferences.shared.selectedWhisperModelPath = "/definitely/does-not-exist.bin"
+        TranscriptionService.shared.availabilityOverride = EngineAvailability(
+            usableEngines: [],
+            whisperModelPaths: []
+        )
 
         do {
             _ = try await TranscriptionService.shared.transcribeAudio(
@@ -417,5 +430,24 @@ final class TranscriptionServiceEngineSelectionTests: IsolatedPreferencesTestCas
 
         XCTAssertEqual(AppPreferences.shared.selectedEngine, .whisper)
         XCTAssertEqual(AppPreferences.shared.selectedWhisperModelPath, "/definitely/does-not-exist.bin")
+    }
+
+    /// The superseding behaviour, stated where the old one was: a not-yet-ready
+    /// selection is a state the app dictates through, not an error - and the
+    /// preference still comes out untouched.
+    func testTranscribeAudio_withAStandInAvailable_doesNotReportNothingConfigured() {
+        AppPreferences.shared.selectedEngine = .paraformer
+        AppPreferences.shared.whisperLanguage = "zh"
+        AppPreferences.shared.lastReadyEngine = .sensevoice
+        TranscriptionService.shared.availabilityOverride = EngineAvailability(
+            usableEngines: [.sensevoice],
+            whisperModelPaths: []
+        )
+
+        TranscriptionService.shared.reloadEngine(allowModelDownload: false)
+
+        XCTAssertTrue(TranscriptionService.shared.isEngineConfigured)
+        XCTAssertEqual(TranscriptionService.shared.selection.active, .sensevoice)
+        XCTAssertEqual(AppPreferences.shared.selectedEngine, .paraformer)
     }
 }

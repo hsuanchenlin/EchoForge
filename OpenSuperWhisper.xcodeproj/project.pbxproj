@@ -416,6 +416,7 @@
 				CE57B0252D52C7BB00929AF3 /* Frameworks */,
 				CE57B0262D52C7BB00929AF3 /* Resources */,
 				CEAC00052D82F20000000000 /* CopyFiles */,
+				CEAC00202D83000000000000 /* Package Starter Model */,
 			);
 			buildRules = (
 			);
@@ -603,6 +604,24 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		CEAC00202D83000000000000 /* Package Starter Model */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Package Starter Model";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"$SRCROOT/Scripts/package_starter_model.sh\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		CE57B0242D52C7BB00929AF3 /* Sources */ = {

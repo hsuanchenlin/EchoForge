@@ -97,9 +97,17 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !OpenSuperWhisperApp.isRunningTests else { return }
 
-        // Before anything constructs an engine - `warmUp()` below does - so an
-        // install left with no usable engine is repaired against what is
-        // actually downloaded rather than failing at the user's first dictation.
+        // Order matters, and both of these run before anything constructs an
+        // engine - `warmUp()` below does.
+        //
+        // The starter weights go into the model cache first, so everything that
+        // follows sees a Mac that can already transcribe rather than one that
+        // has to download before it can. In a build packaged without them this
+        // is a no-op and the app behaves exactly as it did before.
+        print("Starter model: \(StarterModel.installIfNeeded())")
+
+        // Then an install left with no usable engine is repaired against what is
+        // actually downloaded, rather than failing at the user's first dictation.
         EngineConfiguration.recoverIfNeeded()
 
         setupStatusBarItem()

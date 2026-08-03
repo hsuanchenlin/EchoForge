@@ -13,7 +13,11 @@ class SettingsViewModel: ObservableObject {
             refreshModelState(for: selectedEngine)
             resetLanguageIfUnsupported()
             Task { @MainActor in
-                TranscriptionService.shared.reloadEngine(allowModelDownload: false)
+                // Downloads allowed: choosing an engine is the request to
+                // prepare it. It happens in the background and dictation carries
+                // on with whatever was already ready, so this no longer costs the
+                // user the minutes it used to.
+                TranscriptionService.shared.reloadEngine()
             }
         }
     }
@@ -814,6 +818,13 @@ struct SettingsView: View {
                     Label("Advanced", systemImage: "gear")
                 }
                 .tag(4)
+
+            // Which build this is, and the only place that offers to change it.
+            AboutSettingsView()
+                .tabItem {
+                    Label("About", systemImage: "info.circle")
+                }
+                .tag(5)
             }
         .padding()
         .frame(width: sheetSize.width, height: sheetSize.height)
@@ -1824,13 +1835,41 @@ struct EngineModelSectionView: View {
     let entry: EngineCatalogEntry
     @ObservedObject var viewModel: SettingsViewModel
 
+    /// The background preparation this pane has to reflect but does not own.
+    ///
+    /// Choosing an engine now starts fetching its weights whether or not this
+    /// pane is open, so the row has two possible sources of "busy": the Download
+    /// button next to it, and the preparation that the selection itself started.
+    /// `ModelLoadCoordinator` makes them the same piece of work, so the row shows
+    /// whichever one is reporting.
+    @ObservedObject private var transcriptionService = TranscriptionService.shared
+
     @State private var showError = false
     @State private var errorMessage = ""
 
     private var download: EngineModelDownload? { entry.download }
     private var isDownloaded: Bool { viewModel.downloadedEngineModels.contains(kind) }
+
+    private var backgroundPreparation: ModelPreparation? {
+        guard let preparation = transcriptionService.modelPreparation, preparation.engine == kind else { return nil }
+        return preparation
+    }
+
     private var isBusy: Bool {
-        viewModel.isDownloading && viewModel.downloadingModelName == download?.modelName
+        (viewModel.isDownloading && viewModel.downloadingModelName == download?.modelName)
+            || backgroundPreparation != nil
+    }
+
+    /// True while the phase in progress has no fraction worth showing - the
+    /// Neural Engine compile, or listing the repository.
+    private var isIndeterminate: Bool {
+        if let backgroundPreparation { return !backgroundPreparation.stage.isDeterminate }
+        return viewModel.isCompilingModel
+    }
+
+    private var determinateFraction: Double {
+        if case .downloading(let fraction)? = backgroundPreparation?.stage { return fraction }
+        return viewModel.downloadProgress
     }
 
     var body: some View {
@@ -1904,7 +1943,7 @@ struct EngineModelSectionView: View {
                 Spacer()
 
                 if isBusy {
-                    Button("Cancel") { viewModel.cancelDownload() }
+                    Button("Cancel") { cancel() }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                 } else if isDownloaded {
@@ -1939,17 +1978,16 @@ struct EngineModelSectionView: View {
                 // FluidAudio starts compiling: that phase publishes no fraction
                 // and is the longer half of a cold start, so a bar frozen at
                 // 100 % would read as a hang.
-                if viewModel.isCompilingModel {
-                    ProgressView()
-                        .progressViewStyle(LinearProgressViewStyle())
-                        .frame(height: 6)
-                        .padding(.top, 2)
-                } else {
-                    ProgressView(value: viewModel.downloadProgress)
-                        .progressViewStyle(LinearProgressViewStyle())
-                        .frame(height: 6)
-                        .padding(.top, 2)
+                Group {
+                    if isIndeterminate {
+                        ProgressView()
+                    } else {
+                        ProgressView(value: determinateFraction)
+                    }
                 }
+                .progressViewStyle(LinearProgressViewStyle())
+                .frame(height: 6)
+                .padding(.top, 2)
             }
         }
         .padding(12)
@@ -1964,9 +2002,14 @@ struct EngineModelSectionView: View {
     /// and is otherwise indistinguishable from the app having hung.
     private func statusLine(_ download: EngineModelDownload) -> String {
         if isBusy {
-            return viewModel.isCompilingModel
-                ? "Preparing for the Neural Engine. This takes about a minute the first time."
-                : "Downloading \(formatModelSize(megabytes: download.megabytes))…"
+            if isIndeterminate {
+                return "\(ModelPreparationStage.preparingMessage) Preparing for the Neural Engine takes about a "
+                    + "minute the first time."
+            }
+            // The percentage is the point of showing it at all: without one this
+            // row said "Downloading 240 MB…" for four minutes and never moved.
+            return "Downloading \(formatModelSize(megabytes: download.megabytes)) — "
+                + "\(Int((determinateFraction * 100).rounded()))%"
         }
         if isDownloaded {
             return "Downloaded and ready."
@@ -1979,11 +2022,19 @@ struct EngineModelSectionView: View {
             + "\(formatModelSize(megabytes: EngineCatalog.bothChineseEnginesMegabytes))."
     }
 
+    /// Stops whichever piece of work is running. The row cannot tell the two
+    /// apart on purpose - `ModelLoadCoordinator` makes them one download - so it
+    /// cancels both rather than guessing.
+    private func cancel() {
+        viewModel.cancelDownload()
+        TranscriptionService.shared.cancelDesiredEnginePreparation()
+    }
+
     @ViewBuilder
     private var attributionFooter: some View {
         if let credit = entry.attributionCredit {
             VStack(alignment: .leading, spacing: 4) {
-                Text("\(credit). Downloaded to your Mac, not bundled with the app.")
+                Text("\(credit). \(EngineCatalog.provenanceLine(for: kind))")
                     .font(.caption2)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
