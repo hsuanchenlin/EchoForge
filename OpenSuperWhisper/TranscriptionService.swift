@@ -66,8 +66,28 @@ class TranscriptionService: ObservableObject {
         }
     }
 
-    private func loadEngine(allowModelDownload: Bool = true) {
-        guard let selectedEngine = resolveEngine() else {
+    /// Whether the stored engine can load right now, given what is actually
+    /// downloaded. Read-only: unlike `resolveEngine()`, it never writes
+    /// `AppPreferences` - so a load triggered by the user having just picked a
+    /// not-yet-downloaded engine in Settings leaves their choice stored exactly
+    /// as they made it, instead of a recovery guess silently overwriting it.
+    private func isSelectedEngineConfigured(_ selectedEngine: EngineKind, availability: EngineAvailability) -> Bool {
+        EngineConfiguration.isConfigured(
+            engine: selectedEngine,
+            whisperModelPath: AppPreferences.shared.selectedWhisperModelPath,
+            availability: availability
+        )
+    }
+
+    /// `availability` is overridable so tests can pin what recovery would have
+    /// found without depending on which engines happen to be downloaded on the
+    /// machine running them; production callers always take the `nil` default.
+    private func loadEngine(allowModelDownload: Bool = true, availability: EngineAvailability? = nil) {
+        let selectedEngine = AppPreferences.shared.selectedEngine
+        let availability = availability
+            ?? EngineAvailability.current(fluidAudioModelVersion: AppPreferences.shared.fluidAudioModelVersion)
+        isEngineConfigured = isSelectedEngineConfigured(selectedEngine, availability: availability)
+        guard isEngineConfigured else {
             currentEngine = nil
             currentEngineKind = nil
             isLoading = false
@@ -112,8 +132,8 @@ class TranscriptionService: ObservableObject {
         }
     }
     
-    func reloadEngine(allowModelDownload: Bool = true) {
-        loadEngine(allowModelDownload: allowModelDownload)
+    func reloadEngine(allowModelDownload: Bool = true, availability: EngineAvailability? = nil) {
+        loadEngine(allowModelDownload: allowModelDownload, availability: availability)
     }
 
     private func engineForTranscription() async throws -> TranscriptionEngine {

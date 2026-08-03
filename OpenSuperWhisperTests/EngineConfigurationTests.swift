@@ -369,3 +369,34 @@ final class EngineConfigurationRecoveryWriteTests: IsolatedPreferencesTestCase {
         XCTAssertNil(AppPreferences.shared.selectedWhisperModelPath)
     }
 }
+
+/// `TranscriptionService.reloadEngine` is what `SettingsViewModel.selectedEngine`'s
+/// `didSet` calls right after persisting a user's tap in the engine picker - before
+/// any download has started. That load must never silently rewrite the choice it
+/// was just given: it only recovers at launch and before a transcription, both of
+/// which call `EngineConfiguration.recoverIfNeeded` directly, not through here.
+@MainActor
+final class TranscriptionServiceEngineSelectionTests: IsolatedPreferencesTestCase {
+
+    /// The concrete failing sequence this closes: a user with a working Whisper
+    /// setup taps an engine (e.g. Paraformer) whose weights are not downloaded
+    /// yet. Even though Whisper was available to "recover" onto, the reload this
+    /// tap triggers must leave the explicit choice stored exactly as made -
+    /// `EngineConfiguration.recoverIfNeeded` only runs at launch and before a
+    /// transcription, not from here.
+    func testReloadEngineWithoutDownload_afterExplicitSwitch_leavesTheChosenEngineStored() {
+        AppPreferences.shared.selectedEngine = .paraformer
+        let onlyWhisperIsDownloaded = EngineAvailability(
+            usableEngines: [.whisper],
+            whisperModelPaths: ["/models/ggml-large-v3-turbo.bin"]
+        )
+
+        TranscriptionService.shared.reloadEngine(allowModelDownload: false, availability: onlyWhisperIsDownloaded)
+
+        XCTAssertEqual(
+            AppPreferences.shared.selectedEngine,
+            .paraformer,
+            "loading a just-chosen, not-yet-downloaded engine must not revert to a previously working one"
+        )
+    }
+}
