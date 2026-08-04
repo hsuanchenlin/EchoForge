@@ -846,7 +846,7 @@ struct SettingsView: View {
                 
                 // EchoForge's own source. Credit for the upstream project this
                 // forked from lives in the README and LICENSE, which travel with it.
-                Link(destination: URL(string: "https://github.com/hsuanchenlin/OpenSuperWhisper")!) {
+                Link(destination: URL(string: "https://github.com/hsuanchenlin/EchoForge")!) {
                     HStack(spacing: 4) {
                         Image(systemName: "star")
                             .font(.system(size: 10))

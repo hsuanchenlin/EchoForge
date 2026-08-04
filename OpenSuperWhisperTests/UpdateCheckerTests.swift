@@ -31,6 +31,12 @@ final class AppVersionTests: XCTestCase {
 /// updater: everything downstream of it acts on what it returns.
 final class UpdateManifestTests: XCTestCase {
 
+    /// Marks the one line allowed to spell out a pre-rename URL: the fixture
+    /// that proves such a URL is refused. Written as a marker rather than
+    /// matched by variable name so renaming the variable cannot silently widen
+    /// the exemption.
+    static let deliberatePreRenameURL = "deliberate-pre-rename-url"
+
     /// The repository itself, reached through `#filePath`: the release script is
     /// not in the test bundle, so it cannot be read as a resource.
     private var repositoryRoot: URL {
@@ -96,7 +102,7 @@ final class UpdateManifestTests: XCTestCase {
     /// an asset claiming to come from it is refused. Together with the test above
     /// this pins which of the two names the updater trusts, in both directions.
     func testRefusesTheRepositorysPreRenamePath() {
-        let old = "https://github.com/hsuanchenlin/OpenSuperWhisper/releases/download/v0.3.0/EchoForge.dmg"
+        let old = "https://github.com/hsuanchenlin/OpenSuperWhisper/releases/download/v0.3.0/EchoForge.dmg"  // deliberate-pre-rename-url
 
         XCTAssertThrowsError(try UpdateManifest.parse(metadata(downloadURL: old))) { error in
             guard case UpdateManifestError.untrustedDownloadHost = error else {
@@ -167,6 +173,55 @@ final class UpdateManifestTests: XCTestCase {
         XCTAssertTrue(
             line.contains("github.com/'${REPO}'/"),
             "inside the single-quoted -d payload ${REPO} must be quote-broken as '${REPO}', or it is emitted literally: \(line)"
+        )
+    }
+
+    /// No Swift source anywhere names the pre-rename repository in a URL.
+    ///
+    /// This is the third file in three rounds to be caught carrying it -
+    /// `UpdateManifest.repositoryPath`, then `make_release.sh`, then the About
+    /// pane's own GitHub link and a test fixture. Each was found by someone
+    /// reading a diff, which is exactly the method that missed the previous two.
+    /// So the check covers the whole source tree rather than the file in front of
+    /// us, and the next occurrence fails a test instead of shipping.
+    ///
+    /// Scoped to URL **string literals**, deliberately: several comments in this
+    /// project name `hsuanchenlin/OpenSuperWhisper` on purpose, because they
+    /// describe the bug and the path that must be refused. Killing those would
+    /// remove the explanation of why any of this exists. The scoping is not a
+    /// weakening - a literal is precisely what `Settings.swift:849` was.
+    func testNoSwiftSourceLinksToThePreRenameRepository() throws {
+        // Assembled from pieces rather than written out, so this line does not
+        // match its own search. Writing the needle literally makes the test fail
+        // on itself, which is a confusing way to learn that it works.
+        let stale = "github.com/" + "hsuanchenlin/" + "OpenSuperWhisper"
+        var offenders: [String] = []
+
+        for directory in ["OpenSuperWhisper", "OpenSuperWhisperTests"] {
+            let root = repositoryRoot.appendingPathComponent(directory)
+            let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
+                .compactMap { $0 as? URL }
+                .filter { $0.pathExtension == "swift" } ?? []
+
+            for file in files {
+                for (number, line) in try String(contentsOf: file, encoding: .utf8)
+                    .split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                    // A URL the app or a fixture would actually use, rather than
+                    // prose about the old path: it appears inside a quoted string.
+                    guard line.contains("\"") , line.contains(stale) else { continue }
+                    // The one legitimate literal, marked at its use site rather
+                    // than matched by variable name: the test proving the
+                    // pre-rename path is refused has to contain it to assert
+                    // anything at all.
+                    guard !line.contains(Self.deliberatePreRenameURL) else { continue }
+                    offenders.append("\(file.lastPathComponent):\(number + 1) \(line.trimmingCharacters(in: .whitespaces))")
+                }
+            }
+        }
+
+        XCTAssertTrue(
+            offenders.isEmpty,
+            "Swift sources still link to the pre-rename repository:\n" + offenders.joined(separator: "\n")
         )
     }
 

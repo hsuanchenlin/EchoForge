@@ -130,7 +130,7 @@ final class UpdateInstallerStagingTests: XCTestCase {
             version: AppVersion("0.3.0")!,
             tag: "v0.3.0",
             notes: "",
-            downloadURL: URL(string: "https://github.com/hsuanchenlin/OpenSuperWhisper/releases/download/v0.3.0/EchoForge.dmg")!,
+            downloadURL: URL(string: "https://github.com/hsuanchenlin/EchoForge/releases/download/v0.3.0/EchoForge.dmg")!,
             sizeInBytes: sizeInBytes
         )
     }
