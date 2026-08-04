@@ -1,62 +1,31 @@
 #!/bin/bash
-set -e
+#
+# Builds, signs, notarizes and packages a release with a Developer ID.
+#
+# Kept as the name upstream and the release notes use; the work is done by
+# `Scripts/build_release.sh`, which is also what the ad-hoc path this fork
+# actually ships uses. Having one script for both is the point: the two paths
+# differing in an unwritten-down way is what broke v0.3.0.
+#
+# Usage:
+#   ./notarize_app.sh "Developer ID Application: Your Name (TEAMID)" [keychain-profile]
+#
+# This fork has neither a Developer ID certificate nor a notarytool profile, so
+# this script cannot run here - use `Scripts/build_release.sh` with no arguments
+# for the ad-hoc build, and see docs/release_build.md.
 
-# === Configuration Variables ===
-APP_NAME="EchoForge"                                   
-APP_PATH="./build/Build/Products/Release/EchoForge.app"                        
-ZIP_PATH="./build/EchoForge.zip"                        
-BUNDLE_ID="com.hsuanchenlin.EchoForge"                       
-KEYCHAIN_PROFILE="Slava"
-CODE_SIGN_IDENTITY="${1}"
-DEVELOPMENT_TEAM="8LLDD7HWZK"
+set -euo pipefail
 
-rm -rf libwhisper/build
-cmake -G Xcode -B libwhisper/build -S libwhisper
+readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-rm -rf build
-mkdir -p build
+CODE_SIGN_IDENTITY="${1:-}"
+KEYCHAIN_PROFILE="${2:-Slava}"
 
-echo "Building autocorrect-swift..."
-CARGO_PROFILE_RELEASE_LTO=true \
-CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
-CARGO_PROFILE_RELEASE_STRIP=symbols \
-CARGO_PROFILE_RELEASE_PANIC=abort \
-cargo build -p autocorrect-swift --release --target aarch64-apple-darwin --manifest-path=asian-autocorrect/Cargo.toml
-cp ./asian-autocorrect/target/aarch64-apple-darwin/release/libautocorrect_swift.dylib ./build/libautocorrect_swift.dylib
-install_name_tool -id "@rpath/libautocorrect_swift.dylib" ./build/libautocorrect_swift.dylib
-codesign --force --sign "${CODE_SIGN_IDENTITY}" --timestamp ./build/libautocorrect_swift.dylib
+if [[ -z "$CODE_SIGN_IDENTITY" ]]; then
+    echo "❌ Usage: $0 \"Developer ID Application: Your Name (TEAMID)\" [keychain-profile]" >&2
+    exit 2
+fi
 
-echo "Copying libomp.dylib..."
-cp /opt/homebrew/opt/libomp/lib/libomp.dylib ./build/libomp.dylib
-install_name_tool -id "@rpath/libomp.dylib" ./build/libomp.dylib
-codesign --force --sign "${CODE_SIGN_IDENTITY}" --timestamp ./build/libomp.dylib
-
-xcodebuild \
-  -scheme "OpenSuperWhisper" \
-  -configuration Release \
-  -destination "platform=macOS,arch=arm64" \
-  CODE_SIGN_STYLE=Manual \
-  DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM}" \
-  CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY}" \
-  OTHER_CODE_SIGN_FLAGS=--timestamp \
-  CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
-  -derivedDataPath build \
-  build | xcpretty --simple --color
-
-rm -f "${ZIP_PATH}"
-
-current_dir=$(pwd)
-cd $(dirname "${APP_PATH}") && zip -r -y "${current_dir}/${ZIP_PATH}" $(basename "${APP_PATH}")
-cd "${current_dir}"
-
-xcrun notarytool submit "${ZIP_PATH}" --wait --keychain-profile "${KEYCHAIN_PROFILE}"
-
-xcrun stapler staple "${APP_PATH}"
-
-swifty-dmg --skipcodesign "${APP_PATH}" --output "${APP_NAME}.dmg" --verbose
-
-codesign --sign "${CODE_SIGN_IDENTITY}" "${APP_NAME}.dmg"
-xcrun notarytool submit "${APP_NAME}.dmg" --wait --keychain-profile "${KEYCHAIN_PROFILE}"
-xcrun stapler staple "${APP_NAME}.dmg"  
-
-echo "Successfully notarized ${APP_NAME}"
+exec "${REPO_ROOT}/Scripts/build_release.sh" \
+    --sign-identity "$CODE_SIGN_IDENTITY" \
+    --notarize-profile "$KEYCHAIN_PROFILE"

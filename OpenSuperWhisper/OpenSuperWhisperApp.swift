@@ -11,7 +11,25 @@ import AppKit
 import Combine
 import UniformTypeIdentifiers
 
+/// The process entry point.
+///
+/// It sits in front of `OpenSuperWhisperApp` rather than on it so that
+/// `LaunchDiagnostics` gets to run before *anything* the app does - before
+/// SwiftUI builds the `App` value, whose stored properties reach
+/// `AppPreferences.shared` and `MicrophoneService.shared` on the way past. A
+/// release verifier has to be able to start the build it is about to publish
+/// without that build migrating the operator's preferences or installing a
+/// starter model into their model cache. See `LaunchDiagnostics`.
 @main
+enum AppEntryPoint {
+    static func main() {
+        if LaunchDiagnostics.isRequested {
+            LaunchDiagnostics.runAndExit()
+        }
+        OpenSuperWhisperApp.main()
+    }
+}
+
 struct OpenSuperWhisperApp: App {
     static let isRunningTests = NSClassFromString("XCTestCase") != nil
 

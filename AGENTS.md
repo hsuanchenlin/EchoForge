@@ -33,10 +33,29 @@ then `xcodebuild`); `./run.sh` also launches the app. CI runs exactly `./run.sh 
 
 ## Release
 
-`notarize_app.sh` (and `make_release.sh`, which calls it) needs a "Developer ID Application"
-certificate and a `notarytool` keychain profile. This fork does not have either, so its
-releases are unsigned and unnotarized and users have to get past Gatekeeper by hand.
-`docs/install.md` is the one end-user home for that: install path, the two Gatekeeper
+`Scripts/build_release.sh` is the single release build path, for both this fork's ad-hoc
+builds and a Developer ID build (`notarize_app.sh` and `make_release.sh` are wrappers over
+it). It exists because there used to be no script for the ad-hoc case at all - only a
+Developer ID one this fork cannot run - so releases were assembled by hand, and v0.3.0
+shipped an app that could not start on any Mac.
+
+Signing mode and hardened runtime are one decision, not two. Hardened runtime turns on
+library validation, which requires every loaded library to carry the process's Team ID; an
+ad-hoc signature has none, and macOS treats each ad-hoc-signed file as its own identity, so
+an ad-hoc build with hardened runtime is refused its own embedded dylibs and dies in dyld
+before `main`. Developer ID → on; ad-hoc → off. See `docs/release_build.md`.
+
+`Scripts/verify_release_package.sh` is what decides whether an artifact is publishable, and
+every release build runs it. `codesign --verify --deep --strict` is not that check - it
+passed on the published, unopenable v0.3.0 DMG. The verifier's load-bearing part is that it
+**starts the app**: `ECHOFORGE_LAUNCH_CHECK=1` makes `LaunchDiagnostics` report which
+bundled libraries dyld mapped and exit from `AppEntryPoint`, before anything touches the
+operator's preferences, model cache or database. `Scripts/tests/verify_release_package_test.sh`
+tests the verifier against synthesised broken bundles and `ReleasePackagingTests` runs it.
+
+This fork has no "Developer ID Application" certificate and no `notarytool` keychain
+profile, so its releases are unsigned and unnotarized and users have to get past Gatekeeper
+by hand. `docs/install.md` is the one end-user home for that: install path, the two Gatekeeper
 workarounds, permissions, and how to use the Chinese engines. The README links to it and
 must not grow a second copy. Per-release notes live in `docs/release-notes/vX.Y.Z.md` and
 are what the GitHub release body is created from. Version bumps go in `MARKETING_VERSION`
