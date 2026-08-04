@@ -29,7 +29,7 @@ instead of replacing it.
 ### EchoForge (this fork, includes the Chinese engines)
 
 Download the newest `.dmg` from
-[this fork's releases page](https://github.com/hsuanchenlin/OpenSuperWhisper/releases)
+[this fork's releases page](https://github.com/hsuanchenlin/EchoForge/releases)
 (`EchoForge.dmg`), drag the app into `Applications`, then right-click it and choose
 **Open** the first time - these builds are unsigned, so macOS blocks a normal
 double-click until you do.
