@@ -31,12 +31,26 @@ final class AppVersionTests: XCTestCase {
 /// updater: everything downstream of it acts on what it returns.
 final class UpdateManifestTests: XCTestCase {
 
+    /// Marks the one line allowed to spell out a pre-rename URL: the fixture
+    /// that proves such a URL is refused. Written as a marker rather than
+    /// matched by variable name so renaming the variable cannot silently widen
+    /// the exemption.
+    static let deliberatePreRenameURL = "deliberate-pre-rename-url"
+
+    /// The repository itself, reached through `#filePath`: the release script is
+    /// not in the test bundle, so it cannot be read as a resource.
+    private var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // OpenSuperWhisperTests
+            .deletingLastPathComponent() // repository root
+    }
+
     private func metadata(
         tag: String = "v0.3.0",
         draft: Bool = false,
         prerelease: Bool = false,
         assetName: String = "EchoForge.dmg",
-        downloadURL: String = "https://github.com/hsuanchenlin/OpenSuperWhisper/releases/download/v0.3.0/EchoForge.dmg",
+        downloadURL: String = "https://github.com/hsuanchenlin/EchoForge/releases/download/v0.3.0/EchoForge.dmg",
         size: Int = 30_000_000,
         body: String = "notes"
     ) -> Data {
@@ -58,7 +72,157 @@ final class UpdateManifestTests: XCTestCase {
         XCTAssertEqual(release.notes, "notes")
         XCTAssertEqual(release.sizeInBytes, 30_000_000)
         XCTAssertEqual(release.releasePageURL.absoluteString,
-                       "https://github.com/hsuanchenlin/OpenSuperWhisper/releases/tag/v0.3.0")
+                       "https://github.com/hsuanchenlin/EchoForge/releases/tag/v0.3.0")
+    }
+
+    // MARK: - The repository releases actually come from
+
+    /// The exact asset URL GitHub publishes for this project, accepted.
+    ///
+    /// This is the regression test for a bug that shipped the updater dead on
+    /// arrival: the repository was renamed to `hsuanchenlin/EchoForge`, but
+    /// `repositoryPath` still said `hsuanchenlin/OpenSuperWhisper`. Renames are
+    /// transparent almost everywhere - the git remote, the API and the web UI all
+    /// follow the redirect, so nothing looked wrong - but `browser_download_url`
+    /// is always the *canonical* path, so the prefix check refused every genuine
+    /// release as `untrustedDownloadHost` and no update could ever be offered.
+    ///
+    /// The URL below is copied from a real published release, not composed from
+    /// `repositoryPath`; composing it would make the test agree with whatever the
+    /// constant happens to say and reproduce the bug rather than catch it.
+    func testAcceptsTheAssetURLRealReleasesActuallyPublish() throws {
+        let real = "https://github.com/hsuanchenlin/EchoForge/releases/download/v0.3.0/EchoForge.dmg"
+
+        let release = try UpdateManifest.parse(metadata(downloadURL: real))
+
+        XCTAssertEqual(release.downloadURL.absoluteString, real)
+    }
+
+    /// The other half: the pre-rename path is no longer where releases live, so
+    /// an asset claiming to come from it is refused. Together with the test above
+    /// this pins which of the two names the updater trusts, in both directions.
+    func testRefusesTheRepositorysPreRenamePath() {
+        let old = "https://github.com/hsuanchenlin/OpenSuperWhisper/releases/download/v0.3.0/EchoForge.dmg"  // deliberate-pre-rename-url
+
+        XCTAssertThrowsError(try UpdateManifest.parse(metadata(downloadURL: old))) { error in
+            guard case UpdateManifestError.untrustedDownloadHost = error else {
+                return XCTFail("the pre-rename path was refused for the wrong reason: \(error)")
+            }
+        }
+    }
+
+    /// The constant itself, asserted directly: everything else in this file feeds
+    /// it a URL, and a reader should not have to infer the repository from them.
+    func testTheRepositoryIsTheOneReleasesArePublishedFrom() {
+        XCTAssertEqual(UpdateManifest.repositoryPath, "hsuanchenlin/EchoForge")
+        XCTAssertEqual(
+            UpdateManifest.latestReleaseURL.absoluteString,
+            "https://api.github.com/repos/hsuanchenlin/EchoForge/releases/latest"
+        )
+    }
+
+    /// The release script publishes to the same repository the app updates from.
+    ///
+    /// `make_release.sh` had the identical stale path in eight places, including
+    /// the Homebrew cask `url` and `homepage` - so a published formula would have
+    /// sent users to a path that only worked by redirect. It is checked from here
+    /// rather than left to a reader because the script and this constant are two
+    /// halves of one fact: the script decides where a release is *published*, and
+    /// `repositoryPath` decides where the app will *accept* one from. If they
+    /// ever disagree, the updater refuses every release the script produces,
+    /// which is exactly the bug this file's other tests exist for.
+    func testTheReleaseScriptPublishesToTheRepositoryTheUpdaterTrusts() throws {
+        let script = try String(contentsOf: repositoryRoot.appendingPathComponent("make_release.sh"), encoding: .utf8)
+
+        XCTAssertTrue(
+            script.contains("readonly REPO=\"\(UpdateManifest.repositoryPath)\""),
+            "make_release.sh must publish to \(UpdateManifest.repositoryPath), the repository the updater accepts"
+        )
+        XCTAssertFalse(
+            script.contains("hsuanchenlin/OpenSuperWhisper"),
+            "make_release.sh still names the pre-rename repository somewhere"
+        )
+    }
+
+    /// Every GitHub URL in the script goes through `${REPO}` rather than spelling
+    /// a repository out. Eight hand-written copies is how all eight came to be
+    /// wrong at once.
+    func testTheReleaseScriptNeverHardcodesARepositoryInAURL() throws {
+        let script = try String(contentsOf: repositoryRoot.appendingPathComponent("make_release.sh"), encoding: .utf8)
+
+        for line in script.split(separator: "\n") {
+            guard line.contains("github.com/"), !line.contains("readonly REPO=") else { continue }
+            XCTAssertTrue(
+                line.contains("${REPO}"),
+                "a GitHub URL names a repository directly instead of using ${REPO}: \(line.trimmingCharacters(in: .whitespaces))"
+            )
+        }
+    }
+
+    /// The one place `${REPO}` cannot simply be written: the release body sits
+    /// inside a single-quoted `curl -d` payload, where `${REPO}` would be emitted
+    /// literally rather than expanded. It has to break out of the quotes the way
+    /// the neighbouring `${NEW_VERSION}` does, and that is invisible on reading -
+    /// the release would just go out with `${REPO}` printed in its text.
+    func testTheReleaseBodyEscapesOutOfItsSingleQuotedPayload() throws {
+        let script = try String(contentsOf: repositoryRoot.appendingPathComponent("make_release.sh"), encoding: .utf8)
+
+        let bodyLine = script.split(separator: "\n").first { $0.contains("docs/install.md](https://github.com/") }
+        let line = try XCTUnwrap(bodyLine, "the release body no longer links docs/install.md")
+
+        XCTAssertTrue(
+            line.contains("github.com/'${REPO}'/"),
+            "inside the single-quoted -d payload ${REPO} must be quote-broken as '${REPO}', or it is emitted literally: \(line)"
+        )
+    }
+
+    /// No Swift source anywhere names the pre-rename repository in a URL.
+    ///
+    /// This is the third file in three rounds to be caught carrying it -
+    /// `UpdateManifest.repositoryPath`, then `make_release.sh`, then the About
+    /// pane's own GitHub link and a test fixture. Each was found by someone
+    /// reading a diff, which is exactly the method that missed the previous two.
+    /// So the check covers the whole source tree rather than the file in front of
+    /// us, and the next occurrence fails a test instead of shipping.
+    ///
+    /// Scoped to URL **string literals**, deliberately: several comments in this
+    /// project name `hsuanchenlin/OpenSuperWhisper` on purpose, because they
+    /// describe the bug and the path that must be refused. Killing those would
+    /// remove the explanation of why any of this exists. The scoping is not a
+    /// weakening - a literal is precisely what `Settings.swift:849` was.
+    func testNoSwiftSourceLinksToThePreRenameRepository() throws {
+        // Assembled from pieces rather than written out, so this line does not
+        // match its own search. Writing the needle literally makes the test fail
+        // on itself, which is a confusing way to learn that it works.
+        let stale = "github.com/" + "hsuanchenlin/" + "OpenSuperWhisper"
+        var offenders: [String] = []
+
+        for directory in ["OpenSuperWhisper", "OpenSuperWhisperTests"] {
+            let root = repositoryRoot.appendingPathComponent(directory)
+            let files = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil)?
+                .compactMap { $0 as? URL }
+                .filter { $0.pathExtension == "swift" } ?? []
+
+            for file in files {
+                for (number, line) in try String(contentsOf: file, encoding: .utf8)
+                    .split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+                    // A URL the app or a fixture would actually use, rather than
+                    // prose about the old path: it appears inside a quoted string.
+                    guard line.contains("\"") , line.contains(stale) else { continue }
+                    // The one legitimate literal, marked at its use site rather
+                    // than matched by variable name: the test proving the
+                    // pre-rename path is refused has to contain it to assert
+                    // anything at all.
+                    guard !line.contains(Self.deliberatePreRenameURL) else { continue }
+                    offenders.append("\(file.lastPathComponent):\(number + 1) \(line.trimmingCharacters(in: .whitespaces))")
+                }
+            }
+        }
+
+        XCTAssertTrue(
+            offenders.isEmpty,
+            "Swift sources still link to the pre-rename repository:\n" + offenders.joined(separator: "\n")
+        )
     }
 
     // MARK: - What it refuses
@@ -69,8 +233,8 @@ final class UpdateManifestTests: XCTestCase {
     func testRefusesADownloadFromAnywhereButGitHubsReleaseHosts() {
         for url in [
             "https://example.com/EchoForge.dmg",
-            "https://github.com.evil.test/hsuanchenlin/OpenSuperWhisper/EchoForge.dmg",
-            "https://raw.githubusercontent.com/hsuanchenlin/OpenSuperWhisper/EchoForge.dmg",
+            "https://github.com.evil.test/hsuanchenlin/EchoForge/EchoForge.dmg",
+            "https://raw.githubusercontent.com/hsuanchenlin/EchoForge/EchoForge.dmg",
         ] {
             XCTAssertThrowsError(try UpdateManifest.parse(metadata(downloadURL: url)), url) { error in
                 guard case UpdateManifestError.untrustedDownloadHost = error else {
@@ -85,7 +249,7 @@ final class UpdateManifestTests: XCTestCase {
     func testRefusesAPlainHTTPDownload() {
         XCTAssertThrowsError(
             try UpdateManifest.parse(
-                metadata(downloadURL: "http://github.com/hsuanchenlin/OpenSuperWhisper/releases/download/v0.3.0/EchoForge.dmg")
+                metadata(downloadURL: "http://github.com/hsuanchenlin/EchoForge/releases/download/v0.3.0/EchoForge.dmg")
             )
         )
     }
@@ -105,8 +269,8 @@ final class UpdateManifestTests: XCTestCase {
     /// which `.contains` would have accepted - must still be refused.
     func testRefusesAUrlThatOnlyContainsTheRepositoryPathAsASubstring() {
         for url in [
-            "https://github.com/someone/hsuanchenlin/OpenSuperWhisper/releases/download/v9.9.9/EchoForge.dmg",
-            "https://github.com/hsuanchenlin/OpenSuperWhisper-fork/releases/download/v9.9.9/EchoForge.dmg",
+            "https://github.com/someone/hsuanchenlin/EchoForge/releases/download/v9.9.9/EchoForge.dmg",
+            "https://github.com/hsuanchenlin/EchoForge-fork/releases/download/v9.9.9/EchoForge.dmg",
         ] {
             XCTAssertThrowsError(try UpdateManifest.parse(metadata(downloadURL: url)), url) { error in
                 guard case UpdateManifestError.untrustedDownloadHost = error else {
@@ -209,7 +373,7 @@ final class UpdateComparisonTests: XCTestCase {
             version: AppVersion(version)!,
             tag: "v\(version)",
             notes: "",
-            downloadURL: URL(string: "https://github.com/hsuanchenlin/OpenSuperWhisper/releases/download/v\(version)/EchoForge.dmg")!,
+            downloadURL: URL(string: "https://github.com/hsuanchenlin/EchoForge/releases/download/v\(version)/EchoForge.dmg")!,
             sizeInBytes: 1
         )
     }
@@ -283,7 +447,7 @@ final class DownloadedBuildRequirementsTests: XCTestCase {
             version: AppVersion("0.3.0")!,
             tag: "v0.3.0",
             notes: "",
-            downloadURL: URL(string: "https://github.com/hsuanchenlin/OpenSuperWhisper/releases/download/v0.3.0/EchoForge.dmg")!,
+            downloadURL: URL(string: "https://github.com/hsuanchenlin/EchoForge/releases/download/v0.3.0/EchoForge.dmg")!,
             sizeInBytes: 1
         )
 

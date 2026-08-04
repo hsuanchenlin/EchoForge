@@ -19,7 +19,7 @@ Everything runs on your Mac. No audio is sent anywhere.
 
 ## Install from this fork's releases
 
-1. Open the [releases page for this fork](https://github.com/hsuanchenlin/OpenSuperWhisper/releases)
+1. Open the [releases page for this fork](https://github.com/hsuanchenlin/EchoForge/releases)
    and download `EchoForge.dmg` from the newest release.
 2. Double-click the downloaded `.dmg`. A window opens showing `EchoForge.app`.
 3. Drag `EchoForge.app` into your `Applications` folder. Running the app from
