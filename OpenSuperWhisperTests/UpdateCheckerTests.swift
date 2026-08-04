@@ -31,6 +31,14 @@ final class AppVersionTests: XCTestCase {
 /// updater: everything downstream of it acts on what it returns.
 final class UpdateManifestTests: XCTestCase {
 
+    /// The repository itself, reached through `#filePath`: the release script is
+    /// not in the test bundle, so it cannot be read as a resource.
+    private var repositoryRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // OpenSuperWhisperTests
+            .deletingLastPathComponent() // repository root
+    }
+
     private func metadata(
         tag: String = "v0.3.0",
         draft: Bool = false,
@@ -104,6 +112,61 @@ final class UpdateManifestTests: XCTestCase {
         XCTAssertEqual(
             UpdateManifest.latestReleaseURL.absoluteString,
             "https://api.github.com/repos/hsuanchenlin/EchoForge/releases/latest"
+        )
+    }
+
+    /// The release script publishes to the same repository the app updates from.
+    ///
+    /// `make_release.sh` had the identical stale path in eight places, including
+    /// the Homebrew cask `url` and `homepage` - so a published formula would have
+    /// sent users to a path that only worked by redirect. It is checked from here
+    /// rather than left to a reader because the script and this constant are two
+    /// halves of one fact: the script decides where a release is *published*, and
+    /// `repositoryPath` decides where the app will *accept* one from. If they
+    /// ever disagree, the updater refuses every release the script produces,
+    /// which is exactly the bug this file's other tests exist for.
+    func testTheReleaseScriptPublishesToTheRepositoryTheUpdaterTrusts() throws {
+        let script = try String(contentsOf: repositoryRoot.appendingPathComponent("make_release.sh"), encoding: .utf8)
+
+        XCTAssertTrue(
+            script.contains("readonly REPO=\"\(UpdateManifest.repositoryPath)\""),
+            "make_release.sh must publish to \(UpdateManifest.repositoryPath), the repository the updater accepts"
+        )
+        XCTAssertFalse(
+            script.contains("hsuanchenlin/OpenSuperWhisper"),
+            "make_release.sh still names the pre-rename repository somewhere"
+        )
+    }
+
+    /// Every GitHub URL in the script goes through `${REPO}` rather than spelling
+    /// a repository out. Eight hand-written copies is how all eight came to be
+    /// wrong at once.
+    func testTheReleaseScriptNeverHardcodesARepositoryInAURL() throws {
+        let script = try String(contentsOf: repositoryRoot.appendingPathComponent("make_release.sh"), encoding: .utf8)
+
+        for line in script.split(separator: "\n") {
+            guard line.contains("github.com/"), !line.contains("readonly REPO=") else { continue }
+            XCTAssertTrue(
+                line.contains("${REPO}"),
+                "a GitHub URL names a repository directly instead of using ${REPO}: \(line.trimmingCharacters(in: .whitespaces))"
+            )
+        }
+    }
+
+    /// The one place `${REPO}` cannot simply be written: the release body sits
+    /// inside a single-quoted `curl -d` payload, where `${REPO}` would be emitted
+    /// literally rather than expanded. It has to break out of the quotes the way
+    /// the neighbouring `${NEW_VERSION}` does, and that is invisible on reading -
+    /// the release would just go out with `${REPO}` printed in its text.
+    func testTheReleaseBodyEscapesOutOfItsSingleQuotedPayload() throws {
+        let script = try String(contentsOf: repositoryRoot.appendingPathComponent("make_release.sh"), encoding: .utf8)
+
+        let bodyLine = script.split(separator: "\n").first { $0.contains("docs/install.md](https://github.com/") }
+        let line = try XCTUnwrap(bodyLine, "the release body no longer links docs/install.md")
+
+        XCTAssertTrue(
+            line.contains("github.com/'${REPO}'/"),
+            "inside the single-quoted -d payload ${REPO} must be quote-broken as '${REPO}', or it is emitted literally: \(line)"
         )
     }
 

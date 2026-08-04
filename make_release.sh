@@ -1,6 +1,20 @@
 #!/bin/bash
 set -e
 
+# The GitHub repository releases are published to.
+#
+# Defined once because it used to be written out eight times, and it was wrong in
+# all eight: the repository was renamed to hsuanchenlin/EchoForge and GitHub
+# redirects the old name transparently, so nothing here looked broken while the
+# Homebrew cask below pointed users at a path that only worked by redirect. The
+# app had the same bug in UpdateManifest.repositoryPath, where it was fatal
+# rather than merely fragile - release metadata always names the canonical path,
+# so the updater refused every genuine release.
+#
+# Keep this in step with UpdateManifest.repositoryPath; UpdateManifestTests
+# asserts the two agree and that this file names no other repository.
+readonly REPO="hsuanchenlin/EchoForge"
+
 # Configuration
 NEW_VERSION="${1:-0.0.4}"
 CODE_SIGN_IDENTITY="${2}"
@@ -142,12 +156,12 @@ if [[ -n "$GITHUB_TOKEN" ]]; then
         -H "Accept: application/vnd.github+json" \
         -H "Authorization: Bearer ${GITHUB_TOKEN}" \
         -H "X-GitHub-Api-Version: 2022-11-28" \
-        https://api.github.com/repos/hsuanchenlin/OpenSuperWhisper/releases \
+        https://api.github.com/repos/${REPO}/releases \
         -d '{
             "tag_name": "'${NEW_VERSION}'",
             "target_commitish": "master",
             "name": "Release '${NEW_VERSION}'",
-            "body": "## EchoForge '${NEW_VERSION}'\n\nReal-time audio transcription for macOS using on-device speech models.\n\n## Installation\n\n1. Download the `EchoForge.dmg` file below\n2. Open the DMG and drag EchoForge to Applications\n3. Launch the app and grant necessary permissions\n\nSee [docs/install.md](https://github.com/hsuanchenlin/OpenSuperWhisper/blob/master/docs/install.md) for the full guide.\n\n## Requirements\n- macOS 14.0 (Sonoma) or later\n- Apple Silicon (ARM64) Mac",
+            "body": "## EchoForge '${NEW_VERSION}'\n\nReal-time audio transcription for macOS using on-device speech models.\n\n## Installation\n\n1. Download the `EchoForge.dmg` file below\n2. Open the DMG and drag EchoForge to Applications\n3. Launch the app and grant necessary permissions\n\nSee [docs/install.md](https://github.com/'${REPO}'/blob/master/docs/install.md) for the full guide.\n\n## Requirements\n- macOS 14.0 (Sonoma) or later\n- Apple Silicon (ARM64) Mac",
             "draft": false,
             "prerelease": false,
             "generate_release_notes": false
@@ -171,7 +185,7 @@ if [[ -n "$GITHUB_TOKEN" ]]; then
         -H "Authorization: Bearer ${GITHUB_TOKEN}" \
         -H "X-GitHub-Api-Version: 2022-11-28" \
         -H "Content-Type: application/octet-stream" \
-        "https://uploads.github.com/repos/hsuanchenlin/OpenSuperWhisper/releases/${RELEASE_ID}/assets?name=EchoForge.dmg" \
+        "https://uploads.github.com/repos/${REPO}/releases/${RELEASE_ID}/assets?name=EchoForge.dmg" \
         --data-binary @"${DMG_PATH}")
     
     # Check if upload was successful
@@ -198,7 +212,7 @@ if [[ -n "$GITHUB_TOKEN" ]]; then
             -H "Authorization: Bearer ${GITHUB_TOKEN}" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             -H "Content-Type: application/zip" \
-            "https://uploads.github.com/repos/hsuanchenlin/OpenSuperWhisper/releases/${RELEASE_ID}/assets?name=EchoForge.app.dSYM.zip" \
+            "https://uploads.github.com/repos/${REPO}/releases/${RELEASE_ID}/assets?name=EchoForge.app.dSYM.zip" \
             --data-binary @"${DSYM_ZIP_PATH}")
         
         # Check dSYM upload
@@ -217,12 +231,12 @@ if [[ -n "$GITHUB_TOKEN" ]]; then
     
     echo "✅ DMG uploaded successfully!"
     echo "🎉 GitHub release is complete!"
-    echo "🔗 Release URL: https://github.com/hsuanchenlin/OpenSuperWhisper/releases/tag/${NEW_VERSION}"
+    echo "🔗 Release URL: https://github.com/${REPO}/releases/tag/${NEW_VERSION}"
 else
     echo "⚠️ Skipping GitHub release creation (no token provided)"
     echo "📋 Manual steps needed:"
     echo "1. Create GitHub release at:"
-    echo "   https://github.com/hsuanchenlin/OpenSuperWhisper/releases/new?tag=${NEW_VERSION}"
+    echo "   https://github.com/${REPO}/releases/new?tag=${NEW_VERSION}"
     echo "2. Upload the DMG file: EchoForge.dmg"
 fi
 
@@ -243,10 +257,10 @@ cask "echoforge" do
   version "${NEW_VERSION}"
   sha256 "${SHA256}"
 
-  url "https://github.com/hsuanchenlin/OpenSuperWhisper/releases/download/#{version}/EchoForge.dmg"
+  url "https://github.com/${REPO}/releases/download/#{version}/EchoForge.dmg"
   name "EchoForge"
   desc "Whisper dictation/transcription app"
-  homepage "https://github.com/hsuanchenlin/OpenSuperWhisper"
+  homepage "https://github.com/${REPO}"
 
   depends_on macos: ">= :sonoma"
   depends_on arch: :arm64
