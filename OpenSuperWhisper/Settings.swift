@@ -743,6 +743,9 @@ struct Settings {
     /// Whether the deterministic terms stage runs. Independent of every
     /// language gate and of any later style-rewriting setting.
     var safeCorrectionEnabled: Bool
+    /// The style rewriting stage, which runs after the deterministic ones and
+    /// may decline to change anything at all. See `StyleRewriteService`.
+    var styleRewrite: StyleRewriteConfiguration
 
     var isAsianLanguage: Bool {
         Settings.asianLanguages.contains(selectedLanguage)
@@ -764,6 +767,11 @@ struct Settings {
         self.beamSize = prefs.beamSize
         self.useAsianAutocorrect = prefs.useAsianAutocorrect
         self.safeCorrectionEnabled = prefs.safeCorrectionEnabled
+        self.styleRewrite = StyleRewriteConfiguration.resolve(
+            isEnabled: prefs.styleRewriteEnabled,
+            storedStyleID: prefs.styleRewriteStyleID,
+            customPrompt: prefs.styleRewriteCustomPrompt
+        )
     }
 }
 
@@ -812,19 +820,27 @@ struct SettingsView: View {
                 }
                 .tag(3)
 
+            // Style rewriting - the one stage that can change what the words
+            // mean, so it gets its own pane rather than a row in Transcription.
+            StyleRewriteSettingsView()
+                .tabItem {
+                    Label("Style", systemImage: "wand.and.stars")
+                }
+                .tag(4)
+
             // Advanced Settings
             advancedSettings
                 .tabItem {
                     Label("Advanced", systemImage: "gear")
                 }
-                .tag(4)
+                .tag(5)
 
             // Which build this is, and the only place that offers to change it.
             AboutSettingsView()
                 .tabItem {
                     Label("About", systemImage: "info.circle")
                 }
-                .tag(5)
+                .tag(6)
             }
         .padding()
         .frame(width: sheetSize.width, height: sheetSize.height)

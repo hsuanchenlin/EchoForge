@@ -233,7 +233,8 @@ class TranscriptionQueue: ObservableObject {
                 }
 
                 let settings = Settings()
-                let text = try await transcriptionService.transcribeAudio(url: sourceURL, settings: settings)
+                let styled = try await transcriptionService.transcribeAudio(url: sourceURL, settings: settings)
+                let text = styled.final
 
                 if isRecordingCancelled(recording.id) || Task.isCancelled {
                     return
@@ -271,6 +272,7 @@ class TranscriptionQueue: ObservableObject {
                 await recordingStore.updateRecordingProgressOnlySync(
                     recording.id,
                     transcription: text,
+                    rawTranscription: styled.originalWorthKeeping,
                     progress: 1.0,
                     status: .completed,
                     isRegeneration: false

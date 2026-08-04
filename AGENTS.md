@@ -193,6 +193,29 @@ them. Model-backed regression tests are opt-in on locally generated fixtures und
 generate its own, and fixture filenames must be unique across engines because the test bundle
 flattens them all into one Resources directory.
 
+## Text post-processing
+
+Everything between the engine and the user is three stages, described in
+`docs/text-post-processing.md`: the deterministic transcript stage
+(`TextPostProcessor.process` - personal terms, then CJK spacing), the style rewriting
+stage (`StyleRewriteService.apply`), and the live-dictation insertion stage. The first
+and third are synchronous and cannot fail; keep them that way.
+
+`OpenSuperWhisper/Rewriting/` is the rewriting stage and `docs/style-rewriting.md` is its
+whole story. Two rules carry it. First, it is a **peer** of the terms dictionary, never its
+parent: off, unavailable, timed out or refused, the deterministic output is what the user
+gets, and `TranscriptionService.transcribeAudio` returns `StyledTranscript` so callers keep
+both texts. Second, `StyleRewriteGuard` - not the prompt - is the boundary. The on-device
+model obeys a spoken "ignore all previous instructions" every time; what stops it reaching
+another app is the guard comparing the rewrite against the transcript (script, numbers,
+symbols, dictionary terms, length). `StyleRewriteShape` is the only place a rule is relaxed,
+and a style may omit but nothing may invent. Do not weaken either half - the tests assert
+the refusals.
+
+Style identifiers in `StyleRewriteCatalog` are persisted in preferences; renaming one resets
+the user's choice. Instructions there are written for how the model actually behaves, not
+how it should - the comments record what was measured.
+
 ## Storage
 
 The recordings database is GRDB, with its full schema history in `RecordingStore.makeMigrator()`

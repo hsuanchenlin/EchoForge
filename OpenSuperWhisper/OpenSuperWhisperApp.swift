@@ -74,6 +74,13 @@ struct OpenSuperWhisperApp: App {
         _ = ShortcutManager.shared
         _ = MicrophoneService.shared
         WhisperModelManager.shared.ensureDefaultModelPresent()
+        // Loading the rewriting model is the slow part of the first rewrite,
+        // and the first rewrite is the one the user is standing in front of
+        // waiting to paste. Only for users who have already switched it on -
+        // this must not pull a model onto a Mac whose owner never asked for it.
+        if AppPreferences.shared.styleRewriteEnabled {
+            StyleRewriterFactory.prewarmIfAvailable()
+        }
     }
 }
 

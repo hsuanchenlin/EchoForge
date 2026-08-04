@@ -44,8 +44,8 @@ class TranscriptionService: ObservableObject {
     @Published private(set) var preparationFailure: String?
 
     private final class TranscriptionTaskBox {
-        let task: Task<String, Error>
-        init(_ task: Task<String, Error>) { self.task = task }
+        let task: Task<StyledTranscript, Error>
+        init(_ task: Task<StyledTranscript, Error>) { self.task = task }
     }
 
     private var currentEngine: TranscriptionEngine?
@@ -428,7 +428,14 @@ class TranscriptionService: ObservableObject {
         }
     }
 
-    func transcribeAudio(url: URL, settings: Settings) async throws -> String {
+    /// Transcribes one file and runs the whole post-processing pipeline over it.
+    ///
+    /// Returns `StyledTranscript` rather than a string because the callers store
+    /// what they get: once a stage can rewrite the user's words, "the text" is
+    /// two texts - what was said and what the app made of it - and a caller
+    /// handed only the second one cannot keep the first. See
+    /// `docs/text-post-processing.md`.
+    func transcribeAudio(url: URL, settings: Settings) async throws -> StyledTranscript {
         // Serialize access to the engine: a whisper context must not process
         // two transcriptions concurrently (indicator flow and queue flow can
         // both reach this point due to async busy checks).
@@ -486,7 +493,12 @@ class TranscriptionService: ObservableObject {
             // (live dictation, the file/drop queue, the in-window recorder)
             // passes through here, so they cannot drift apart.
             let processed = TextPostProcessor.process(rawResult, settings: settings)
-            let result = processed.final
+
+            // The rewriting stage is last, is the only one that can fail, and
+            // returns the deterministic text unchanged when it does. It is
+            // skipped entirely unless the user switched it on.
+            let styled = await StyleRewriteService.apply(to: processed, settings: settings)
+            let result = styled.final
 
             let finalCancelled = await MainActor.run { service.isCancelled }
 
@@ -500,7 +512,7 @@ class TranscriptionService: ObservableObject {
                 throw CancellationError()
             }
 
-            return result
+            return styled
         }
 
         transcriptionTask = TranscriptionTaskBox(task)

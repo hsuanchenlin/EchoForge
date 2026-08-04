@@ -296,11 +296,15 @@ class RecordingStore: ObservableObject {
     static let recordingProgressDidUpdateNotification = Notification.Name("RecordingStore.recordingProgressDidUpdate")
     
     /// Updates the in-memory copy and notifies observers without touching the database.
-    private func applyLocalProgressUpdate(_ id: UUID, transcription: String? = nil, progress: Float, status: RecordingStatus, isRegeneration: Bool? = nil) {
+    private func applyLocalProgressUpdate(_ id: UUID, transcription: String? = nil, rawTranscription: String? = nil, progress: Float, status: RecordingStatus, isRegeneration: Bool? = nil) {
         if let index = recordings.firstIndex(where: { $0.id == id }) {
             var updated = recordings[index]
             if let transcription = transcription {
                 updated.transcription = transcription
+                // Follows the transcription rather than being merged in: a
+                // progress tick carries neither, and a new transcription
+                // replaces both or the pair would describe different runs.
+                updated.rawTranscription = rawTranscription
             }
             updated.progress = progress
             updated.status = status
@@ -317,6 +321,11 @@ class RecordingStore: ObservableObject {
         ]
         if let transcription = transcription {
             userInfo["transcription"] = transcription
+            // Sent as the empty string rather than omitted when there is no
+            // original: `userInfo` cannot carry nil, and a missing key would be
+            // indistinguishable from "leave the previous one alone", which is
+            // the one thing it must not mean here.
+            userInfo["rawTranscription"] = rawTranscription ?? ""
         }
         if let isRegeneration = isRegeneration {
             userInfo["isRegeneration"] = isRegeneration
@@ -332,18 +341,25 @@ class RecordingStore: ObservableObject {
         applyLocalProgressUpdate(id, progress: progress, status: status)
     }
     
-    func updateRecordingProgressOnlySync(_ id: UUID, transcription: String, progress: Float, status: RecordingStatus, isRegeneration: Bool? = nil) async {
+    /// Writes a transcription and its status.
+    ///
+    /// `rawTranscription` is written on every call, including the `nil` default,
+    /// and that is deliberate: it belongs to the transcription being written, so
+    /// a regeneration or a failure that replaces the text must not leave the
+    /// previous run's original behind describing text that is no longer there.
+    func updateRecordingProgressOnlySync(_ id: UUID, transcription: String, rawTranscription: String? = nil, progress: Float, status: RecordingStatus, isRegeneration: Bool? = nil) async {
         do {
             _ = try await dbQueue.write { db -> Int in
                 try Recording
                     .filter(Recording.Columns.id == id)
                     .updateAll(db, [
                         Recording.Columns.transcription.set(to: transcription),
+                        Recording.Columns.rawTranscription.set(to: rawTranscription),
                         Recording.Columns.progress.set(to: progress),
                         Recording.Columns.status.set(to: status.rawValue)
                     ])
             }
-            applyLocalProgressUpdate(id, transcription: transcription, progress: progress, status: status, isRegeneration: isRegeneration)
+            applyLocalProgressUpdate(id, transcription: transcription, rawTranscription: rawTranscription, progress: progress, status: status, isRegeneration: isRegeneration)
         } catch {
             print("Failed to update recording progress: \(error)")
         }
