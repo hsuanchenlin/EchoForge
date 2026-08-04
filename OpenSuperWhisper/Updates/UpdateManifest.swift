@@ -79,7 +79,19 @@ enum UpdateManifest {
     /// The repository releases are published from. Changing it changes what the
     /// app will install, so it is a constant with a test on it rather than a
     /// setting.
-    static let repositoryPath = "hsuanchenlin/OpenSuperWhisper"
+    ///
+    /// It must be the repository's **canonical** name, not a name that redirects
+    /// to it. GitHub renames are transparent almost everywhere - the git remote,
+    /// the API, the web UI all follow the redirect - so `hsuanchenlin/OpenSuperWhisper`
+    /// went on working after the rename to `hsuanchenlin/EchoForge` and nothing
+    /// looked wrong. But `browser_download_url` in the release metadata is
+    /// always the *canonical* path, so the prefix check below compared
+    /// `/hsuanchenlin/EchoForge/...` against `/hsuanchenlin/OpenSuperWhisper/`
+    /// and refused every genuine release as `untrustedDownloadHost`. The
+    /// repository directory and the Swift module are still named
+    /// OpenSuperWhisper (see the naming note in AGENTS.md); this constant is not
+    /// about either of those, it is about where releases actually live.
+    static let repositoryPath = "hsuanchenlin/EchoForge"
 
     static let latestReleaseURL = URL(string: "https://api.github.com/repos/\(repositoryPath)/releases/latest")!
 

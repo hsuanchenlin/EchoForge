@@ -36,7 +36,7 @@ final class UpdateManifestTests: XCTestCase {
         draft: Bool = false,
         prerelease: Bool = false,
         assetName: String = "EchoForge.dmg",
-        downloadURL: String = "https://github.com/hsuanchenlin/OpenSuperWhisper/releases/download/v0.3.0/EchoForge.dmg",
+        downloadURL: String = "https://github.com/hsuanchenlin/EchoForge/releases/download/v0.3.0/EchoForge.dmg",
         size: Int = 30_000_000,
         body: String = "notes"
     ) -> Data {
@@ -58,7 +58,53 @@ final class UpdateManifestTests: XCTestCase {
         XCTAssertEqual(release.notes, "notes")
         XCTAssertEqual(release.sizeInBytes, 30_000_000)
         XCTAssertEqual(release.releasePageURL.absoluteString,
-                       "https://github.com/hsuanchenlin/OpenSuperWhisper/releases/tag/v0.3.0")
+                       "https://github.com/hsuanchenlin/EchoForge/releases/tag/v0.3.0")
+    }
+
+    // MARK: - The repository releases actually come from
+
+    /// The exact asset URL GitHub publishes for this project, accepted.
+    ///
+    /// This is the regression test for a bug that shipped the updater dead on
+    /// arrival: the repository was renamed to `hsuanchenlin/EchoForge`, but
+    /// `repositoryPath` still said `hsuanchenlin/OpenSuperWhisper`. Renames are
+    /// transparent almost everywhere - the git remote, the API and the web UI all
+    /// follow the redirect, so nothing looked wrong - but `browser_download_url`
+    /// is always the *canonical* path, so the prefix check refused every genuine
+    /// release as `untrustedDownloadHost` and no update could ever be offered.
+    ///
+    /// The URL below is copied from a real published release, not composed from
+    /// `repositoryPath`; composing it would make the test agree with whatever the
+    /// constant happens to say and reproduce the bug rather than catch it.
+    func testAcceptsTheAssetURLRealReleasesActuallyPublish() throws {
+        let real = "https://github.com/hsuanchenlin/EchoForge/releases/download/v0.3.0/EchoForge.dmg"
+
+        let release = try UpdateManifest.parse(metadata(downloadURL: real))
+
+        XCTAssertEqual(release.downloadURL.absoluteString, real)
+    }
+
+    /// The other half: the pre-rename path is no longer where releases live, so
+    /// an asset claiming to come from it is refused. Together with the test above
+    /// this pins which of the two names the updater trusts, in both directions.
+    func testRefusesTheRepositorysPreRenamePath() {
+        let old = "https://github.com/hsuanchenlin/OpenSuperWhisper/releases/download/v0.3.0/EchoForge.dmg"
+
+        XCTAssertThrowsError(try UpdateManifest.parse(metadata(downloadURL: old))) { error in
+            guard case UpdateManifestError.untrustedDownloadHost = error else {
+                return XCTFail("the pre-rename path was refused for the wrong reason: \(error)")
+            }
+        }
+    }
+
+    /// The constant itself, asserted directly: everything else in this file feeds
+    /// it a URL, and a reader should not have to infer the repository from them.
+    func testTheRepositoryIsTheOneReleasesArePublishedFrom() {
+        XCTAssertEqual(UpdateManifest.repositoryPath, "hsuanchenlin/EchoForge")
+        XCTAssertEqual(
+            UpdateManifest.latestReleaseURL.absoluteString,
+            "https://api.github.com/repos/hsuanchenlin/EchoForge/releases/latest"
+        )
     }
 
     // MARK: - What it refuses
@@ -69,8 +115,8 @@ final class UpdateManifestTests: XCTestCase {
     func testRefusesADownloadFromAnywhereButGitHubsReleaseHosts() {
         for url in [
             "https://example.com/EchoForge.dmg",
-            "https://github.com.evil.test/hsuanchenlin/OpenSuperWhisper/EchoForge.dmg",
-            "https://raw.githubusercontent.com/hsuanchenlin/OpenSuperWhisper/EchoForge.dmg",
+            "https://github.com.evil.test/hsuanchenlin/EchoForge/EchoForge.dmg",
+            "https://raw.githubusercontent.com/hsuanchenlin/EchoForge/EchoForge.dmg",
         ] {
             XCTAssertThrowsError(try UpdateManifest.parse(metadata(downloadURL: url)), url) { error in
                 guard case UpdateManifestError.untrustedDownloadHost = error else {
@@ -85,7 +131,7 @@ final class UpdateManifestTests: XCTestCase {
     func testRefusesAPlainHTTPDownload() {
         XCTAssertThrowsError(
             try UpdateManifest.parse(
-                metadata(downloadURL: "http://github.com/hsuanchenlin/OpenSuperWhisper/releases/download/v0.3.0/EchoForge.dmg")
+                metadata(downloadURL: "http://github.com/hsuanchenlin/EchoForge/releases/download/v0.3.0/EchoForge.dmg")
             )
         )
     }
@@ -105,8 +151,8 @@ final class UpdateManifestTests: XCTestCase {
     /// which `.contains` would have accepted - must still be refused.
     func testRefusesAUrlThatOnlyContainsTheRepositoryPathAsASubstring() {
         for url in [
-            "https://github.com/someone/hsuanchenlin/OpenSuperWhisper/releases/download/v9.9.9/EchoForge.dmg",
-            "https://github.com/hsuanchenlin/OpenSuperWhisper-fork/releases/download/v9.9.9/EchoForge.dmg",
+            "https://github.com/someone/hsuanchenlin/EchoForge/releases/download/v9.9.9/EchoForge.dmg",
+            "https://github.com/hsuanchenlin/EchoForge-fork/releases/download/v9.9.9/EchoForge.dmg",
         ] {
             XCTAssertThrowsError(try UpdateManifest.parse(metadata(downloadURL: url)), url) { error in
                 guard case UpdateManifestError.untrustedDownloadHost = error else {
@@ -209,7 +255,7 @@ final class UpdateComparisonTests: XCTestCase {
             version: AppVersion(version)!,
             tag: "v\(version)",
             notes: "",
-            downloadURL: URL(string: "https://github.com/hsuanchenlin/OpenSuperWhisper/releases/download/v\(version)/EchoForge.dmg")!,
+            downloadURL: URL(string: "https://github.com/hsuanchenlin/EchoForge/releases/download/v\(version)/EchoForge.dmg")!,
             sizeInBytes: 1
         )
     }
@@ -283,7 +329,7 @@ final class DownloadedBuildRequirementsTests: XCTestCase {
             version: AppVersion("0.3.0")!,
             tag: "v0.3.0",
             notes: "",
-            downloadURL: URL(string: "https://github.com/hsuanchenlin/OpenSuperWhisper/releases/download/v0.3.0/EchoForge.dmg")!,
+            downloadURL: URL(string: "https://github.com/hsuanchenlin/EchoForge/releases/download/v0.3.0/EchoForge.dmg")!,
             sizeInBytes: 1
         )
 
