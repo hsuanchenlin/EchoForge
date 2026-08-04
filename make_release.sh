@@ -16,15 +16,17 @@ set -e
 readonly REPO="hsuanchenlin/EchoForge"
 
 # Configuration
+#
+# The signing identity is "-" (ad-hoc) unless a Developer ID is given. It used
+# to be mandatory, which is why this fork - which has no certificate - could not
+# use this script and cut v0.3.0 by hand instead.
 NEW_VERSION="${1:-0.0.4}"
-CODE_SIGN_IDENTITY="${2}"
-GITHUB_TOKEN="${3}"
+CODE_SIGN_IDENTITY="${2:--}"
+GITHUB_TOKEN="${3:-}"
 
-if [[ -z "$CODE_SIGN_IDENTITY" ]]; then
-    echo "❌ Error: Code signing identity is required"
-    echo "Usage: $0 <version> <code_sign_identity> [github_token]"
-    echo "Example: $0 0.0.4 \"Developer ID Application: Your Name (TEAM_ID)\" ghp_xxxxx"
-    exit 1
+if [[ "$CODE_SIGN_IDENTITY" == "-" ]]; then
+    echo "🔏 No Developer ID given: building ad-hoc and unnotarized."
+    echo "   docs/install.md is what tells users how to get past Gatekeeper."
 fi
 
 if [[ -z "$GITHUB_TOKEN" ]]; then
@@ -82,22 +84,18 @@ rm -f EchoForge.dmg
 rm -f EchoForge.dmg.sha256
 rm -f EchoForge.app.dSYM.zip
 
-# Use the existing notarize_app.sh script to build, sign, and notarize
-echo "🔨 Building, signing and notarizing with notarize_app.sh..."
-if [[ ! -f "./notarize_app.sh" ]]; then
-    echo "❌ notarize_app.sh not found!"
-    exit 1
+# Build, sign, package and verify. Scripts/build_release.sh is the single
+# release build path for both signing modes, and it refuses to hand back an
+# artifact that does not pass Scripts/verify_release_package.sh - which includes
+# starting the app, the only check that would have caught v0.3.0.
+echo "🔨 Building, signing and packaging with Scripts/build_release.sh..."
+if [[ "$CODE_SIGN_IDENTITY" == "-" ]]; then
+    ./Scripts/build_release.sh
+else
+    ./Scripts/build_release.sh --sign-identity "${CODE_SIGN_IDENTITY}" --notarize-profile "Slava"
 fi
 
-chmod +x ./notarize_app.sh
-./notarize_app.sh "${CODE_SIGN_IDENTITY}"
-
-if [[ $? -ne 0 ]]; then
-    echo "❌ Build/notarization failed!"
-    exit 1
-fi
-
-echo "✅ Build and notarization successful!"
+echo "✅ Build, packaging and verification successful!"
 
 DMG_PATH="./EchoForge.dmg"
 
