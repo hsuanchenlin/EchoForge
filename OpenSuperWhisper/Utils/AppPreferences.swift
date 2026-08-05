@@ -196,7 +196,6 @@ final class AppPreferences {
     @UserDefault(key: "styleRewriteCustomPrompt", defaultValue: "")
     var styleRewriteCustomPrompt: String
 
-
     @OptionalUserDefault(key: "selectedMicrophoneData")
     var selectedMicrophoneData: Data?
     
