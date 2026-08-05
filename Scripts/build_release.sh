@@ -87,6 +87,24 @@ if [[ ! -f "$HOMEBREW_LIBOMP" ]]; then
     exit 1
 fi
 
+# The build tools are checked here rather than where they are called, so a
+# release machine that is missing one is told at the start instead of part-way
+# through a clean build - `cmake: command not found`, three minutes in, names
+# nothing you can install.
+for tool in cmake:cmake cargo:rust xcodebuild:; do
+    if ! command -v "${tool%%:*}" >/dev/null 2>&1; then
+        echo -n "❌ ${tool%%:*} not found." >&2
+        [[ -n "${tool#*:}" ]] && echo -n " Run: brew install ${tool#*:}" >&2
+        echo >&2
+        exit 1
+    fi
+done
+
+if [[ ! -f "${REPO_ROOT}/libwhisper/whisper.cpp/CMakeLists.txt" || ! -f "${REPO_ROOT}/asian-autocorrect/Cargo.toml" ]]; then
+    echo "❌ submodules are not checked out. Run: git submodule update --init --recursive" >&2
+    exit 1
+fi
+
 echo "🧹 Cleaning previous builds..."
 rm -rf "$DERIVED_DATA" libwhisper/build
 rm -f "$DMG_PATH" "${DMG_PATH}.sha256" "${REPO_ROOT}/${APP_NAME}.app.dSYM.zip"
