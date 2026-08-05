@@ -978,6 +978,13 @@ struct RecordingRow: View {
     @StateObject private var audioRecorder = AudioRecorder.shared
     @State private var showTranscription = false
     @State private var showOriginal = false
+    @State private var showComparison = false
+    /// Compared once, when the comparison is opened.
+    ///
+    /// The row rebuilds on hover, and a transcript of a long dictation is a lot
+    /// of words to line up against another one; doing it in `body` would put
+    /// that work behind every mouse move across the history.
+    @State private var comparisonSegments: [TextDiffSegment] = []
     @State private var isHovered = false
     @Environment(\.colorScheme) private var colorScheme
 
@@ -1027,30 +1034,41 @@ struct RecordingRow: View {
         return recording.transcription
     }
 
-    /// The collapsed "Show original" disclosure under a post-processed row.
+    /// The two collapsed disclosures under a post-processed row: what the engine
+    /// heard, and what post-processing did to it.
     ///
-    /// Collapsed by default because the styled text is the answer the user
-    /// asked for; present at all because it is the only copy of what they said.
+    /// Both are collapsed by default because the styled text is the answer the
+    /// user asked for. "Show original" is present at all because it is the only
+    /// copy of what they said; "Compare" is what turns that copy into an answer
+    /// to the question the row actually raises - which of these words are mine?
     @ViewBuilder
     private func originalTranscriptionSection(_ original: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Button {
+            HStack(spacing: 12) {
+                disclosureButton(
+                    title: showOriginal ? "Hide original" : "Show original",
+                    isExpanded: showOriginal,
+                    help: "What the transcription engine heard, before post-processing"
+                ) {
                     withAnimation(.easeInOut(duration: 0.15)) {
                         showOriginal.toggle()
                     }
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 9, weight: .semibold))
-                            .rotationEffect(.degrees(showOriginal ? 90 : 0))
-                        Text(showOriginal ? "Hide original" : "Show original")
-                            .font(.caption)
-                    }
-                    .foregroundColor(.secondary)
                 }
-                .buttonStyle(.plain)
-                .help("What the transcription engine heard, before post-processing")
+
+                disclosureButton(
+                    title: showComparison ? "Hide comparison" : "Compare",
+                    isExpanded: showComparison,
+                    help: "The original with the words post-processing dropped struck through"
+                ) {
+                    if !showComparison {
+                        comparisonSegments = TextDiffUtil.compare(
+                            original: original, revised: displayText
+                        )
+                    }
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showComparison.toggle()
+                    }
+                }
 
                 if showOriginal {
                     Button {
@@ -1065,6 +1083,8 @@ struct RecordingRow: View {
                     .help("Copy the original")
                     .transition(.opacity)
                 }
+
+                Spacer(minLength: 0)
             }
 
             if showOriginal {
@@ -1078,9 +1098,65 @@ struct RecordingRow: View {
                     .clipShape(RoundedRectangle(cornerRadius: 6))
                     .transition(.opacity)
             }
+
+            if showComparison {
+                VStack(alignment: .leading, spacing: 6) {
+                    TextDiffView(segments: comparisonSegments, font: .caption)
+                        .padding(8)
+                        .background(ThemePalette.panelSurface(colorScheme))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                    if TextDiffUtil.hasVisibleChanges(in: comparisonSegments) {
+                        TextDiffLegend()
+                    } else {
+                        // CJK spacing is a real post-processing change that the
+                        // comparison deliberately does not mark up, and a panel
+                        // with nothing struck through in it and no explanation
+                        // reads as a bug.
+                        Label("Only spacing or capitalisation changed here.",
+                              systemImage: "info.circle")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .transition(.opacity)
+            }
         }
         .padding(.horizontal, 12)
         .padding(.top, 8)
+        // A regeneration replaces the transcript underneath an open comparison
+        // - sometimes only the raw side, when the final text lands unchanged -
+        // and a comparison against text the row no longer shows is worse than
+        // none.
+        .onChange(of: recording.transcription) { _, _ in
+            refreshComparison(against: original)
+        }
+        .onChange(of: recording.rawTranscription) { _, _ in
+            refreshComparison(against: original)
+        }
+    }
+
+    private func refreshComparison(against original: String) {
+        guard showComparison else { return }
+        comparisonSegments = TextDiffUtil.compare(original: original, revised: displayText)
+    }
+
+    private func disclosureButton(
+        title: String, isExpanded: Bool, help: String, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                Text(title)
+                    .font(.caption)
+            }
+            .foregroundColor(.secondary)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 
     var body: some View {

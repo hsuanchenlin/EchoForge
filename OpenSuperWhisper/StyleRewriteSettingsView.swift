@@ -302,16 +302,39 @@ struct StyleRewriteSettingsView: View {
         }
     }
 
+    /// The preview's result, as a comparison with what was typed in.
+    ///
+    /// A style is judged by what it changed, and the result on its own does not
+    /// say that: read next to a sample the user wrote seconds ago, "we should
+    /// ship on Friday" looks the same whether the style dropped two filler words
+    /// or rewrote the sentence. So the words the rewrite dropped stay on screen,
+    /// struck through, in the place they were said. When the rewrite declined or
+    /// changed nothing there is no comparison to draw and the text stands alone.
     @ViewBuilder
     private func previewResult(_ result: StyledTranscript) -> some View {
+        let segments = TextDiffUtil.compare(
+            original: result.transcript, revised: result.final
+        )
+        let showsComparison = TextDiffUtil.hasVisibleChanges(in: segments)
+
         VStack(alignment: .leading, spacing: 6) {
-            Text(result.final)
-                .font(.system(size: 12))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(8)
-                .background(ThemePalette.panelSurface(colorScheme))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+            Group {
+                if showsComparison {
+                    TextDiffView(segments: segments)
+                } else {
+                    Text(result.final)
+                        .font(.system(size: 12))
+                        .textSelection(.enabled)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(8)
+            .background(ThemePalette.panelSurface(colorScheme))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+
+            if showsComparison {
+                TextDiffLegend()
+            }
 
             // The reason is the useful half when a rewrite is declined: it is
             // the same check the dictation path runs, so a custom prompt can be
@@ -332,7 +355,7 @@ struct StyleRewriteSettingsView: View {
     private var footer: some View {
         VStack(alignment: .leading, spacing: 4) {
             Divider()
-            Text("Your original transcript is kept with every recording. Open a row in the history and choose \"Show original\" to see or copy exactly what was transcribed.")
+            Text("Your original transcript is kept with every recording. Open a row in the history and choose \"Show original\" to see or copy exactly what was transcribed, or \"Compare\" to see what changed.")
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
