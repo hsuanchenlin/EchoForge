@@ -54,6 +54,7 @@ work the capsule is currently reporting on.
 | --- | --- | --- |
 | `.connecting` | mode chip, spinner, "Connecting…" | when capture starts |
 | `.recording` | mode chip, level meter, `m:ss` | when the audio stops |
+| `.recording` + confirmation | mode chip, "Press Esc to cancel", countdown bar | when the window lapses |
 | `.polishing(.transcribing)` | spinner, "Transcribing…", cancel | when the text arrives |
 | `.polishing(.rewriting)` | spinner, "Polishing…", cancel | when the text arrives |
 | `.complete` | green checkmark, "Inserted" | after 1.5 s |
@@ -64,7 +65,7 @@ the dictation and the clock are all outside it, which is what makes the badge
 durations and the transitions testable without a window server, a microphone or a
 real 1.5 second wait. `CapsuleHUDViewModelTests` is that test.
 
-Three rules in it are load-bearing:
+Four rules in it are load-bearing:
 
 - **`complete()` is ignored unless a session is in flight.** A cancelled
   dictation, or one already showing why it stopped, must not end on a checkmark.
@@ -74,11 +75,24 @@ Three rules in it are load-bearing:
   moves a generation counter that the pending hide checks.
 - **`endWithoutBadge()` leaves a badge alone.** When a session ends while a
   message is up, that message's own timer owns the rest of its life.
+- **A rewrite may only follow this session's own decode.**
+  `StyleRewriteActivity` is global - the transcription queue's rewrites (file
+  drop, open-with, history regenerate) raise it too, and a `@Published` replays
+  one already in flight at subscription time - so `beginPolishing(.rewriting)`
+  is refused unless the capsule is already showing `.polishing(.transcribing)`.
+
+The Esc cancel-confirmation is the session's, not the capsule's:
+`IndicatorViewModel` runs the same state machine for both overlays and the
+capsule only mirrors `isConfirmingCancel`, swapping the meter for "Press Esc to
+cancel" over the card's own `CancelConfirmationBar` countdown.
 
 `DictationResult` (in `Indicator/IndicatorWindow.swift`) is what the outcome is
 read from. The card never needed it - it decodes, hides, and says nothing either
 way - but a HUD has to tell a silent recording and a failed transcription apart
-from a successful one.
+from a successful one. `.inserted` carries `StyleRewriteStatus.explanation` when
+a promised rewrite kept the original - refused by the guard, timed out, failed -
+and the capsule tells that story as the `.error` badge; the text itself is
+inserted and stored exactly as a plain success is.
 
 ## The mode chip
 

@@ -55,6 +55,14 @@ struct CapsuleHUDView: View {
                     }
                     .shadow(color: .black.opacity(colorScheme == .dark ? 0.45 : 0.18), radius: 10, y: 3)
             }
+            .overlay(alignment: .bottom) {
+                // The same countdown the card draws, inside the pill: its
+                // 12 pt side padding keeps the 2 pt bar clear of the capsule's
+                // bottom curve.
+                if viewModel.state == .recording && viewModel.isConfirmingCancel {
+                    CancelConfirmationBar()
+                }
+            }
             .fixedSize()
     }
 
@@ -81,12 +89,17 @@ struct CapsuleHUDView: View {
         case .recording:
             row {
                 modeChip
-                CapsuleHUDWaveform(
-                    levels: viewModel.levels,
-                    sampleCount: CapsuleHUDViewModel.waveformSampleCount
-                )
-                durationCounter
+                if viewModel.isConfirmingCancel {
+                    label("Press Esc to cancel", color: .orange)
+                } else {
+                    CapsuleHUDWaveform(
+                        levels: viewModel.levels,
+                        sampleCount: CapsuleHUDViewModel.waveformSampleCount
+                    )
+                    durationCounter
+                }
             }
+            .animation(.easeInOut(duration: 0.2), value: viewModel.isConfirmingCancel)
 
         case .polishing(let work):
             row {
@@ -261,6 +274,7 @@ struct PulsingLabel: View {
     }
     polishing.beginSession(mode: .dictate)
     polishing.beginRecording()
+    polishing.beginPolishing(.transcribing)
     polishing.beginPolishing(.rewriting)
     complete.beginSession(mode: .dictate)
     complete.beginRecording()

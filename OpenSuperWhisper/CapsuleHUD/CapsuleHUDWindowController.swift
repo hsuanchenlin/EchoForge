@@ -105,6 +105,16 @@ final class CapsuleHUDWindowController {
             }
             .store(in: &sessionCancellables)
 
+        // The Esc confirmation step runs in the session's state machine either
+        // way; the capsule mirrors it so the first Esc is visibly acknowledged
+        // instead of looking dead.
+        indicatorViewModel.$isConfirmingCancel
+            .receive(on: RunLoop.main)
+            .sink { [weak self] confirming in
+                self?.viewModel.setCancelConfirmation(confirming)
+            }
+            .store(in: &sessionCancellables)
+
         AudioRecorder.shared.$inputLevel
             .receive(on: RunLoop.main)
             .sink { [weak self] level in
@@ -116,6 +126,12 @@ final class CapsuleHUDWindowController {
         // transcription is finished, and the session's own outcome is what says
         // so - stepping back to "Transcribing…" at that point would be a lie in
         // the last half second of the wait.
+        //
+        // The flag is global - the transcription queue's rewrites raise it too,
+        // and a `@Published` even replays a rewrite already in flight at
+        // subscription time. The view model is what scopes it to this session:
+        // `beginPolishing(.rewriting)` is refused unless the capsule is already
+        // showing its own decode.
         StyleRewriteActivity.shared.$isRewriting
             .receive(on: RunLoop.main)
             .sink { [weak self] isRewriting in

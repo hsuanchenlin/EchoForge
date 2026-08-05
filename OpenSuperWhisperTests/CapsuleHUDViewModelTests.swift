@@ -133,6 +133,27 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.state, .idle)
     }
 
+    func testARewriteFromAnotherFlowDoesNotHijackARecordingCapsule() {
+        let viewModel = makeViewModel()
+
+        viewModel.beginSession(mode: .dictate)
+        XCTAssertEqual(viewModel.state, .connecting)
+
+        // A queue transcription - file drop, open-with, history regenerate -
+        // raises the global rewrite flag while this dictation is still being
+        // captured. Its rewrite is not this session's wait.
+        viewModel.beginPolishing(.rewriting)
+        XCTAssertEqual(viewModel.state, .connecting)
+
+        viewModel.beginRecording()
+        viewModel.beginPolishing(.rewriting)
+
+        XCTAssertEqual(
+            viewModel.state, .recording,
+            "A rewrite may only follow this session's own decode"
+        )
+    }
+
     func testCompleteIsIgnoredWhenNothingIsInFlight() {
         let viewModel = makeViewModel()
 
@@ -214,7 +235,9 @@ final class CapsuleHUDViewModelTests: XCTestCase {
 
     func testFinishMapsEveryOutcomeOntoWhatIsShown() {
         for (result, expected) in [
-            (DictationResult.inserted, CapsuleHUDState.complete),
+            (DictationResult.inserted(styleNotice: nil), CapsuleHUDState.complete),
+            (DictationResult.inserted(styleNotice: "Kept the original: it drops the number \"42\"."),
+             CapsuleHUDState.error("Kept the original: it drops the number \"42\".")),
             (DictationResult.noSpeech, CapsuleHUDState.error("No speech detected")),
             (DictationResult.failed("The audio could not be transcribed."),
              CapsuleHUDState.error("The audio could not be transcribed."))
@@ -228,6 +251,23 @@ final class CapsuleHUDViewModelTests: XCTestCase {
 
             XCTAssertEqual(viewModel.state, expected, "for \(result)")
         }
+    }
+
+    func testARefusedRewriteBadgeStaysUpAsLongAsAnyOtherSentence() {
+        let viewModel = makeViewModel()
+
+        viewModel.beginSession(mode: CapsuleHUDMode(label: "Polish"))
+        viewModel.beginRecording()
+        viewModel.beginPolishing(.transcribing)
+        viewModel.beginPolishing(.rewriting)
+
+        viewModel.finish(result: .inserted(styleNotice: "Kept the original: the rewrite took too long."))
+
+        XCTAssertEqual(
+            viewModel.state, .error("Kept the original: the rewrite took too long."),
+            "The text was inserted either way; the badge is where the kept-the-original story is told"
+        )
+        XCTAssertEqual(scheduled.map(\.delay), [CapsuleHUDViewModel.errorVisibleDuration])
     }
 
     // MARK: - A stale auto-hide
@@ -285,6 +325,64 @@ final class CapsuleHUDViewModelTests: XCTestCase {
 
         viewModel.follow(.noEngine)
         XCTAssertEqual(viewModel.state, .error(CapsuleHUDViewModel.noEngineMessage))
+    }
+
+    func testTheTwoBusyPathsGetTheirOwnSentences() {
+        let stopped = makeViewModel()
+        stopped.beginSession(mode: .dictate)
+        stopped.beginRecording()
+        stopped.follow(.busy(.audioQueued))
+        XCTAssertEqual(
+            stopped.state, .error("Still transcribing - queued"),
+            "Stopping while busy really does queue the audio"
+        )
+
+        let refused = makeViewModel()
+        refused.beginSession(mode: .dictate)
+        refused.follow(.busy(.startRefused))
+        XCTAssertEqual(
+            refused.state, .error("Busy - try again in a moment"),
+            "A refused start captured nothing and queued nothing, so it must not say 'queued'"
+        )
+    }
+
+    // MARK: - The Esc confirmation
+
+    func testTheFirstEscIsVisiblyAcknowledgedWhileRecording() {
+        let viewModel = makeViewModel()
+
+        viewModel.beginSession(mode: .dictate)
+        viewModel.setCancelConfirmation(true)
+        XCTAssertFalse(viewModel.isConfirmingCancel, "There is no recording yet to confirm cancelling")
+
+        viewModel.beginRecording()
+        viewModel.setCancelConfirmation(true)
+        XCTAssertTrue(viewModel.isConfirmingCancel)
+        XCTAssertEqual(viewModel.state, .recording, "The confirmation changes what the pill says, not the session")
+
+        viewModel.setCancelConfirmation(false)
+        XCTAssertFalse(viewModel.isConfirmingCancel, "The confirmation window lapsing takes the message with it")
+    }
+
+    func testACancelConfirmationDoesNotSurviveTheSession() {
+        let viewModel = makeViewModel()
+
+        viewModel.beginSession(mode: .dictate)
+        viewModel.beginRecording()
+        viewModel.setCancelConfirmation(true)
+        viewModel.dismiss()
+        XCTAssertFalse(viewModel.isConfirmingCancel)
+
+        viewModel.beginSession(mode: .dictate)
+        viewModel.beginRecording()
+        viewModel.setCancelConfirmation(true)
+        viewModel.beginPolishing(.transcribing)
+        viewModel.finish(result: .inserted(styleNotice: nil))
+        viewModel.beginSession(mode: .dictate)
+        XCTAssertFalse(
+            viewModel.isConfirmingCancel,
+            "A fresh capsule must not open onto the previous session's warning"
+        )
     }
 
     func testConnectingDoesNotStartTheTimer() {

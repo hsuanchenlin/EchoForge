@@ -111,6 +111,14 @@ final class CapsuleHUDViewModel: ObservableObject {
     /// directly.
     @Published private(set) var levels: [Float] = []
 
+    /// Whether the first Esc press is being visibly acknowledged.
+    ///
+    /// The session's own state machine (`IndicatorViewModel.isConfirmingCancel`)
+    /// decides; the capsule only mirrors it, so the pill can show the same
+    /// "Press Esc to cancel" step the card shows instead of letting the first
+    /// Esc look dead.
+    @Published private(set) var isConfirmingCancel = false
+
     /// What the cancel button does. Set by whoever owns the dictation; the view
     /// model neither knows nor cares what cancelling involves.
     var onCancel: (() -> Void)?
@@ -162,6 +170,7 @@ final class CapsuleHUDViewModel: ObservableObject {
         self.mode = mode
         recordingStartedAt = nil
         levels = []
+        isConfirmingCancel = false
         state = .connecting
     }
 
@@ -189,6 +198,11 @@ final class CapsuleHUDViewModel: ObservableObject {
         // A repeated decoding notification arriving after the rewrite started
         // must not tell the user the engine is still going.
         guard !(state == .polishing(.rewriting) && work == .transcribing) else { return }
+        // A rewrite can only follow this session's own decode.
+        // `StyleRewriteActivity` is global and every transcription flow passes
+        // through it, so a queue item's rewrite - file drop, open-with, history
+        // regenerate - would otherwise hijack a capsule that is still recording.
+        guard !(work == .rewriting && state != .polishing(.transcribing)) else { return }
         generation += 1
         state = .polishing(work)
     }
@@ -250,7 +264,16 @@ final class CapsuleHUDViewModel: ObservableObject {
         state = .idle
         recordingStartedAt = nil
         levels = []
+        isConfirmingCancel = false
         onHide?()
+    }
+
+    /// Mirrors the session's cancel-confirmation step, which only exists while
+    /// the recording it belongs to is on screen - a confirmation raised for
+    /// some other state has nothing here to confirm.
+    func setCancelConfirmation(_ confirming: Bool) {
+        guard !confirming || state == .recording else { return }
+        isConfirmingCancel = confirming
     }
 
     private func scheduleHide(after delay: TimeInterval) {
@@ -279,8 +302,14 @@ final class CapsuleHUDViewModel: ObservableObject {
             beginRecording()
         case .decoding:
             beginPolishing(.transcribing)
-        case .busy:
+        // The two busy paths look alike but only one kept the audio: a stop
+        // while busy queues the recording, a start while busy refuses it, and
+        // "queued" for the refused start would promise words that are never
+        // going to arrive.
+        case .busy(.audioQueued):
             fail("Still transcribing - queued")
+        case .busy(.startRefused):
+            fail("Busy - try again in a moment")
         case .noMicrophone:
             fail("No microphone")
         case .noEngine:
@@ -298,8 +327,13 @@ final class CapsuleHUDViewModel: ObservableObject {
         switch result {
         case .none:
             endWithoutBadge()
-        case .inserted:
+        case .inserted(styleNotice: nil):
             complete()
+        // The text went in exactly as a plain success does; the badge is the
+        // only place the kept-the-original story is told, and the notice is the
+        // stage's own sentence for it.
+        case .inserted(styleNotice: let notice?):
+            fail(notice)
         case .noSpeech:
             fail("No speech detected")
         case .failed(let reason):

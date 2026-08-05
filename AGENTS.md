@@ -264,12 +264,16 @@ the other, never both, because they are two presentations of the same session.
 per session into `sessionUsesCapsule`; a preference flipped mid-recording would otherwise leave a
 session with two overlays or none. Nothing in `CapsuleHUD/` starts, stops or alters a dictation.
 
-`docs/capsule-hud.md` is the capsule's whole story. Two things there are easy to get wrong and are
+`docs/capsule-hud.md` is the capsule's whole story. Three things there are easy to get wrong and are
 pinned by `CapsuleHUDViewModelTests`: an auto-hide belongs to the state that scheduled it (1.5 s is
-long enough for the next dictation to start, and a stale hide would close it), and `complete()` is
+long enough for the next dictation to start, and a stale hide would close it); `complete()` is
 ignored unless a session is in flight, so a cancelled or already-failed dictation cannot end on a
-checkmark. `DictationResult` exists for that last rule - the card decodes, hides and says nothing
-either way, so nothing before the capsule needed to tell a silent recording from a failed one.
+checkmark; and a rewrite is followed only from the session's own decode - `StyleRewriteActivity` is
+global, so a queue transcription's rewrite (file drop, open-with) must not hijack a recording
+capsule. `DictationResult` exists for the `complete()` rule - the card decodes, hides and says
+nothing either way, so nothing before the capsule needed to tell a silent recording from a failed
+one - and carries the sentence for a rewrite that kept the original, which the capsule shows as the
+badge the checkmark would otherwise paper over.
 
 A HUD panel must not take focus: dictation ends by pasting into whatever app the user was typing in.
 Hence `.nonactivatingPanel` plus `canBecomeKey`/`canBecomeMain` false, `ignoresMouseEvents` except

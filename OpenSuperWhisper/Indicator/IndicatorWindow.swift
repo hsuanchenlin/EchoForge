@@ -7,13 +7,29 @@ enum RecordingState: Equatable {
     case connecting
     case recording
     case decoding
-    case busy
+
+    /// Another transcription is still running. The reason says what became of
+    /// this dictation because of it, so an overlay can be honest about whether
+    /// the user's words are coming later.
+    case busy(BusyReason)
     case noMicrophone
 
     /// Reached when a recording decoded with no engine set up. The card states
     /// it in the fewest words that fit; the sentence the user can act on is in
     /// the main window's banner and on the kept recording.
     case noEngine
+}
+
+/// What became of a dictation that arrived while the engine was busy.
+///
+/// The two paths end in the same waiting, but only one of them kept the user's
+/// audio, and a message that says "queued" for the other is promising words that
+/// are never going to arrive.
+enum BusyReason: Equatable {
+    /// The start was refused: nothing was captured and nothing is queued.
+    case startRefused
+    /// The audio was captured and queued behind the transcription in flight.
+    case audioQueued
 }
 
 /// What a dictation that failed to transcribe does with the user's audio.
@@ -46,7 +62,13 @@ enum DictationFailureOutcome: Equatable {
 /// ended with nothing to add": cancelled, or already showing why it stopped.
 enum DictationResult: Equatable {
     /// Text was produced and handed to whatever the user was typing in.
-    case inserted
+    ///
+    /// `styleNotice` is `StyleRewriteStatus.explanation` when a rewrite was
+    /// expected but the deterministic transcript was kept instead - refused by
+    /// the guard, timed out, failed - and nil for a plain success. The text is
+    /// inserted and stored identically either way; the notice only changes what
+    /// the badge says.
+    case inserted(styleNotice: String?)
     /// The recording decoded to nothing. The audio is discarded, as it always was.
     case noSpeech
     /// It failed for a reason worth telling the user.
@@ -124,8 +146,8 @@ class IndicatorViewModel: ObservableObject {
         transcriptionService.isTranscribing || transcriptionQueue.isProcessing
     }
     
-    func showBusyMessage() {
-        showAutoDismissingMessage(.busy)
+    func showBusyMessage(_ reason: BusyReason) {
+        showAutoDismissingMessage(.busy(reason))
     }
 
     private func showAutoDismissingMessage(_ message: RecordingState) {
@@ -141,7 +163,7 @@ class IndicatorViewModel: ObservableObject {
 
     func startRecording() {
         if isTranscriptionBusy {
-            showBusyMessage()
+            showBusyMessage(.startRefused)
             return
         }
 
@@ -207,7 +229,7 @@ class IndicatorViewModel: ObservableObject {
                     await self.transcriptionQueue.addFileToQueue(url: tempURL)
                 }
             }
-            showBusyMessage()
+            showBusyMessage(.audioQueued)
             return
         }
         
@@ -254,7 +276,7 @@ class IndicatorViewModel: ObservableObject {
                         }
                         
                         insertText(text)
-                        self.result = .inserted
+                        self.result = .inserted(styleNotice: styled.status.explanation)
                         print("Transcription result: \(text)")
                     }
                 } catch {
