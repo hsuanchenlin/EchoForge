@@ -26,6 +26,8 @@ there is no `AppIcon.appiconset`.
 
 Submodules are required before anything builds - a fresh clone or worktree needs
 `git submodule update --init --recursive` (`libwhisper/whisper.cpp` and `asian-autocorrect`).
+The toolchain is Xcode plus Homebrew `cmake`, `libomp` and a Rust toolchain;
+`Scripts/build_release.sh` checks all of them up front and names what to install.
 
 `./run.sh build` builds everything (CMake for whisper.cpp, cargo for the autocorrect dylib,
 then `xcodebuild`); `./run.sh` also launches the app. CI runs exactly `./run.sh build`
