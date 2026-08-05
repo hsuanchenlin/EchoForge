@@ -153,7 +153,20 @@ final class AppPreferences {
     
     @UserDefault(key: "playSoundOnRecordStart", defaultValue: false)
     var playSoundOnRecordStart: Bool
-    
+
+    /// Whether a dictation is shown as the floating capsule at the top of the
+    /// screen instead of the card beside the caret.
+    ///
+    /// One overlay or the other, never both: they are two presentations of the
+    /// same session, and two of them on screen at once is duplicated feedback
+    /// rather than more of it. See `CapsuleHUDWindowController`.
+    ///
+    /// Off by default. Every existing install already has feedback where its
+    /// owner learned to look for it, and moving it to the top of the screen is
+    /// their choice to make rather than a default to change under them.
+    @UserDefault(key: "capsuleHUDEnabled", defaultValue: false)
+    var capsuleHUDEnabled: Bool
+
     @UserDefault(key: "hasCompletedOnboarding", defaultValue: false)
     var hasCompletedOnboarding: Bool
     

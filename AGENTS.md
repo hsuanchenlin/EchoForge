@@ -255,6 +255,32 @@ bundle identifier is load-bearing user data - changing it hands every user an em
 EchoForge rename did exactly that once, on purpose (it is what lets an upstream install stay), and
 `docs/install.md` tells users what they lose and how to copy it across. Do not change it again.
 
+## Dictation overlays
+
+A dictation is shown either as the caret-anchored card (`OpenSuperWhisper/Indicator/`) or as the
+floating capsule at the top of the screen (`OpenSuperWhisper/CapsuleHUD/`, off by default) - one or
+the other, never both, because they are two presentations of the same session.
+`IndicatorWindowManager` is the single place that decides, and it reads `capsuleHUDEnabled` **once**
+per session into `sessionUsesCapsule`; a preference flipped mid-recording would otherwise leave a
+session with two overlays or none. Nothing in `CapsuleHUD/` starts, stops or alters a dictation.
+
+`docs/capsule-hud.md` is the capsule's whole story. Three things there are easy to get wrong and are
+pinned by `CapsuleHUDViewModelTests`: an auto-hide belongs to the state that scheduled it (1.5 s is
+long enough for the next dictation to start, and a stale hide would close it); `complete()` is
+ignored unless a session is in flight, so a cancelled or already-failed dictation cannot end on a
+checkmark; and a rewrite is followed only from the session's own decode - `StyleRewriteActivity` is
+global, so a queue transcription's rewrite (file drop, open-with) must not hijack a recording
+capsule. `DictationResult` exists for the `complete()` rule - the card decodes, hides and says
+nothing either way, so nothing before the capsule needed to tell a silent recording from a failed
+one - and carries the sentence for a rewrite that kept the original, which the capsule shows as the
+badge the checkmark would otherwise paper over.
+
+A HUD panel must not take focus: dictation ends by pasting into whatever app the user was typing in.
+Hence `.nonactivatingPanel` plus `canBecomeKey`/`canBecomeMain` false, `ignoresMouseEvents` except
+while a cancel button is up, and `constrainFrameRect` returning its argument - AppKit otherwise pulls
+the panel down until its transparent shadow margin fits on screen, which lands every placement 16 pt
+low.
+
 ## Permissions
 
 `OpenSuperWhisper/PermissionsManager.swift` owns the permission state the root view switches on.

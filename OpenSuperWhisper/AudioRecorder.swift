@@ -10,7 +10,28 @@ class AudioRecorder: NSObject, ObservableObject {
     @Published var currentlyPlayingURL: URL?
     @Published var canRecord = false
     @Published var isConnecting = false
-    
+
+    /// How loud the microphone is right now, 0…1, while something on screen is
+    /// drawing it. Zero whenever nothing is being recorded.
+    ///
+    /// Published only after `setLevelMonitoring(enabled: true)`, because it is
+    /// not free: it costs a 20 Hz timer plus a main-thread publish per tick for
+    /// the whole recording, and nothing in the app draws a level meter unless the
+    /// capsule HUD is switched on.
+    @Published private(set) var inputLevel: Float = 0
+
+    /// How often the level is sampled while it is being drawn. 20 Hz is what a
+    /// level meter needs to look continuous; the waveform's own history supplies
+    /// the rest of the motion.
+    static let levelSampleInterval: TimeInterval = 0.05
+
+    /// The reading treated as silence.
+    ///
+    /// Not the -160 dB floor `AVAudioRecorder` reports for true digital silence:
+    /// a built-in microphone in a quiet room sits around -50 dB, so a meter
+    /// scaled from the absolute floor never returns to rest.
+    static let levelSilenceDecibels: Float = -50
+
     static let minimumRecordingDuration: TimeInterval = 1.0
     static let temporaryFileMaxAge: TimeInterval = 24 * 60 * 60
     /// Extra audio captured after a stop request, so the tail of the last word
@@ -29,6 +50,10 @@ class AudioRecorder: NSObject, ObservableObject {
     private var notificationObserver: Any?
     private var microphoneChangeObserver: Any?
     private var connectionCheckTimer: DispatchSourceTimer?
+    private var levelCheckTimer: DispatchSourceTimer?
+    /// Whether `inputLevel` is wanted. Read and written on `workQueue` only,
+    /// like every other piece of recording state.
+    private var wantsLevelMonitoring = false
     private var recordingDeviceID: AudioDeviceID?
     private var previousDefaultInputDeviceID: AudioDeviceID?
 
@@ -196,8 +221,11 @@ class AudioRecorder: NSObject, ObservableObject {
         do {
             audioRecorder = try AVAudioRecorder(url: fileURL, settings: settings)
             audioRecorder?.delegate = self
-            audioRecorder?.isMeteringEnabled = monitorConnection
+            audioRecorder?.isMeteringEnabled = monitorConnection || wantsLevelMonitoring
             audioRecorder?.record()
+            if wantsLevelMonitoring {
+                startLevelMonitoring()
+            }
             if monitorConnection {
                 startConnectionMonitoring()
             } else {
@@ -226,6 +254,7 @@ class AudioRecorder: NSObject, ObservableObject {
                 self.audioRecorder = nil
                 self.currentRecordingURL = nil
                 self.stopConnectionMonitoring()
+                self.stopLevelMonitoring()
                 self.updateRecordingState(isRecording: false, isConnecting: false)
                 
                 self.workQueue.asyncAfter(deadline: .now() + Self.stopTailDuration) {
@@ -259,6 +288,7 @@ class AudioRecorder: NSObject, ObservableObject {
         audioRecorder?.stop()
         audioRecorder = nil
         stopConnectionMonitoring()
+        stopLevelMonitoring()
         restoreSystemDefaultInputIfNeeded()
         updateRecordingState(isRecording: false, isConnecting: false)
         
@@ -375,6 +405,74 @@ class AudioRecorder: NSObject, ObservableObject {
     private func stopConnectionMonitoring() {
         connectionCheckTimer?.cancel()
         connectionCheckTimer = nil
+    }
+
+    // MARK: - Input level
+
+    /// Turns publishing of `inputLevel` on or off.
+    ///
+    /// Explicit rather than always-on because the level is only ever wanted while
+    /// something is drawing it: the capsule HUD asks for it when a dictation
+    /// starts and gives it back when the capsule goes away, and a build where the
+    /// HUD is switched off pays nothing for it.
+    func setLevelMonitoring(enabled: Bool) {
+        workQueue.async {
+            guard self.wantsLevelMonitoring != enabled else { return }
+            self.wantsLevelMonitoring = enabled
+
+            guard enabled else {
+                self.stopLevelMonitoring()
+                return
+            }
+            // Asked for mid-recording: metering can be switched on while an
+            // `AVAudioRecorder` is running, so the meter starts from here rather
+            // than from the next recording.
+            if let recorder = self.audioRecorder {
+                recorder.isMeteringEnabled = true
+                self.startLevelMonitoring()
+            }
+        }
+    }
+
+    /// Maps `AVAudioRecorder`'s dBFS reading onto the 0…1 a meter draws.
+    ///
+    /// Linear in decibels rather than in amplitude, which is what makes it look
+    /// right: speech at a normal distance averages about -20 dBFS, and
+    /// `pow(10, -20/20)` is 0.1 - a meter that barely moves while someone is
+    /// talking. Scaled from `levelSilenceDecibels` instead, the same speech fills
+    /// about 60 % of the bar and a raised voice most of it.
+    static func normalizedLevel(decibels: Float) -> Float {
+        guard decibels.isFinite else { return 0 }
+        let floorDecibels = levelSilenceDecibels
+        let clamped = min(0, max(floorDecibels, decibels))
+        return (clamped - floorDecibels) / -floorDecibels
+    }
+
+    private func startLevelMonitoring() {
+        stopLevelMonitoring()
+
+        let timer = DispatchSource.makeTimerSource(queue: workQueue)
+        timer.schedule(deadline: .now(), repeating: Self.levelSampleInterval)
+        timer.setEventHandler { [weak self] in
+            guard let self = self, let recorder = self.audioRecorder else { return }
+            recorder.updateMeters()
+            let level = Self.normalizedLevel(decibels: recorder.averagePower(forChannel: 0))
+            DispatchQueue.main.async {
+                self.inputLevel = level
+            }
+        }
+        levelCheckTimer = timer
+        timer.resume()
+    }
+
+    private func stopLevelMonitoring() {
+        levelCheckTimer?.cancel()
+        levelCheckTimer = nil
+        // The meter must read empty rather than hold the last sample: the next
+        // thing the user sees of it is the start of their next dictation.
+        DispatchQueue.main.async {
+            self.inputLevel = 0
+        }
     }
 }
 

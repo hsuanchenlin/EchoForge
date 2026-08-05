@@ -177,7 +177,18 @@ class SettingsViewModel: ObservableObject {
             AppPreferences.shared.playSoundOnRecordStart = playSoundOnRecordStart
         }
     }
-    
+
+    @Published var capsuleHUDEnabled: Bool {
+        didSet {
+            AppPreferences.shared.capsuleHUDEnabled = capsuleHUDEnabled
+            // Warms the panel up now rather than during the appear animation of
+            // the first dictation after the switch. A no-op once it exists.
+            Task { @MainActor in
+                CapsuleHUDWindowController.shared.warmUp()
+            }
+        }
+    }
+
     @Published var useAsianAutocorrect: Bool {
         didSet {
             AppPreferences.shared.useAsianAutocorrect = useAsianAutocorrect
@@ -258,6 +269,7 @@ class SettingsViewModel: ObservableObject {
         self.beamSize = prefs.beamSize
         self.debugMode = prefs.debugMode
         self.playSoundOnRecordStart = prefs.playSoundOnRecordStart
+        self.capsuleHUDEnabled = prefs.capsuleHUDEnabled
         self.useAsianAutocorrect = prefs.useAsianAutocorrect
         self.modifierOnlyHotkey = ModifierKey(rawValue: prefs.modifierOnlyHotkey) ?? .none
         self.mouseButtonHotkey = MouseButton(rawValue: prefs.mouseButtonHotkey) ?? .none
@@ -1581,7 +1593,21 @@ struct SettingsView: View {
                                 .labelsHidden()
                                 .help("Play a notification sound when recording begins")
                         }
-                        
+
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Floating capsule HUD")
+                                    .font(.subheadline)
+                                Text("Show one capsule at the top of the screen - level, timer, progress - instead of the card beside the cursor")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Toggle("", isOn: $viewModel.capsuleHUDEnabled)
+                                .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
+                                .labelsHidden()
+                        }
+
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Cancel without confirmation")
