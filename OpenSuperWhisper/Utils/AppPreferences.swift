@@ -168,7 +168,34 @@ final class AppPreferences {
     /// so it must keep working when rewriting is off, unavailable or rejected.
     @UserDefault(key: "safeCorrectionEnabled", defaultValue: true)
     var safeCorrectionEnabled: Bool
-    
+
+    /// Whether the transcript is rewritten into a style after the deterministic
+    /// stages have run.
+    ///
+    /// Off by default, and it stays off on its own merits: it is the one stage
+    /// that can change the meaning of what the user said, it needs an on-device
+    /// model most Macs running this app do not have, and everything above it
+    /// works without it. Turning it off must never turn off
+    /// `safeCorrectionEnabled` - they are peers, not parent and child.
+    @UserDefault(key: "styleRewriteEnabled", defaultValue: false)
+    var styleRewriteEnabled: Bool
+
+    /// The chosen style's identifier, from `StyleRewriteCatalog`.
+    ///
+    /// A plain string rather than an enum because the catalog is data: an
+    /// identifier written by a newer build reads back as the default style
+    /// instead of leaving the app with none - see
+    /// `StyleRewriteCatalog.style(forStoredID:)`.
+    @UserDefault(key: "styleRewriteStyleID", defaultValue: StyleRewriteCatalog.defaultStyleID)
+    var styleRewriteStyleID: String
+
+    /// The user's own rewriting instruction, used by the custom style.
+    ///
+    /// Kept even while another style is selected, so switching away and back
+    /// does not silently discard something they wrote.
+    @UserDefault(key: "styleRewriteCustomPrompt", defaultValue: "")
+    var styleRewriteCustomPrompt: String
+
     @OptionalUserDefault(key: "selectedMicrophoneData")
     var selectedMicrophoneData: Data?
     

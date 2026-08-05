@@ -68,7 +68,10 @@ final class RecordingMigrationTests: XCTestCase {
 
         XCTAssertEqual(stored.id, recording.id)
         XCTAssertEqual(stored.transcription, "hello there")
-        XCTAssertNil(stored.rawTranscription, "Nothing writes the raw transcription yet.")
+        XCTAssertNil(
+            stored.rawTranscription,
+            "A transcription that post-processing left alone keeps no second copy of itself."
+        )
     }
 
     func testRecordingRoundTripsWithARawTranscription() throws {

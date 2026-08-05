@@ -169,10 +169,14 @@ class ContentViewModel: ObservableObject {
         loadMore()
     }
     
-    func handleProgressUpdate(id: UUID, transcription: String?, progress: Float, status: RecordingStatus, isRegeneration: Bool?) {
+    func handleProgressUpdate(id: UUID, transcription: String?, rawTranscription: String?, progress: Float, status: RecordingStatus, isRegeneration: Bool?) {
         if let index = recordings.firstIndex(where: { $0.id == id }) {
             if let transcription = transcription {
                 recordings[index].transcription = transcription
+                // Empty means "this transcription has no original worth
+                // keeping", which is a value, not a missing one.
+                recordings[index].rawTranscription = (rawTranscription?.isEmpty ?? true)
+                    ? nil : rawTranscription
             }
             recordings[index].progress = progress
             recordings[index].status = status
@@ -231,7 +235,8 @@ class ContentViewModel: ObservableObject {
                 let duration = await AudioUtil.audioDuration(url: tempURL)
                 do {
                     print("start decoding...")
-                    let text = try await transcriptionService.transcribeAudio(url: tempURL, settings: Settings())
+                    let styled = try await transcriptionService.transcribeAudio(url: tempURL, settings: Settings())
+                    let text = styled.final
 
                     if text.isEmpty {
                         try? FileManager.default.removeItem(at: tempURL)
@@ -248,7 +253,8 @@ class ContentViewModel: ObservableObject {
                             duration: duration,
                             status: .completed,
                             progress: 1.0,
-                            sourceFileURL: nil
+                            sourceFileURL: nil,
+                            rawTranscription: styled.originalWorthKeeping
                         )
 
                         try recorder.moveTemporaryRecording(from: tempURL, to: newRecording.url)
@@ -698,11 +704,13 @@ struct ContentView: View {
                   let status = userInfo["status"] as? RecordingStatus else { return }
             
             let transcription = userInfo["transcription"] as? String
+            let rawTranscription = userInfo["rawTranscription"] as? String
             let isRegeneration = userInfo["isRegeneration"] as? Bool
-            
+
             viewModel.handleProgressUpdate(
                 id: id,
                 transcription: transcription,
+                rawTranscription: rawTranscription,
                 progress: progress,
                 status: status,
                 isRegeneration: isRegeneration
@@ -969,8 +977,21 @@ struct RecordingRow: View {
     let onRegenerate: () -> Void
     @StateObject private var audioRecorder = AudioRecorder.shared
     @State private var showTranscription = false
+    @State private var showOriginal = false
     @State private var isHovered = false
     @Environment(\.colorScheme) private var colorScheme
+
+    /// What the engine heard, when post-processing changed it into something
+    /// else.
+    ///
+    /// This is the half of the rewriting feature that makes it safe to use: the
+    /// styled text is what the app pasted, and the words the user actually said
+    /// are still here, one click away, in the row next to it.
+    private var originalTranscription: String? {
+        guard let original = recording.rawTranscription, !original.isEmpty,
+              original != recording.transcription else { return nil }
+        return original
+    }
 
     private var isPlaying: Bool {
         audioRecorder.isPlaying && audioRecorder.currentlyPlayingURL == recording.url
@@ -1004,6 +1025,62 @@ struct RecordingRow: View {
             return ""
         }
         return recording.transcription
+    }
+
+    /// The collapsed "Show original" disclosure under a post-processed row.
+    ///
+    /// Collapsed by default because the styled text is the answer the user
+    /// asked for; present at all because it is the only copy of what they said.
+    @ViewBuilder
+    private func originalTranscriptionSection(_ original: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) {
+                        showOriginal.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .rotationEffect(.degrees(showOriginal ? 90 : 0))
+                        Text(showOriginal ? "Hide original" : "Show original")
+                            .font(.caption)
+                    }
+                    .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("What the transcription engine heard, before post-processing")
+
+                if showOriginal {
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(original, forType: .string)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Copy the original")
+                    .transition(.opacity)
+                }
+            }
+
+            if showOriginal {
+                Text(original)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                    .background(ThemePalette.panelSurface(colorScheme))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .transition(.opacity)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
     }
 
     var body: some View {
@@ -1092,6 +1169,10 @@ struct RecordingRow: View {
                 }
                 .padding(.horizontal, 4)
                 .padding(.top, isPending && !isRegenerating ? 4 : 8)
+
+                if let original = originalTranscription {
+                    originalTranscriptionSection(original)
+                }
             } else if !isPending {
                 Text("No speech detected")
                     .font(.body)

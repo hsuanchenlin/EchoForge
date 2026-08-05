@@ -20,6 +20,11 @@ TextPostProcessor.process()                TRANSCRIPT STAGE
         │                                  shared by every engine and caller
         │                                  1. personal terms  (on by default)
         │                                  2. CJK autocorrect (protected spans held out)
+        ▼
+StyleRewriteService.apply()                REWRITING STAGE
+        │                                  off by default, on-device model
+        │                                  guarded; falls back to the text above
+        │                                  see docs/style-rewriting.md
         ├──────────────┬───────────────────────────────┐
         ▼              ▼                               ▼
 IndicatorWindow   TranscriptionQueue              ContentView
@@ -33,7 +38,7 @@ TextPostProcessor.prepareForInsertion()    INSERTION STAGE
 ClipboardUtil                              pasted and/or copied per preferences
 ```
 
-## Two stages, deliberately separate
+## Three stages, deliberately separate
 
 **Transcript stage** (`TextPostProcessor.process`) is formatting that belongs to
 the transcription itself. It must be identical no matter which engine produced
@@ -54,6 +59,18 @@ The order is load-bearing, and so is the interaction between the two: terms are
 applied first so they match what the user actually said, and the spans they
 marked never-correct are then held out of autocorrect so a pinned term is not
 respaced afterwards.
+
+**Rewriting stage** (`StyleRewriteService.apply`) is the one stage that calls a
+language model, and the only one that can change what the words mean. It is off
+by default, needs an on-device model most Macs running this app do not have, and
+returns the transcript stage's output unchanged whenever it is off, unavailable,
+too slow, or produces something its guard refuses. It is a peer of the terms
+dictionary and never its parent. `docs/style-rewriting.md` is the whole story.
+
+It is separate from `TextPostProcessor` because that type is deterministic,
+synchronous and cannot fail, and this one is asynchronous, has a deadline and
+fails routinely. Merging them would give the deterministic stages an
+`async throws` signature and a failure mode they do not have.
 
 **Insertion stage** (`TextPostProcessor.prepareForInsertion`) is formatting for
 text emitted by the live dictation path. Today it appends a trailing space after
@@ -92,12 +109,16 @@ belongs in the transcript stage and needs a test asserting both consumption
 paths agree.
 
 `process` returns `ProcessedText`, which carries the engine's raw output
-alongside the final text. Only `final` is consumed today; `raw` exists because
-any stage that can rewrite the user's words has to be able to show what they
-originally said and fall back to it, and that is impossible to retrofit once the
-raw text has been dropped at the engine boundary.
+alongside the final text. `raw` is what lets the rewriting stage show the user
+what they originally said and fall back to it, and it is what
+`Recording.rawTranscription` stores; it would have been impossible to retrofit
+once the raw text had been dropped at the engine boundary.
 
-`ProcessedText.mustSurviveTokens` is there for the same reason: it is what the
-terms dictionary corrected or pinned, and a stage that rewrites the transcript
-would have to check its own output still contains all of it. Nothing consumes it
-yet.
+`ProcessedText.mustSurviveTokens` is what the terms dictionary corrected or
+pinned. `StyleRewriteGuard` reads it: a rewrite that does not still contain
+every one of them is refused, whatever style asked for it.
+
+`TranscriptionService.transcribeAudio` therefore returns `StyledTranscript`
+rather than a string. Once a stage can rewrite the user's words, "the text" is
+two texts - what was said and what the app made of it - and a caller handed only
+the second one cannot keep the first.

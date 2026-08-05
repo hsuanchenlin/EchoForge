@@ -193,7 +193,8 @@ class IndicatorViewModel: ObservableObject {
                 let duration = await AudioUtil.audioDuration(url: tempURL)
                 do {
                     print("start decoding...")
-                    let text = try await transcriptionService.transcribeAudio(url: tempURL, settings: Settings())
+                    let styled = try await transcriptionService.transcribeAudio(url: tempURL, settings: Settings())
+                    let text = styled.final
 
                     if text.isEmpty {
                         try? FileManager.default.removeItem(at: tempURL)
@@ -210,9 +211,14 @@ class IndicatorViewModel: ObservableObject {
                             duration: duration,
                             status: .completed,
                             progress: 1.0,
-                            sourceFileURL: nil
+                            sourceFileURL: nil,
+                            // What the engine heard, kept only when
+                            // post-processing changed it. History shows it next
+                            // to the text the app used, so a rewrite is never
+                            // the only surviving copy of what was said.
+                            rawTranscription: styled.originalWorthKeeping
                         )
-                        
+
                         try recorder.moveTemporaryRecording(from: tempURL, to: newRecording.url)
                         
                         await MainActor.run {

@@ -156,6 +156,29 @@ need it, exactly as above.
 Model licences and attribution for everything the app downloads are listed in
 [speech-model-attribution.md](speech-model-attribution.md).
 
+## Rewriting what you dictated into a style
+
+**Settings → Style** can rewrite each dictation into a style before it is pasted:
+**Grammar & Polishing**, **Formal Business**, **Concise Summary**, **Bullet Points**, **Casual Chat**,
+or **Custom Prompt**, where you write the instruction yourself. It is off until you
+turn it on, and it changes nothing else - transcription, the dictionary and Chinese
+spacing work exactly as before.
+
+It runs on your Mac using Apple Intelligence, so it needs **macOS 26 or later** on a Mac
+that supports Apple Intelligence, with Apple Intelligence switched on in System Settings.
+The pane tells you which of those is missing. Nothing is sent anywhere.
+
+Two things are worth knowing before you rely on it:
+
+- **Your original is always kept.** The words you actually said stay with the recording.
+  Open the row in the history list and choose **Show original** to read or copy them.
+- **A rewrite is thrown away rather than trusted.** Before it replaces anything, the app
+  checks the rewrite against what you said: same language, same numbers and amounts,
+  same currency and percent signs, nothing from your dictionary lost, and a sensible
+  length for the style you picked. If any of that fails - or the model is too slow, or
+  it declines - you get your transcript exactly as it was transcribed. **Try it** in the
+  Style pane shows you the result and, when one is refused, the reason.
+
 ## Which version am I running, and updating
 
 **Settings → About** shows the version and build number this copy reports, and its bundle
