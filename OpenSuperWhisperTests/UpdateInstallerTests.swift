@@ -17,6 +17,9 @@ private final class MockCommandRunner: CommandRunning, @unchecked Sendable {
 
     var bundleIdentifier = AppBuildIdentity.current().bundleIdentifier
     var version = "0.3.0"
+    /// When set, `launchDetached` throws it, standing in for the swap script
+    /// never starting.
+    var launchFailure: Error?
 
     private let lock = NSLock()
     private var _invocations: [Invocation] = []
@@ -60,7 +63,22 @@ private final class MockCommandRunner: CommandRunning, @unchecked Sendable {
     func launchDetached(_ executable: String, _ arguments: [String]) throws {
         lock.lock()
         _invocations.append(Invocation(executable: executable, arguments: arguments))
+        let failure = launchFailure
         lock.unlock()
+        if let failure {
+            throw failure
+        }
+    }
+}
+
+/// Records that the app was asked to quit instead of actually quitting the
+/// test runner.
+@MainActor
+private final class SpyTerminator: AppTerminating {
+    private(set) var terminateCount = 0
+
+    func terminate() {
+        terminateCount += 1
     }
 }
 
@@ -191,6 +209,61 @@ final class UpdateInstallerStagingTests: XCTestCase {
         _ = try await waitForReadyToInstall(viewModel)
     }
 
+    /// The failure "Install and Relaunch" was reported for, at the level it
+    /// actually happened: pressing install used to leave `.readyToInstall`
+    /// without arriving anywhere that owned the staged bundle, so the bundle was
+    /// deleted while the detached swap script was still waiting for this process
+    /// to exit. The script found nothing to move, its rollback trap restored the
+    /// old bundle, and the user was reopened into the version they had just
+    /// updated away from.
+    @MainActor
+    func testInstallingLeavesTheStagedBundleInPlaceForTheSwapScript() async throws {
+        StubURLProtocol.responseData = Data(repeating: 0x4, count: 10)
+        StubURLProtocol.statusCode = 200
+        let offered = release(sizeInBytes: 10)
+        let installer = UpdateInstaller(commandRunner: MockCommandRunner(), installedAppURL: installedApp)
+        let terminator = SpyTerminator()
+        let viewModel = UpdateViewModel(installer: installer, terminator: terminator)
+
+        viewModel.download(offered, session: StubURLProtocol.makeSession())
+        let stagedApp = try await waitForReadyToInstall(viewModel)
+
+        viewModel.installAndRelaunch(offered, stagedApp: stagedApp)
+
+        XCTAssertEqual(viewModel.state, .installing(offered, stagedApp: stagedApp))
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: stagedApp.path),
+            "the staged bundle belongs to the swap script from here on and must survive"
+        )
+        XCTAssertTrue(FileManager.default.fileExists(atPath: stagedApp.deletingLastPathComponent().path))
+        XCTAssertEqual(terminator.terminateCount, 1, "the script is waiting on this process to exit")
+    }
+
+    /// The other half of the same rule: if the script never started there is no
+    /// one to hand the bundle to, so it is discarded again rather than leaked.
+    @MainActor
+    func testAFailedInstallDiscardsTheStagedBundleAndDoesNotQuit() async throws {
+        StubURLProtocol.responseData = Data(repeating: 0x5, count: 10)
+        StubURLProtocol.statusCode = 200
+        let offered = release(sizeInBytes: 10)
+        let runner = MockCommandRunner()
+        let installer = UpdateInstaller(commandRunner: runner, installedAppURL: installedApp)
+        let terminator = SpyTerminator()
+        let viewModel = UpdateViewModel(installer: installer, terminator: terminator)
+
+        viewModel.download(offered, session: StubURLProtocol.makeSession())
+        let stagedApp = try await waitForReadyToInstall(viewModel)
+        runner.launchFailure = UpdateInstallError.replacementFailed("no shell")
+
+        viewModel.installAndRelaunch(offered, stagedApp: stagedApp)
+
+        guard case .failed = viewModel.state else {
+            return XCTFail("expected .failed, got \(viewModel.state)")
+        }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: stagedApp.deletingLastPathComponent().path))
+        XCTAssertEqual(terminator.terminateCount, 0, "nothing is going to replace the app, so do not quit")
+    }
+
     @MainActor
     private func waitForReadyToInstall(_ viewModel: UpdateViewModel, timeout: TimeInterval = 5) async throws -> URL {
         let deadline = Date().addingTimeInterval(timeout)
@@ -227,14 +300,47 @@ final class UpdateInstallerSwapScriptTests: XCTestCase {
         let runner = MockCommandRunner()
         let installer = UpdateInstaller(commandRunner: runner, installedAppURL: installedApp)
 
-        try installer.installAndRelaunch(stagedApp: stagedApp)
+        let scriptURL = try installer.installAndRelaunch(stagedApp: stagedApp)
+        defer { try? FileManager.default.removeItem(at: scriptURL) }
 
-        let script = try String(contentsOf: staging.appendingPathComponent("install.sh"), encoding: .utf8)
+        let script = try String(contentsOf: scriptURL, encoding: .utf8)
         XCTAssertTrue(script.contains("trap rollback_and_relaunch EXIT"), script)
         XCTAssertTrue(script.contains("mv \"$old\" \"$installed\""), script)
         XCTAssertTrue(script.contains("exec >>"), script)
         XCTAssertFalse(script.contains("/dev/null"), script)
 
         XCTAssertEqual(runner.invocations.last?.executable, "/bin/sh")
+        XCTAssertEqual(runner.invocations.last?.arguments, [scriptURL.path])
+    }
+
+    /// The script removes the staging directory, so it must not live inside it:
+    /// a `/bin/sh` deleting the directory it is being read from is not something
+    /// to depend on, and staging must contain only the bundle being installed.
+    @MainActor
+    func testWritesTheSwapScriptOutsideTheStagingDirectory() throws {
+        let workDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let installedApp = workDirectory.appendingPathComponent("EchoForge.app")
+        try FileManager.default.createDirectory(at: installedApp, withIntermediateDirectories: true)
+        let staging = workDirectory.appendingPathComponent(".EchoForgeUpdate-test")
+        let stagedApp = staging.appendingPathComponent("EchoForge.app")
+        try FileManager.default.createDirectory(at: stagedApp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workDirectory) }
+
+        let installer = UpdateInstaller(commandRunner: MockCommandRunner(), installedAppURL: installedApp)
+
+        let scriptURL = try installer.installAndRelaunch(stagedApp: stagedApp)
+        defer { try? FileManager.default.removeItem(at: scriptURL) }
+
+        XCTAssertFalse(
+            scriptURL.path.hasPrefix(staging.path),
+            "the script must not sit in the directory it deletes: \(scriptURL.path)"
+        )
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: staging.path),
+            ["EchoForge.app"]
+        )
+        XCTAssertTrue(FileManager.default.isExecutableFile(atPath: scriptURL.path))
+        // Its own cleanup, since nothing in this app is alive to do it.
+        XCTAssertTrue(try String(contentsOf: scriptURL, encoding: .utf8).contains("rm -f \"$script\""))
     }
 }

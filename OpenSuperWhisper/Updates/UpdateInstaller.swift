@@ -247,12 +247,22 @@ final class UpdateInstaller {
     /// The swap runs in a detached `/bin/sh` that first waits for this process to
     /// exit, because replacing the bundle of a running application is what
     /// produces the "the application is damaged" failures this is written to
-    /// avoid. Once the script is launched this function terminates the app; the
-    /// script does the rest.
-    func installAndRelaunch(stagedApp: URL) throws {
+    /// avoid. This function only launches the script and returns its path;
+    /// quitting is the caller's half of the bargain (`UpdateViewModel`), and it
+    /// has to happen promptly, because the script is already waiting on this
+    /// pid.
+    @discardableResult
+    func installAndRelaunch(stagedApp: URL) throws -> URL {
         let installed = installedAppURL
         let staging = stagedApp.deletingLastPathComponent()
-        let script = staging.appendingPathComponent("install.sh")
+        // Deliberately *outside* the staging directory: the script's last act is
+        // to remove that directory, and a script that deletes the directory it
+        // is being read from is not something to rely on. It also keeps staging
+        // holding exactly one thing - the bundle about to be installed - so the
+        // sweep in `removeStaleStagingDirectories` and the `mv` below never race
+        // an executable being written beside their target.
+        let script = fileManager.temporaryDirectory
+            .appendingPathComponent("EchoForge-install-\(UUID().uuidString).sh")
         let pid = ProcessInfo.processInfo.processIdentifier
         let log = fileManager.temporaryDirectory.appendingPathComponent("EchoForge-update-install.log")
 
@@ -275,6 +285,7 @@ final class UpdateInstaller {
             installed="\(installed.path)"
             staged="\(stagedApp.path)"
             staging="\(staging.path)"
+            script="\(script.path)"
             old="$installed.old"
 
             rollback_and_relaunch() {
@@ -283,6 +294,7 @@ final class UpdateInstaller {
                     echo "swap failed with status $status, restoring original bundle"
                     mv "$old" "$installed"
                 fi
+                rm -f "$script"
                 open "$installed"
                 exit "$status"
             }
@@ -300,6 +312,7 @@ final class UpdateInstaller {
         // Detached: the script's first act is to wait for this process to exit,
         // so waiting for the script would wait forever.
         try commandRunner.launchDetached("/bin/sh", [script.path])
+        return script
     }
 
     // MARK: - Private
