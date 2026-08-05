@@ -24,6 +24,7 @@ instead of replacing it.
 - 🇯🇵🇨🇳🇰🇷 Asian language autocorrect ([autocorrect](https://github.com/huacnlee/autocorrect))
 - 📖 Personal terms dictionary for deterministic replacements, preferred spellings, names, and protected text
 - ✨ Optional style rewriting — turn what you dictated into formal, concise, bulleted or casual writing, or write your own prompt. Runs on device (macOS 26 with Apple Intelligence), off by default, and always keeps the original transcript ([details](docs/style-rewriting.md))
+- 💊 Optional floating capsule HUD - a pill at the top of the screen with live input level, duration and progress, shown instead of the card beside the cursor. Off by default ([details](docs/capsule-hud.md))
 
 ## Installation
 

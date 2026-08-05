@@ -90,8 +90,9 @@ what they actually said is still in history under "Show original".
 
 ## Styles
 
-`StyleRewriteCatalog` owns the list: identifier, picker name, one-line summary,
-the instruction sent to the model, and the shape. Settings reads it; nothing may
+`StyleRewriteCatalog` owns the list: identifier, picker name, the one-word
+`shortName` the capsule HUD's mode chip shows, one-line summary, the instruction
+sent to the model, and the shape. Settings and the capsule read it; nothing may
 write a second copy of that copy.
 
 The identifiers are persisted in preferences, so renaming one silently resets
@@ -236,10 +237,11 @@ The history row compares once, when the disclosure is opened, rather than in
   user writes, so a converted rewrite of it cannot be detected - and dictation
   that already mixes the two is left alone deliberately, since a personal terms
   entry spelled in the other variant is a legitimate reason for it.
-- Nothing about the rewrite is stored beyond its result. During dictation, a
-  refused rewrite is a console line and nothing more: the user gets their
-  transcript, which is indistinguishable from having rewriting switched off.
-  **Try it** in the Settings pane is where the verdict is shown, and it runs the
-  same `StyleRewriteService.apply` the dictation path does. If that turns out to
-  be too quiet in use, `StyleRewriteStatus` is already the value a live surface
-  would render - it is returned from `apply` on every path.
+- Nothing about the rewrite is stored beyond its result. During dictation shown
+  as the caret-anchored card, a refused rewrite is a console line and nothing
+  more: the user gets their transcript, which is indistinguishable from having
+  rewriting switched off. The floating capsule HUD is the live surface that does
+  say it - `DictationResult` carries `StyleRewriteStatus.explanation` and the
+  capsule shows it as a badge; see `docs/capsule-hud.md`. **Try it** in the
+  Settings pane also shows the verdict, and it runs the same
+  `StyleRewriteService.apply` the dictation path does.

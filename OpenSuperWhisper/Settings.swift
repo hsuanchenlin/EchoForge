@@ -1608,7 +1608,6 @@ struct SettingsView: View {
                                 .labelsHidden()
                         }
 
-
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Cancel without confirmation")
