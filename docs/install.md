@@ -171,7 +171,8 @@ The pane tells you which of those is missing. Nothing is sent anywhere.
 Two things are worth knowing before you rely on it:
 
 - **Your original is always kept.** The words you actually said stay with the recording.
-  Open the row in the history list and choose **Show original** to read or copy them.
+  Open the row in the history list and choose **Show original** to read or copy them, or
+  **Compare** to see what changed, with the dropped words struck through.
 - **A rewrite is thrown away rather than trusted.** Before it replaces anything, the app
   checks the rewrite against what you said: same language, same numbers and amounts,
   same currency and percent signs, nothing from your dictionary lost, and a sensible
