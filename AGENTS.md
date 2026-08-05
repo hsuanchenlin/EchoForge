@@ -86,7 +86,15 @@ re-checks every redirect it follows against the same host allow-list
 (`UpdateManifest.isAllowedRedirectHost`) before continuing.
 
 The swap runs in a detached shell script that waits for the app to exit first, because a running
-bundle cannot replace itself; `UpdateInstaller` documents the sequence.
+bundle cannot replace itself; `UpdateInstaller` documents the sequence. Two consequences of that
+wait are load-bearing, and both once made "Install and Relaunch" quietly reopen the old version.
+From `UpdateState.installing` onward the staged bundle belongs to the script, so nothing may delete
+it on the way out - a failed `mv` is not a visible failure, it is the rollback trap silently
+restoring the old bundle and relaunching it. And quitting has to actually happen, promptly, since
+the script is already spinning on this pid: `NSApplication.terminate` is a request that a window or
+sheet can delay, so `RunningApplicationTerminator` backs it with a forced exit.
+`UpdateInstallerTests` pins both, plus that the script is written outside the staging directory it
+deletes.
 
 ## Tests
 

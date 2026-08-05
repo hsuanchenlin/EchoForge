@@ -14,7 +14,46 @@ enum UpdateState: Equatable {
     case available(PublishedRelease)
     case downloading(PublishedRelease, fraction: Double)
     case readyToInstall(PublishedRelease, stagedApp: URL)
+    /// The swap script has been launched and the app is on its way out. A state
+    /// of its own because it is the one moment the staged bundle must *not* be
+    /// discarded: it belongs to the detached script from here on.
+    case installing(PublishedRelease, stagedApp: URL)
     case failed(String)
+}
+
+/// How the app is asked to go away so the swap script can replace its bundle.
+///
+/// A seam for two reasons: a test must not terminate the test runner, and the
+/// ordinary `NSApplication.terminate` is not on its own enough (see
+/// `RunningApplicationTerminator`).
+@MainActor
+protocol AppTerminating {
+    func terminate()
+}
+
+struct RunningApplicationTerminator: AppTerminating {
+    /// How long the ordinary termination sequence is given before the backstop
+    /// below forces the exit. Long enough that a normal quit always wins it.
+    static let gracePeriod: TimeInterval = 3
+
+    func terminate() {
+        NSApplication.shared.terminate(nil)
+
+        // `terminate(nil)` is a *request*, not an exit: it runs the termination
+        // sequence on a later runloop pass, and any window delegate, sheet or
+        // unsaved-changes prompt can delay or refuse it. By this point the
+        // detached swap script is already spinning on `kill -0` waiting for this
+        // pid, so a delayed termination is not a slower install - it is a
+        // stalled one that leaves the user looking at an app that said it was
+        // quitting. This is the backstop.
+        //
+        // Scheduled on a global queue rather than the main one because a modal
+        // run loop - exactly the thing that delays termination - would not
+        // service a main-queue timer.
+        DispatchQueue.global().asyncAfter(deadline: .now() + Self.gracePeriod) {
+            exit(0)
+        }
+    }
 }
 
 /// The About pane's state machine.
@@ -32,10 +71,28 @@ final class UpdateViewModel: ObservableObject {
     // discarded here. Quitting before installing is instead handled by
     // `UpdateInstaller.removeStaleStagingDirectories()`, since nothing in this
     // view model runs once the app has already quit.
+    //
+    // `.installing` is the one exception, and leaving it out is what broke
+    // "Install and Relaunch": the detached swap script waits for this process to
+    // exit before it renames the staged bundle into place, so anything that
+    // deleted the bundle on the way to quitting deleted it out from under a
+    // script that had not run yet. The script then failed its `mv`, its rollback
+    // trap restored the old bundle, and the app reopened on the old version.
+    // From `.readyToInstall` to `.installing` the bundle belongs to the script.
     @Published private(set) var state: UpdateState = .idle {
         didSet {
-            if case .readyToInstall(_, let stagedApp) = oldValue {
+            switch (oldValue, state) {
+            case (.readyToInstall(_, let stagedApp), .installing(_, let handedOver))
+                where stagedApp == handedOver:
+                break
+            case (.readyToInstall(_, let stagedApp), _),
+                 (.installing(_, let stagedApp), _):
+                // Leaving `.installing` at all means the script was never
+                // launched - `installAndRelaunch` threw - so the staged bundle
+                // is this view model's to clean up again.
                 discardStagedBundle(stagedApp)
+            default:
+                break
             }
         }
     }
@@ -45,20 +102,23 @@ final class UpdateViewModel: ObservableObject {
     private let checker: UpdateChecker
     private let installer: UpdateInstaller
     private let fileManager: FileManager
+    private let terminator: AppTerminating
 
     init(identity: AppBuildIdentity = .current(),
          checker: UpdateChecker? = nil,
          installer: UpdateInstaller? = nil,
-         fileManager: FileManager = .default) {
+         fileManager: FileManager = .default,
+         terminator: AppTerminating? = nil) {
         self.identity = identity
         self.checker = checker ?? UpdateChecker(current: identity)
         self.installer = installer ?? UpdateInstaller()
         self.fileManager = fileManager
+        self.terminator = terminator ?? RunningApplicationTerminator()
     }
 
     var isBusy: Bool {
         switch state {
-        case .checking, .downloading: return true
+        case .checking, .downloading, .installing: return true
         case .idle, .upToDate, .available, .readyToInstall, .failed: return false
         }
     }
@@ -107,13 +167,21 @@ final class UpdateViewModel: ObservableObject {
 
     /// The second press. Replaces the app and quits so the swap can happen; the
     /// detached script reopens it.
-    func installAndRelaunch(stagedApp: URL) {
+    ///
+    /// The state moves to `.installing` *before* the script is launched, not
+    /// after: from that moment the staged bundle is the script's, and the
+    /// transition is what tells `didSet` above to stop treating it as a leak to
+    /// sweep up on the way out.
+    func installAndRelaunch(_ release: PublishedRelease, stagedApp: URL) {
+        guard case .readyToInstall = state else { return }
+        state = .installing(release, stagedApp: stagedApp)
         do {
             try installer.installAndRelaunch(stagedApp: stagedApp)
-            NSApplication.shared.terminate(nil)
         } catch {
             state = .failed(error.localizedDescription)
+            return
         }
+        terminator.terminate()
     }
 
     func dismissMessage() {
@@ -242,12 +310,21 @@ struct AboutSettingsView: View {
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
-                    Button("Install and Relaunch") { viewModel.installAndRelaunch(stagedApp: stagedApp) }
+                    Button("Install and Relaunch") { viewModel.installAndRelaunch(release, stagedApp: stagedApp) }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                     Button("Not Now") { viewModel.dismissMessage() }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                }
+
+            case .installing(let release, _):
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Installing \(release.version.description). EchoForge will quit and open again.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
             case .failed(let message):
