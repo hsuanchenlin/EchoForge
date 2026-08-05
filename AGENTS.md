@@ -234,6 +234,12 @@ Traditional and Simplified texts, `StyleRewriteLanguage` picks one **from the tr
 shared detector the guard also refuses a converted rewrite with. A new style needs all
 three; `docs/style-rewriting.md` has the measurements.
 
+Showing a user what post-processing changed is one implementation, not two: `TextDiffUtil`
+(`Utils/`) compares the stored original with the final text and `TextDiffView` styles the
+result, for both the Settings preview and the history row's "Compare". It must reproduce the
+final text exactly and must not mark up case or whitespace alone - `TextDiffUtilTests` pins
+both, and `docs/style-rewriting.md` says why.
+
 ## Storage
 
 The recordings database is GRDB, with its full schema history in `RecordingStore.makeMigrator()`

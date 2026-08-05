@@ -202,6 +202,27 @@ click away.
 Note that it is written for *any* post-processing change, not only a rewrite -
 the terms dictionary and CJK spacing count too.
 
+## Showing what changed
+
+Two copies of a paragraph do not answer the question a user actually has, which
+is *which of these words are mine?* - so the same row also offers "Compare", and
+the Settings **Try it** preview renders its result the same way: the transcript
+with everything post-processing dropped or replaced still in place, struck
+through and muted.
+
+`Utils/TextDiffUtil.swift` is the comparison and `TextDiffView.swift` is its
+styling; between them they hold two properties that `TextDiffUtilTests` pins.
+The polished text is reproduced character for character - a comparison that
+reworded the result would be worse than none. And case and whitespace alone are
+never marked up, because a style that capitalises a sentence has not changed a
+word, and saying it did would bury the changes that are real. Tokens include
+whitespace runs and single CJK characters: the first keeps a struck-through
+filler word from colliding with the word after it, the second is what makes a
+Chinese comparison anything other than one enormous replacement.
+
+The history row compares once, when the disclosure is opened, rather than in
+`body` - the row rebuilds on hover, and the comparison is quadratic.
+
 ## Known limits
 
 - Numbers written as words ("thirty", "三十") are not compared. The guard would
