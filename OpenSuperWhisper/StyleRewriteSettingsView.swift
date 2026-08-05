@@ -312,14 +312,15 @@ struct StyleRewriteSettingsView: View {
     /// changed nothing there is no comparison to draw and the text stands alone.
     @ViewBuilder
     private func previewResult(_ result: StyledTranscript) -> some View {
-        let showsComparison = TextDiffUtil.hasVisibleChanges(
+        let segments = TextDiffUtil.compare(
             original: result.transcript, revised: result.final
         )
+        let showsComparison = TextDiffUtil.hasVisibleChanges(in: segments)
 
         VStack(alignment: .leading, spacing: 6) {
             Group {
                 if showsComparison {
-                    TextDiffView(original: result.transcript, revised: result.final)
+                    TextDiffView(segments: segments)
                 } else {
                     Text(result.final)
                         .font(.system(size: 12))

@@ -157,6 +157,25 @@ final class TextDiffUtilTests: XCTestCase {
         XCTAssertEqual(compare("  ", " "), [TextDiffSegment(" ", .unchanged)])
     }
 
+    /// CJK spacing post-processing inserts spaces between CJK and Latin. The
+    /// inserted space still travels as its own segment - the revised text must
+    /// be reproduced exactly - but an inserted space renders exactly like an
+    /// unchanged one, so the comparison must not report it as something to show.
+    func testCJKSpacingInsertionIsNotAVisibleChange() {
+        let segments = compare("週五deadline到了", "週五 deadline 到了")
+        XCTAssertEqual(rendered(segments), "週五 deadline 到了")
+        XCTAssertFalse(TextDiffUtil.hasVisibleChanges(in: segments))
+        XCTAssertFalse(
+            TextDiffUtil.hasVisibleChanges(original: "週五deadline到了", revised: "週五 deadline 到了")
+        )
+    }
+
+    func testATrimmedTrailingSpaceIsNotAVisibleChange() {
+        let segments = compare("we ship ", "we ship")
+        XCTAssertEqual(rendered(segments), "we ship")
+        XCTAssertFalse(TextDiffUtil.hasVisibleChanges(in: segments))
+    }
+
     // MARK: - Empty input
 
     func testEmptyOriginalIsAllInsertion() {

@@ -100,7 +100,21 @@ enum TextDiffUtil {
     /// True when the two texts differ in more than case and whitespace, and a
     /// comparison would therefore show something.
     static func hasVisibleChanges(original: String, revised: String) -> Bool {
-        compare(original: original, revised: revised).contains { $0.kind != .unchanged }
+        hasVisibleChanges(in: compare(original: original, revised: revised))
+    }
+
+    /// The same question, asked of segments the caller already holds.
+    ///
+    /// A whitespace-only segment does not count: CJK spacing post-processing
+    /// inserts spaces between CJK and Latin, and an inserted space renders
+    /// exactly like an unchanged one, so a comparison in which it is the only
+    /// difference has nothing to show. Every view deciding whether to present
+    /// a comparison must ask this, not `kind != .unchanged`, so Settings and
+    /// history cannot disagree.
+    static func hasVisibleChanges(in segments: [TextDiffSegment]) -> Bool {
+        segments.contains { segment in
+            segment.kind != .unchanged && !segment.text.allSatisfy(\.isWhitespace)
+        }
     }
 
     // MARK: - Middle

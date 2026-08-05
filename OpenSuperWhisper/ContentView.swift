@@ -1106,7 +1106,7 @@ struct RecordingRow: View {
                         .background(ThemePalette.panelSurface(colorScheme))
                         .clipShape(RoundedRectangle(cornerRadius: 6))
 
-                    if comparisonSegments.contains(where: { $0.kind != .unchanged }) {
+                    if TextDiffUtil.hasVisibleChanges(in: comparisonSegments) {
                         TextDiffLegend()
                     } else {
                         // CJK spacing is a real post-processing change that the
@@ -1124,13 +1124,21 @@ struct RecordingRow: View {
         }
         .padding(.horizontal, 12)
         .padding(.top, 8)
-        // A regeneration replaces the transcript underneath an open comparison,
+        // A regeneration replaces the transcript underneath an open comparison
+        // - sometimes only the raw side, when the final text lands unchanged -
         // and a comparison against text the row no longer shows is worse than
         // none.
         .onChange(of: recording.transcription) { _, _ in
-            guard showComparison else { return }
-            comparisonSegments = TextDiffUtil.compare(original: original, revised: displayText)
+            refreshComparison(against: original)
         }
+        .onChange(of: recording.rawTranscription) { _, _ in
+            refreshComparison(against: original)
+        }
+    }
+
+    private func refreshComparison(against original: String) {
+        guard showComparison else { return }
+        comparisonSegments = TextDiffUtil.compare(original: original, revised: displayText)
     }
 
     private func disclosureButton(
