@@ -14,10 +14,30 @@ struct StyleRewriteConfiguration: Equatable, Sendable {
     /// The user's own instruction, used only by the custom style.
     let customPrompt: String
 
-    /// What the model is actually told to do.
-    var instruction: String {
-        (style.isCustom ? customPrompt : style.instruction)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+    /// What the model is actually told to do, written in the language the
+    /// dictation is in.
+    ///
+    /// The language is a parameter rather than a stored value because it is not
+    /// a preference: it is read off the transcript, so the same configuration
+    /// answers differently for two dictations by the same user.
+    func instruction(for language: StyleRewriteLanguage) -> String {
+        guard style.isCustom else {
+            return style.instructions.text(for: language)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let prompt = trimmedCustomPrompt
+        return prompt.isEmpty ? "" : language.wrapping(customPrompt: prompt)
+    }
+
+    /// The instruction without any language applied to it, which is all
+    /// `isRunnable` needs: whether a style has one at all does not depend on
+    /// which language it would be written in.
+    private var baseInstruction: String {
+        style.isCustom ? trimmedCustomPrompt : style.instructions.english
+    }
+
+    private var trimmedCustomPrompt: String {
+        customPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     /// True when there is a rewrite to attempt at all.
@@ -26,7 +46,7 @@ struct StyleRewriteConfiguration: Equatable, Sendable {
     /// runnable: sending an empty instruction to the model would return
     /// something arbitrary, and the honest answer to "you have not written your
     /// prompt yet" is to leave the transcript alone.
-    var isRunnable: Bool { isEnabled && !instruction.isEmpty }
+    var isRunnable: Bool { isEnabled && !baseInstruction.isEmpty }
 
     init(isEnabled: Bool, style: StyleRewriteStyle, customPrompt: String) {
         self.isEnabled = isEnabled

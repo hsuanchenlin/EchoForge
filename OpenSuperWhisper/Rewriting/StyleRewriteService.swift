@@ -141,10 +141,18 @@ enum StyleRewriteService {
             return .unrewritten(processed, status: .transcriptTooLong)
         }
 
+        // Resolved from the transcript, not only from the setting, and resolved
+        // once: the style instruction, the session rules and the prompt's own
+        // heading all have to be written in the same language, or the model is
+        // being shown two answers to "what language is this".
+        let language = StyleRewriteLanguage.resolve(
+            languageCode: languageCode, transcript: processed.final
+        )
         let request = StyleRewriteRequest(
             text: processed.final,
-            instruction: configuration.instruction,
-            languageCode: languageCode
+            instruction: configuration.instruction(for: language),
+            languageCode: languageCode,
+            language: language
         )
         let budget = budgetOverride
             ?? StyleRewriteBudget.seconds(forCharacterCount: processed.final.count)
