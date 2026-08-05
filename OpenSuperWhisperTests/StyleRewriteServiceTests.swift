@@ -67,6 +67,7 @@ final class StyleRewriteServiceTests: XCTestCase {
     private func apply(
         _ processed: ProcessedText,
         configuration: StyleRewriteConfiguration,
+        languageCode: String = "en",
         availability: StyleRewriteAvailability = .available,
         rewriter: StyleRewriting?,
         budgetOverride: TimeInterval? = nil
@@ -74,7 +75,7 @@ final class StyleRewriteServiceTests: XCTestCase {
         await StyleRewriteService.apply(
             to: processed,
             configuration: configuration,
-            languageCode: "en",
+            languageCode: languageCode,
             availability: availability,
             rewriter: rewriter,
             budgetOverride: budgetOverride
@@ -259,7 +260,7 @@ final class StyleRewriteServiceTests: XCTestCase {
             rewriter: rewriter
         )
 
-        let expected = StyleRewriteCatalog.style(id: "formal")?.instruction
+        let expected = StyleRewriteCatalog.style(id: "formal")?.instructions.english
         let recorded = await rewriter.request
         XCTAssertEqual(recorded?.instruction, expected)
     }
@@ -278,6 +279,133 @@ final class StyleRewriteServiceTests: XCTestCase {
 
         let recorded = await rewriter.request
         XCTAssertEqual(recorded?.instruction, "Rewrite this as a haiku.")
+    }
+
+    // MARK: - Chinese dictation
+
+    /// The reported bug, at the level the user meets it: Chinese dictation, a
+    /// style selected, and no rewrite ever arrives. What the model returned was
+    /// an English translation, because the style instruction it was given was
+    /// written in English.
+    func testEveryStyleAsksForAChineseRewriteInChinese() async {
+        let transcript = "那個我們這個禮拜五要出貨嗯預算大概是 2500 塊"
+
+        for style in StyleRewriteCatalog.styles where !style.isCustom {
+            let rewriter = RecordingRewriter()
+
+            _ = await apply(
+                .unchanged(transcript),
+                configuration: configuration(styleID: style.id),
+                languageCode: "zh",
+                rewriter: rewriter
+            )
+
+            let recorded = await rewriter.request
+            XCTAssertEqual(recorded?.language, .chinese(.traditional), style.id)
+            XCTAssertEqual(recorded?.instruction, style.instructions.traditionalChinese, style.id)
+        }
+    }
+
+    func testAsksInSimplifiedChineseForSimplifiedDictation() async {
+        let rewriter = RecordingRewriter()
+
+        _ = await apply(
+            .unchanged("那个我们这个礼拜五要出货嗯预算大概是 2500 块"),
+            configuration: configuration(styleID: "formal"),
+            languageCode: "zh",
+            rewriter: rewriter
+        )
+
+        let recorded = await rewriter.request
+        XCTAssertEqual(recorded?.language, .chinese(.simplified))
+        XCTAssertEqual(
+            recorded?.instruction, StyleRewriteCatalog.style(id: "formal")?.instructions.simplifiedChinese
+        )
+    }
+
+    /// A custom prompt is typed in English by users who dictate in Chinese, so
+    /// it is the one instruction the app cannot write for them - it wraps it
+    /// instead.
+    func testWrapsAnEnglishCustomPromptForChineseDictation() async {
+        let rewriter = RecordingRewriter()
+
+        _ = await apply(
+            .unchanged("那個我們這個禮拜五要出貨嗯預算大概是 2500 塊"),
+            configuration: configuration(
+                styleID: StyleRewriteStyle.customID,
+                customPrompt: "Rewrite this as a short message to a colleague."
+            ),
+            languageCode: "zh",
+            rewriter: rewriter
+        )
+
+        let recorded = await rewriter.request
+        XCTAssertEqual(recorded?.language, .chinese(.traditional))
+        XCTAssertTrue(
+            recorded?.instruction.contains("Rewrite this as a short message to a colleague.") == true
+        )
+        XCTAssertTrue(recorded?.instruction.contains("必須是中文") == true)
+    }
+
+    /// A user who leaves the language on Chinese and dictates a sentence of
+    /// English gets the English instruction, because the transcript is what
+    /// decides.
+    func testAsksInEnglishForEnglishDictationEvenWhenTheLanguageIsChinese() async {
+        let rewriter = RecordingRewriter()
+
+        _ = await apply(
+            .unchanged("um we ship on friday and the budget is the same"),
+            configuration: configuration(styleID: "formal"),
+            languageCode: "zh",
+            rewriter: rewriter
+        )
+
+        let recorded = await rewriter.request
+        XCTAssertEqual(recorded?.language, .other)
+        XCTAssertEqual(
+            recorded?.instruction, StyleRewriteCatalog.style(id: "formal")?.instructions.english
+        )
+    }
+
+    func testUsesAChineseRewriteThatPassesTheGuard() async {
+        let result = await apply(
+            .unchanged("那個我們這個禮拜五要出貨嗯預算大概是 2500 塊"),
+            configuration: configuration(),
+            languageCode: "zh",
+            rewriter: FixedRewriter(output: "我們這個禮拜五要出貨，預算大概是 2500 塊。")
+        )
+
+        XCTAssertEqual(result.final, "我們這個禮拜五要出貨，預算大概是 2500 塊。")
+        XCTAssertEqual(result.status, .applied(styleID: "polish"))
+    }
+
+    /// What the user actually saw before the fix: the rewrite came back in
+    /// English and was thrown away, so dictation behaved as if rewriting were
+    /// switched off.
+    func testKeepsTheTranscriptWhenAChineseRewriteComesBackInEnglish() async {
+        let result = await apply(
+            .unchanged("那個我們這個禮拜五要出貨嗯預算大概是 2500 塊"),
+            configuration: configuration(styleID: "formal"),
+            languageCode: "zh",
+            rewriter: FixedRewriter(
+                output: "We are scheduled to ship on Friday. The budget is approximately 2500."
+            )
+        )
+
+        XCTAssertEqual(result.final, "那個我們這個禮拜五要出貨嗯預算大概是 2500 塊")
+        XCTAssertEqual(result.status, .rejected(.scriptChanged))
+    }
+
+    func testKeepsTheTranscriptWhenARewriteConvertsTheUsersScript() async {
+        let result = await apply(
+            .unchanged("那个我们这个礼拜五要出货嗯预算大概是 2500 块"),
+            configuration: configuration(),
+            languageCode: "zh",
+            rewriter: FixedRewriter(output: "我們這個禮拜五要出貨，預算大概是 2500 塊。")
+        )
+
+        XCTAssertEqual(result.final, "那个我们这个礼拜五要出货嗯预算大概是 2500 块")
+        XCTAssertEqual(result.status, .rejected(.chineseVariantChanged))
     }
 
     /// The model is given the deterministic pipeline's output, not the engine's

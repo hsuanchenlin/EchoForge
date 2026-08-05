@@ -113,6 +113,94 @@ final class StyleRewriteGuardTests: XCTestCase {
         XCTAssertNotNil(verdict.acceptedText)
     }
 
+    // MARK: - Traditional and Simplified
+
+    /// Measured: a Traditional style instruction converts Simplified dictation
+    /// to Traditional, silently, on text already on its way into another app.
+    /// Matching the instruction's variant is the fix; this is the check that
+    /// does not trust it to have worked.
+    func testRejectsSimplifiedDictationRewrittenIntoTraditional() {
+        let verdict = check(
+            "我們這個禮拜五要出貨，預算大概是 2500 塊。",
+            from: "那个我们这个礼拜五要出货，预算大概是 2500 块"
+        )
+
+        XCTAssertEqual(verdict.rejection, .chineseVariantChanged)
+    }
+
+    func testRejectsTraditionalDictationRewrittenIntoSimplified() {
+        let verdict = check(
+            "我们这个礼拜五要出货，预算大概是 2500 块。",
+            from: "那個我們這個禮拜五要出貨，預算大概是 2500 塊"
+        )
+
+        XCTAssertEqual(verdict.rejection, .chineseVariantChanged)
+    }
+
+    /// The observed failure is rarely a clean conversion: half-converted output
+    /// is what a mismatched instruction actually produces, and it is worse to
+    /// read than either variant.
+    func testRejectsARewriteThatConvertedOnlyPartOfTheText() {
+        let verdict = check(
+            "那个我们这个礼拜五要出貨，預算大概是 2500 块。",
+            from: "那个我们这个礼拜五要出货，预算大概是 2500 块"
+        )
+
+        XCTAssertEqual(verdict.rejection, .chineseVariantChanged)
+    }
+
+    func testAcceptsARewriteThatKeepsTheTranscriptsVariant() {
+        XCTAssertNotNil(
+            check(
+                "我們這個禮拜五要出貨，預算大概是 2500 塊。",
+                from: "那個我們這個禮拜五要出貨嗯預算大概是 2500 塊"
+            ).acceptedText
+        )
+        XCTAssertNotNil(
+            check(
+                "我们这个礼拜五要出货，预算大概是 2500 块。",
+                from: "那个我们这个礼拜五要出货嗯预算大概是 2500 块"
+            ).acceptedText
+        )
+    }
+
+    /// No style is a licence to change the script the user writes in - not even
+    /// the two that are allowed to drop content and add markers.
+    func testNoShapeMayChangeTheChineseVariant() {
+        for shape in [StyleRewriteShape.preserving, .condensing, .restructuring] {
+            let verdict = check(
+                "我们这个礼拜五要出货。",
+                from: "那個我們這個禮拜五要出貨，預算大概是 2500 塊",
+                shape: shape
+            )
+
+            XCTAssertEqual(verdict.rejection, .chineseVariantChanged, "\(shape)")
+        }
+    }
+
+    /// Dictation that already mixes the two - a dictionary term the user spells
+    /// in the other variant, a quoted name - says nothing about which one they
+    /// write in, so the check stays out of it.
+    func testLeavesAlreadyMixedDictationAlone() {
+        let verdict = check(
+            "這個禮拜五要給台積電出貨。",
+            from: "这个礼拜五要给台積電出货，预算不变"
+        )
+
+        XCTAssertNotNil(verdict.acceptedText)
+    }
+
+    /// Shared characters are most of written Chinese, and a rewrite made only of
+    /// them has invented nothing.
+    func testAcceptsARewriteWrittenEntirelyInSharedCharacters() {
+        let verdict = check(
+            "我明天去上海。",
+            from: "那個我明天要去上海"
+        )
+
+        XCTAssertNotNil(verdict.acceptedText)
+    }
+
     // MARK: - Numbers
 
     func testRejectsARewriteThatChangesANumber() {

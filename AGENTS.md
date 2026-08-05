@@ -216,6 +216,14 @@ Style identifiers in `StyleRewriteCatalog` are persisted in preferences; renamin
 the user's choice. Instructions there are written for how the model actually behaves, not
 how it should - the comments record what was measured.
 
+The model is asked *in* the language of the dictation, not only about it: an English
+instruction makes it answer Chinese dictation in English, and a Chinese instruction in the
+wrong variant silently converts the user's script. So every style carries English,
+Traditional and Simplified texts, `StyleRewriteLanguage` picks one **from the transcript**
+(the dictation language only breaks ties), and `ChineseScriptVariant` (`Utils/`) is the
+shared detector the guard also refuses a converted rewrite with. A new style needs all
+three; `docs/style-rewriting.md` has the measurements.
+
 ## Storage
 
 The recordings database is GRDB, with its full schema history in `RecordingStore.makeMigrator()`

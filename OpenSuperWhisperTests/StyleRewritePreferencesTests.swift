@@ -33,7 +33,8 @@ final class StyleRewritePreferencesTests: IsolatedPreferencesTestCase {
         // The preset is selected, so its instruction is the one that is sent -
         // the custom prompt is kept but unused.
         XCTAssertEqual(
-            settings.styleRewrite.instruction, StyleRewriteCatalog.style(id: "bullets")?.instruction
+            settings.styleRewrite.instruction(for: .other),
+            StyleRewriteCatalog.style(id: "bullets")?.instructions.english
         )
     }
 
@@ -74,6 +75,8 @@ final class StyleRewritePreferencesTests: IsolatedPreferencesTestCase {
         preferences.styleRewriteStyleID = "formal"
         preferences.styleRewriteStyleID = StyleRewriteStyle.customID
 
-        XCTAssertEqual(Settings().styleRewrite.instruction, "Rewrite this as a haiku.")
+        XCTAssertEqual(
+            Settings().styleRewrite.instruction(for: .other), "Rewrite this as a haiku."
+        )
     }
 }

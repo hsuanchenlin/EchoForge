@@ -13,6 +13,12 @@ enum StyleRewriteRejection: Equatable, Sendable {
     /// The rewrite is in a different script from the transcript. The observed
     /// case is Chinese dictation coming back as English.
     case scriptChanged
+    /// The rewrite switched between Traditional and Simplified Chinese. Its own
+    /// case rather than `scriptChanged` because the cause is different - the
+    /// model converted the characters rather than translating the text - and
+    /// because it is the one a user of the app's own Chinese engines is most
+    /// likely to see.
+    case chineseVariantChanged
     /// A quantity, date or amount appeared, vanished or changed value.
     case numbersChanged
     /// A currency or percent sign was dropped or invented, which changes what a
@@ -38,6 +44,8 @@ enum StyleRewriteRejection: Equatable, Sendable {
             return "The rewrite came back empty."
         case .scriptChanged:
             return "The rewrite was in a different language from the transcript."
+        case .chineseVariantChanged:
+            return "The rewrite switched between Traditional and Simplified Chinese."
         case .numbersChanged:
             return "The rewrite changed, dropped or invented a number."
         case .symbolsLost:
@@ -134,6 +142,9 @@ enum StyleRewriteGuard {
         }
 
         guard scriptMatches(trimmed, transcript) else { return .rejected(.scriptChanged) }
+        guard chineseVariantSurvives(trimmed, transcript) else {
+            return .rejected(.chineseVariantChanged)
+        }
 
         if let lengthRejection = lengthRejection(for: trimmed, transcript: transcript, shape: shape) {
             return .rejected(lengthRejection)
@@ -174,6 +185,29 @@ enum StyleRewriteGuard {
             return true
         }
         return (transcriptRatio >= 0.3) == (candidateRatio >= 0.3)
+    }
+
+    /// Whether the rewrite is written in the same Chinese variant as the input.
+    ///
+    /// The same asymmetry as everywhere else in this file: **a rewrite may omit,
+    /// but nothing may invent.** A Traditional transcript whose rewrite drops a
+    /// Traditional-only character is fine - it may have been reworded. A
+    /// Traditional transcript whose rewrite contains a Simplified-only character
+    /// invented one, and the whole rewrite is suspect: the observed failure is
+    /// not one character but a wholesale conversion, sometimes of only part of
+    /// the text, which is how a Simplified rewrite of Traditional dictation
+    /// comes back reading half in each.
+    ///
+    /// It applies to every style, including the custom one. Restyling text is
+    /// never a licence to change the script the user writes in, and a user who
+    /// wants the other variant has an app-wide way to ask for it - dictating in
+    /// it. The check only fires when the transcript itself is decisive, so
+    /// dictation that already mixes the two is left alone.
+    private static func chineseVariantSurvives(_ candidate: String, _ transcript: String) -> Bool {
+        let source = ChineseScriptVariant.signal(in: transcript)
+        guard source.isDecisive else { return true }
+        let rewritten = ChineseScriptVariant.signal(in: candidate)
+        return source.traditional > 0 ? rewritten.simplified == 0 : rewritten.traditional == 0
     }
 
     /// The share of letter-like characters that are CJK, or nil when there are

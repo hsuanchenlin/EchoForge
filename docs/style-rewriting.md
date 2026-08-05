@@ -55,6 +55,7 @@ rewrite against the transcript it came from and discards anything that fails:
 | Check | Rejects |
 | --- | --- |
 | Script | Chinese dictation that came back in English, and the reverse |
+| Chinese variant | Traditional dictation rewritten in Simplified, and the reverse |
 | Numbers | a quantity, date or amount invented, dropped or changed |
 | Symbols | a currency or percent sign invented or dropped |
 | Dictionary terms | a rewrite that lost what the terms dictionary wrote |
@@ -100,6 +101,53 @@ Instructions are written for the on-device model as it actually behaves, not as
 it should. The bullet style deliberately does **not** name the bullet character:
 asking for lines starting with `"- "` makes the model emit its own marker *and*
 the requested one, so every line came back as `- - point`.
+
+## Chinese dictation
+
+Every style carries three instructions - English, Traditional Chinese and
+Simplified Chinese - and the session rules and the prompt's own heading are
+written in the same language as whichever is sent. That is not politeness; it is
+the fix for the feature not working at all in Chinese.
+
+Measured on macOS 26.5 against Mandarin dictation with the *English*
+instructions: "Formal Business" translated the transcript into English on every
+run and "Casual Chat" on most. The guard caught each one (`scriptChanged`), so
+nothing wrong reached the user - they simply never got a rewrite, which from the
+outside looks like the styles not working for Chinese. Asked in Chinese, all six
+styles came back in Chinese, repeatedly.
+
+The variant matters one level down, and silently. A Traditional instruction
+converts Simplified dictation to Traditional, and a Simplified one converts the
+other way - often only half of the text, so a rewrite comes back reading part in
+each. Matching the instruction's own variant to the transcript's kept every
+measured run in the transcript's variant. `StyleRewriteGuard` does not trust that
+either: a rewrite that invents a character exclusive to the other variant is
+rejected, whatever the style.
+
+Three pieces carry it:
+
+- `ChineseScriptVariant` (`Utils/`) reads which variant a piece of text is
+  written in, from a table of unambiguous character pairs that is itself checked
+  against ICU by `ChineseScriptVariantTests`. Characters that are ordinary in
+  both - `里`, `后`, `只`, `面`, `干` - are deliberately not in it.
+- `StyleRewriteLanguage` decides which language one rewrite is asked in. **The
+  transcript decides and the dictation language only breaks ties**: English
+  spoken with the language left on Chinese is asked for in English, Chinese
+  spoken on auto-detect is asked for in Chinese, and Japanese or Korean - Han
+  characters and all - is ruled out by its language code. Where the transcript
+  uses only characters the two variants share, the user's own languages decide.
+- A custom prompt is *wrapped*, never edited: users who dictate Chinese still
+  write their prompt in English, because the pane they type it into is English,
+  and an English instruction is exactly what makes the model answer in English.
+
+The Chinese polishing instruction names the fillers Mandarin speakers actually
+use - 那個, 就是, 然後, 嗯, 呃 - rather than translating "um" and "uh", and the
+shared rules ask for full-width Chinese punctuation and the transcript's own
+sentence breaks.
+
+`StyleRewriteChineseIntegrationTests` is the opt-in test that re-checks all of
+this against the real model, one OS update later; the file says how to turn it
+on.
 
 ## The backend
 
@@ -162,6 +210,11 @@ the terms dictionary and CJK spacing count too.
 - The script check is a ratio, not language identification. It catches a whole
   transcript coming back translated; it does not catch a single sentence being
   translated inside a longer one.
+- The Chinese variant check is evidence, not a census. Dictation written
+  entirely in characters the two variants share says nothing about which the
+  user writes, so a converted rewrite of it cannot be detected - and dictation
+  that already mixes the two is left alone deliberately, since a personal terms
+  entry spelled in the other variant is a legitimate reason for it.
 - Nothing about the rewrite is stored beyond its result. During dictation, a
   refused rewrite is a console line and nothing more: the user gets their
   transcript, which is indistinguishable from having rewriting switched off.
