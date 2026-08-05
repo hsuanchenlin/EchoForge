@@ -86,7 +86,7 @@ enum StyleRewriteVerdict: Equatable, Sendable {
 /// decision, and they are testable exactly as written.
 ///
 /// The asymmetry running through it is that **a style may omit, but nothing may
-/// invent**. "Concise" is allowed to leave a number out, because that is what
+/// invent**. "Concise Summary" is allowed to leave a number out, because that is what
 /// summarising is; no style is allowed to produce a number that was not said.
 enum StyleRewriteGuard {
 

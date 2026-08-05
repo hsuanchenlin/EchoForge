@@ -159,7 +159,7 @@ Model licences and attribution for everything the app downloads are listed in
 ## Rewriting what you dictated into a style
 
 **Settings → Style** can rewrite each dictation into a style before it is pasted:
-**Grammar & Polish**, **Formal Business**, **Concise**, **Bullet Points**, **Casual Chat**,
+**Grammar & Polishing**, **Formal Business**, **Concise Summary**, **Bullet Points**, **Casual Chat**,
 or **Custom Prompt**, where you write the instruction yourself. It is off until you
 turn it on, and it changes nothing else - transcription, the dictionary and Chinese
 spacing work exactly as before.

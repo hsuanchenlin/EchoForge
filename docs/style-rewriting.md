@@ -62,7 +62,7 @@ rewrite against the transcript it came from and discards anything that fails:
 | Addressing | a refusal, an apology, or a "Here is the rewritten text:" preamble |
 
 The rule running through all of it: **a style may omit, but nothing may
-invent.** "Concise" is allowed to leave a number out, because that is what
+invent.** "Concise Summary" is allowed to leave a number out, because that is what
 summarising is; no style is allowed to produce a number that was not said. What
 each style may do is `StyleRewriteShape`, and it is the only place a rule is
 relaxed.
@@ -126,8 +126,14 @@ transcript arriving now.
 
 `StyleRewriteBudget` scales the deadline with length (3 s plus 1 s per 200
 characters, capped at 12 s) and `StyleRewriteService` races the rewrite against
-it, cancelling the loser. Measured latency on the shipping model is 0.3-2 s for
-a sentence or two. Transcripts over 4,000 characters are not offered to the
+it. The race is not a task group: a task group waits for its losing child to
+finish before returning, and `LanguageModelSession.respond(to:options:)` is a
+closed framework call with no documented cancellation behaviour, so that would
+make the deadline a suggestion rather than a limit. The rewrite runs in its own
+unstructured task instead, marked cancelled and left running unobserved if the
+timer wins, so the budget holds even against a model call that never checks
+`Task.isCancelled`. Measured latency on the shipping model is 0.3-2 s for a
+sentence or two. Transcripts over 4,000 characters are not offered to the
 model at all: they would overrun its context window and fail *after* spending
 the whole budget.
 

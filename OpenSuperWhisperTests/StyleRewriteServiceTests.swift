@@ -31,6 +31,19 @@ final class StyleRewriteServiceTests: XCTestCase {
         }
     }
 
+    /// Blocks the thread for real time instead of suspending on `Task.sleep`,
+    /// the way a closed-source model call might. `SlowRewriter` above cannot
+    /// stand in for this: `Task.sleep` reacts to cancellation almost
+    /// instantly, so it would pass even a timeout that only pretends to be
+    /// enforced. This is what `testKeepsTheTranscriptWhenTheRewriteIgnoresCancellation`
+    /// needs to catch a race that waits for the loser to finish.
+    private struct NonCancellingSlowRewriter: StyleRewriting {
+        func rewrite(_ request: StyleRewriteRequest) async throws -> String {
+            Thread.sleep(forTimeInterval: 1.0)
+            return "too late"
+        }
+    }
+
     /// Records what it was asked, so the prompt wiring can be asserted.
     private actor RecordingRewriter: StyleRewriting {
         private(set) var request: StyleRewriteRequest?
@@ -193,6 +206,26 @@ final class StyleRewriteServiceTests: XCTestCase {
             budgetOverride: 0.2
         )
 
+        XCTAssertEqual(result.final, "we ship on friday")
+        XCTAssertEqual(result.status, .timedOut)
+    }
+
+    /// The deadline has to hold even against a rewriter that never checks
+    /// `Task.isCancelled` - a race that returns only once the loser finishes
+    /// would pass `testKeepsTheTranscriptWhenTheRewriteMissesItsDeadline`
+    /// above and still block dictation for as long as the model actually
+    /// took.
+    func testKeepsTheTranscriptWhenTheRewriteIgnoresCancellation() async {
+        let started = Date()
+
+        let result = await apply(
+            .unchanged("we ship on friday"),
+            configuration: configuration(),
+            rewriter: NonCancellingSlowRewriter(),
+            budgetOverride: 0.2
+        )
+
+        XCTAssertLessThan(Date().timeIntervalSince(started), 0.8)
         XCTAssertEqual(result.final, "we ship on friday")
         XCTAssertEqual(result.status, .timedOut)
     }

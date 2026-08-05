@@ -209,26 +209,77 @@ enum StyleRewriteService {
         return result
     }
 
-    /// Races the rewrite against its deadline.
+    /// Races the rewrite against its deadline without waiting on whichever
+    /// loses.
     ///
-    /// The losing task is cancelled either way, so a model still generating
-    /// after the budget has expired stops rather than running on behind a
-    /// result nobody will read.
+    /// This was a `withThrowingTaskGroup` once, racing the rewrite against a
+    /// `Task.sleep` that threw `StyleRewriteTimeout`. That is wrong for this
+    /// job: leaving a task group - by return or by throw - implicitly
+    /// cancels every remaining child, but the group does not actually return
+    /// to *its* caller until every one of those children has finished. A
+    /// cancelled `Task.sleep` throws almost instantly, but
+    /// `LanguageModelSession.respond(to:options:)` is a closed framework
+    /// call with no documented cancellation behaviour; if it keeps running
+    /// after `cancel()`, the task group - and with it `apply`, and every
+    /// caller up to `TranscriptionService.transcribeAudio` - stayed blocked
+    /// for as long as the model actually took, not for the budget. Do not
+    /// put this back into a task group.
+    ///
+    /// Instead the rewrite runs in its own unstructured `Task`, which this
+    /// function never awaits `.value` on. Whichever of the rewrite or the
+    /// timer resolves the continuation first is what `rewrite` returns; the
+    /// loser is marked cancelled and left running unobserved. A rewriter
+    /// that never checks `Task.isCancelled` therefore still costs at most
+    /// `budget`, never more - which is what "hard deadline" has to mean
+    /// here. `RewriteRace` exists only because two unstructured tasks are
+    /// racing to resolve one continuation, and resolving it twice traps.
+    ///
+    /// One limit this does not remove: cancelling the *caller's* task (the
+    /// app's Stop action) while a non-cooperative rewrite is in flight still
+    /// waits out the budget rather than returning immediately, because the
+    /// rewrite's `Task` is unstructured and so is not part of the caller's
+    /// cancellation tree. That is bounded by `budget` now, where the old
+    /// implementation was not bounded at all - a smaller version of the same
+    /// problem, not a new one.
     private static func rewrite(
         _ request: StyleRewriteRequest, using rewriter: StyleRewriting, budget: TimeInterval
     ) async throws -> String {
-        try await withThrowingTaskGroup(of: String.self) { group in
-            group.addTask { try await rewriter.rewrite(request) }
-            group.addTask {
-                try await Task.sleep(nanoseconds: UInt64(budget * 1_000_000_000))
-                throw StyleRewriteTimeout()
+        let race = RewriteRace()
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            let rewriteTask = Task {
+                do {
+                    let text = try await rewriter.rewrite(request)
+                    await race.resolve(continuation, with: .success(text))
+                } catch {
+                    await race.resolve(continuation, with: .failure(error))
+                }
             }
-            defer { group.cancelAll() }
-            guard let first = try await group.next() else { throw StyleRewriteTimeout() }
-            return first
+            Task {
+                try? await Task.sleep(nanoseconds: UInt64(budget * 1_000_000_000))
+                rewriteTask.cancel()
+                await race.resolve(continuation, with: .failure(StyleRewriteTimeout()))
+            }
         }
     }
 }
 
 /// The rewrite did not finish inside its budget.
 struct StyleRewriteTimeout: Error, Equatable {}
+
+/// Resolves a `rewrite` race's continuation exactly once.
+///
+/// The rewrite task and the timeout task both race to resolve the same
+/// continuation, and `CheckedContinuation.resume` traps if called twice;
+/// this actor is what makes "whichever finishes first" a fact instead of a
+/// crash.
+private actor RewriteRace {
+    private var isResolved = false
+
+    func resolve(
+        _ continuation: CheckedContinuation<String, Error>, with result: Result<String, Error>
+    ) {
+        guard !isResolved else { return }
+        isResolved = true
+        continuation.resume(with: result)
+    }
+}

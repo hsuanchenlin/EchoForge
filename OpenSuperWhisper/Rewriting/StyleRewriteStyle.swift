@@ -4,11 +4,11 @@ import Foundation
 /// model's output against.
 ///
 /// This is not decoration: the same output is correct for one style and wrong
-/// for another. "Concise" legitimately drops half the sentences, so holding it
-/// to the length of the original would reject every good rewrite; "Grammar &
-/// Polish" dropping half the sentences is a bug. Every rule the guard relaxes
-/// is relaxed here, in one place, so a new style has to state its shape rather
-/// than inherit permission it was never meant to have.
+/// for another. "Concise Summary" legitimately drops half the sentences, so
+/// holding it to the length of the original would reject every good rewrite;
+/// "Grammar & Polishing" dropping half the sentences is a bug. Every rule the
+/// guard relaxes is relaxed here, in one place, so a new style has to state
+/// its shape rather than inherit permission it was never meant to have.
 enum StyleRewriteShape: String, Equatable, Sendable {
     /// Same content, different wording. The default and the safest.
     case preserving
@@ -84,7 +84,7 @@ enum StyleRewriteCatalog {
     static let styles: [StyleRewriteStyle] = [
         StyleRewriteStyle(
             id: "polish",
-            name: "Grammar & Polish",
+            name: "Grammar & Polishing",
             summary: "Fixes grammar and punctuation, keeps your wording.",
             instruction: """
             Correct grammar, punctuation and obvious speech disfluencies. Remove \
@@ -107,7 +107,7 @@ enum StyleRewriteCatalog {
         ),
         StyleRewriteStyle(
             id: "concise",
-            name: "Concise",
+            name: "Concise Summary",
             summary: "Cuts it down to the essential points.",
             instruction: """
             Rewrite the text as briefly as it can be said without losing \
