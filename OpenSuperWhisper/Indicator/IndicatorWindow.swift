@@ -37,9 +37,25 @@ enum DictationFailureOutcome: Equatable {
     }
 }
 
+/// What a dictation that ran to its end actually produced.
+///
+/// The indicator card never needed this - it decodes, hides, and says nothing
+/// either way - but a HUD that ends every dictation on a success badge would show
+/// a checkmark for a recording that was silent or a transcription that failed.
+/// So the outcome is recorded rather than inferred, and `nil` means "the session
+/// ended with nothing to add": cancelled, or already showing why it stopped.
+enum DictationResult: Equatable {
+    /// Text was produced and handed to whatever the user was typing in.
+    case inserted
+    /// The recording decoded to nothing. The audio is discarded, as it always was.
+    case noSpeech
+    /// It failed for a reason worth telling the user.
+    case failed(String)
+}
+
 @MainActor
 protocol IndicatorViewDelegate: AnyObject {
-    
+
     func didFinishDecoding()
 }
 
@@ -54,7 +70,18 @@ class IndicatorViewModel: ObservableObject {
     @Published var recorder: AudioRecorder = .shared
     
     var recordingStartedAt: Date?
-    
+
+    /// What this dictation produced, once it is known. Read by whoever is showing
+    /// the session when it ends; `nil` while it is still running, and left `nil`
+    /// for an ending that speaks for itself.
+    private(set) var result: DictationResult?
+
+    /// Set when the user stopped the work in flight themselves.
+    ///
+    /// Cancelling makes the transcription throw, and that failure must not come
+    /// back to the user as one: they know what they did.
+    private(set) var didCancelWorkInFlight = false
+
     var delegate: IndicatorViewDelegate?
     private var blinkTimer: Timer?
     private var hideTimer: Timer?
@@ -198,6 +225,7 @@ class IndicatorViewModel: ObservableObject {
 
                     if text.isEmpty {
                         try? FileManager.default.removeItem(at: tempURL)
+                        self.result = .noSpeech
                         print("No speech detected, dictation discarded")
                     } else {
                         let timestamp = Date()
@@ -226,13 +254,25 @@ class IndicatorViewModel: ObservableObject {
                         }
                         
                         insertText(text)
+                        self.result = .inserted
                         print("Transcription result: \(text)")
                     }
                 } catch {
                     print("Error transcribing audio: \(error)")
 
+                    // A failure the user caused by cancelling is not one to
+                    // report back to them.
+                    if !self.didCancelWorkInFlight {
+                        self.result = .failed(Self.failureMessage(for: error))
+                    }
+
                     switch DictationFailureOutcome.forError(error) {
                     case .keep(let reason, let indicatorState):
+                        // Said in two words on screen already, so there is no
+                        // outcome left to report: repeating the full sentence when
+                        // the session ends would replace the message the user is
+                        // in the middle of reading.
+                        self.result = nil
                         // The message's own timer hides the window, which is why
                         // this does not fall through to `didFinishDecoding()`.
                         await MainActor.run {
@@ -262,6 +302,25 @@ class IndicatorViewModel: ObservableObject {
         }
     }
     
+    /// One sentence for a failed dictation, on the surface that has room for one.
+    ///
+    /// `TranscriptionError` is a `LocalizedError` precisely so this reads as an
+    /// instruction rather than "OpenSuperWhisper.TranscriptionError error 2".
+    static func failureMessage(for error: Error) -> String {
+        (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+    }
+
+    /// Stops the transcription the user is currently waiting on, and remembers
+    /// that they did.
+    ///
+    /// The audio goes with it, which is what cancelling means here: the temporary
+    /// file is removed by the failure path the cancellation triggers.
+    func cancelWorkInFlight() {
+        guard state == .decoding else { return }
+        didCancelWorkInFlight = true
+        transcriptionService.cancelTranscription()
+    }
+
     func insertText(_ text: String) {
         guard !text.isEmpty else { return }
         let finalText = Self.applyPostProcessing(text)

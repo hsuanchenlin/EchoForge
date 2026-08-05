@@ -101,6 +101,13 @@ struct StyleRewriteStyle: Identifiable, Equatable, Sendable {
     let id: String
     /// The name in the Settings picker.
     let name: String
+    /// The name where there is room for one word: the capsule HUD's mode chip.
+    ///
+    /// It lives here rather than being derived from `name` for the same reason
+    /// every other piece of copy does - the catalog is the one place a style says
+    /// what it is called, and a surface that shortens the name itself is a second
+    /// copy that drifts. "Grammar & Polishing" does not fit a 40 pt pill.
+    let shortName: String
     /// One line under the name saying what it does to the user's words.
     let summary: String
     /// What the model is told to do. `.userWritten` for the custom style, whose
@@ -130,6 +137,7 @@ enum StyleRewriteCatalog {
         StyleRewriteStyle(
             id: "polish",
             name: "Grammar & Polishing",
+            shortName: "Polish",
             summary: "Fixes grammar and punctuation, keeps your wording.",
             // The Chinese texts name Chinese fillers rather than translating
             // "um" and "uh": 那個 / 就是 / 然後 are what a Mandarin speaker
@@ -158,6 +166,7 @@ enum StyleRewriteCatalog {
         StyleRewriteStyle(
             id: "formal",
             name: "Formal Business",
+            shortName: "Formal",
             summary: "Rewrites it as professional written correspondence.",
             instructions: StyleRewriteInstructions(
                 english: """
@@ -179,6 +188,7 @@ enum StyleRewriteCatalog {
         StyleRewriteStyle(
             id: "concise",
             name: "Concise Summary",
+            shortName: "Concise",
             summary: "Cuts it down to the essential points.",
             instructions: StyleRewriteInstructions(
                 english: """
@@ -200,6 +210,7 @@ enum StyleRewriteCatalog {
         StyleRewriteStyle(
             id: "bullets",
             name: "Bullet Points",
+            shortName: "Bullets",
             summary: "Reshapes it into a bulleted list.",
             // Deliberately does not name the bullet character. Asking for
             // lines that start with "- " makes the on-device model write its
@@ -226,6 +237,7 @@ enum StyleRewriteCatalog {
         StyleRewriteStyle(
             id: "casual",
             name: "Casual Chat",
+            shortName: "Casual",
             summary: "Relaxes it into everyday conversational writing.",
             instructions: StyleRewriteInstructions(
                 english: """
@@ -247,6 +259,7 @@ enum StyleRewriteCatalog {
         StyleRewriteStyle(
             id: StyleRewriteStyle.customID,
             name: "Custom Prompt",
+            shortName: "Custom",
             summary: "Rewrites it with instructions you write yourself.",
             // No instruction of its own in any language: the user's prompt is
             // the instruction, and `StyleRewriteLanguage.wrapping(customPrompt:)`

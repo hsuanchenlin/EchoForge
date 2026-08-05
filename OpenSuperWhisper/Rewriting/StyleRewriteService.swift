@@ -204,6 +204,10 @@ enum StyleRewriteService {
         }
 
         let availability = StyleRewriterFactory.availability()
+        // Marked around the attempt, not around the whole function: the guards
+        // above are instant, and a HUD that says "Polishing…" for a rewrite that
+        // was never attempted is a lie about where the user's wait went.
+        await MainActor.run { StyleRewriteActivity.shared.begin() }
         let result = await apply(
             to: processed,
             configuration: settings.styleRewrite,
@@ -211,6 +215,7 @@ enum StyleRewriteService {
             availability: availability,
             rewriter: StyleRewriterFactory.makeRewriter()
         )
+        await MainActor.run { StyleRewriteActivity.shared.end() }
         if let explanation = result.status.explanation, !result.status.didRewrite {
             print("Style rewrite: \(explanation)")
         }

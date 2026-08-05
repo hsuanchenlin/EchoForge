@@ -9,32 +9,52 @@ class IndicatorWindowManager: IndicatorViewDelegate {
     
     var window: NSWindow?
     var viewModel: IndicatorViewModel?
-    
+
+    /// Which overlay this session is being shown in.
+    ///
+    /// Decided once, when the session starts, and not read from the preference
+    /// again: the capsule and the card are two presentations of the same
+    /// dictation, and a preference flipped mid-recording would otherwise leave a
+    /// session showing both or neither.
+    private var sessionUsesCapsule = false
+
     private init() {}
-    
+
     /// Creates the view model without presenting the window, so recording can
     /// start immediately while the caret position is being resolved.
     func prepare() -> IndicatorViewModel {
         NotificationCenter.default.post(name: .indicatorWindowWillShow, object: nil)
         KeyboardShortcuts.enable(.escape)
-        
+
         let newViewModel = IndicatorViewModel()
         newViewModel.delegate = self
         viewModel = newViewModel
-        
+        sessionUsesCapsule = CapsuleHUDWindowController.isEnabled
+
         // Build the panel and the SwiftUI hierarchy now, while the caret
         // position is being resolved in the background: materializing the
         // backing store, blur material and first layout during the appear
         // animation drops its first frames.
-        ensureWindowContent(for: newViewModel)
+        if sessionUsesCapsule {
+            CapsuleHUDWindowController.shared.beginSession(for: newViewModel)
+        } else {
+            ensureWindowContent(for: newViewModel)
+        }
         return newViewModel
     }
-    
+
     func presentWindow(for presentedViewModel: IndicatorViewModel, nearPoint point: NSPoint?) {
         // The recording may already be cancelled/hidden by the time the caret
         // position is resolved.
         guard viewModel === presentedViewModel else { return }
-        
+
+        if sessionUsesCapsule {
+            // The capsule is not caret-anchored: the point only says which screen
+            // the user is working on.
+            CapsuleHUDWindowController.shared.present(nearPoint: point)
+            return
+        }
+
         // Prefer the screen containing the point, then the screen of the window
         // with input focus (NSScreen.main is useless for a background app — it
         // degenerates to the primary screen). A point outside every screen
@@ -183,6 +203,9 @@ class IndicatorWindowManager: IndicatorViewDelegate {
     /// so the first real appearance doesn't pay ~40 ms for window, backing
     /// store and blur material creation in the middle of the animation.
     func warmUp() {
+        if CapsuleHUDWindowController.isEnabled {
+            CapsuleHUDWindowController.shared.warmUp()
+        }
         guard window == nil else { return }
         ensureWindowContent(for: IndicatorViewModel())
         guard let window = window else { return }
@@ -242,13 +265,23 @@ class IndicatorWindowManager: IndicatorViewDelegate {
     func stopRecording() {
         viewModel?.startDecoding()
     }
-    
+
     func stopForce() {
         viewModel?.cancelRecording()
         viewModel?.cleanup()
         hide()
     }
-    
+
+    /// Cancels the transcription the overlay is currently reporting on.
+    ///
+    /// Only the capsule offers this - its polishing state has a cancel button -
+    /// but the decision belongs here, with the rest of the session's lifecycle,
+    /// rather than in the view that draws the button.
+    func cancelWorkInFlight() {
+        viewModel?.cancelWorkInFlight()
+    }
+
+
     @discardableResult
     func requestCancel() -> Bool {
         guard let viewModel else { return false }
@@ -265,8 +298,16 @@ class IndicatorWindowManager: IndicatorViewDelegate {
         
         Task {
             guard let viewModel = hidingViewModel, viewModel === self.viewModel else { return }
-            
-            await animateHide()
+
+            if sessionUsesCapsule {
+                // Not awaited, unlike the card's hide animation: the capsule's
+                // last word - a checkmark, or why it stopped - outlives the
+                // session on its own timer, and holding the session open for it
+                // would delay the next dictation by as long as the badge lasts.
+                CapsuleHUDWindowController.shared.endSession(result: viewModel.result)
+            } else {
+                await animateHide()
+            }
             viewModel.cleanup()
             
             guard self.viewModel === viewModel else { return }
