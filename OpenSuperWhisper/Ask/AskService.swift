@@ -115,6 +115,16 @@ enum AskService {
     /// overrun the context window and fail after spending the whole budget.
     static let maximumQuestionCharacters = 2000
 
+    /// How many prior exchanges a follow-up keeps.
+    ///
+    /// The history is written into every prompt, so a conversation in a
+    /// long-lived panel would otherwise rebuild exactly the failure
+    /// `maximumQuestionCharacters` exists to prevent: a prompt that overruns
+    /// the context window and errors after spending the whole budget. The most
+    /// recent exchanges are the ones a follow-up actually refers to, so those
+    /// are the ones kept.
+    static let maximumHistoryExchanges = 6
+
     /// How long an answer may take.
     ///
     /// Far longer than a rewrite's budget, and that is the difference between
@@ -250,16 +260,20 @@ enum AskPrompt {
         }
     }
 
-    /// The prompt for one turn: earlier turns, then the question.
+    /// The prompt for one turn: the most recent earlier turns, then the
+    /// question.
     ///
     /// The history is written into the prompt rather than kept in a live
     /// `LanguageModelSession` because the panel outlives any one session - it
     /// can be left open across dictations - and a stored session that was
     /// created when the Mac was in a different state is a harder thing to reason
-    /// about than a string this file builds every time.
+    /// about than a string this file builds every time. Only the last
+    /// `AskService.maximumHistoryExchanges` exchanges are written; that constant
+    /// says why the history cannot be unbounded.
     static func prompt(for request: AskRequest) -> String {
-        guard !request.history.isEmpty else { return request.question }
-        let transcript = request.history
+        let history = request.history.suffix(AskService.maximumHistoryExchanges)
+        guard !history.isEmpty else { return request.question }
+        let transcript = history
             .map { "Q: \($0.question)\nA: \($0.answer)" }
             .joined(separator: "\n\n")
         return """

@@ -249,6 +249,32 @@ final class TranslationRewriteTests: XCTestCase {
         }
     }
 
+    /// A failed translation explains itself as translation: the user spoke
+    /// "Translate to …", and being told about rewriting - the other feature on
+    /// the same model - reads as the wrong feature failing. The rewriting
+    /// wording itself must not move; `StyleRewriteServiceTests` and
+    /// `StyleRewriteCatalogTests` pin it.
+    func testAnUnavailableTranslationIsExplainedAsTranslationNotRewriting() async {
+        let styled = await TranslationRewrite.apply(
+            to: processed("Translate to Spanish: the team meets at three."),
+            body: "the team meets at three.",
+            target: spanish,
+            availability: .unsupportedSystem,
+            rewriter: nil
+        )
+
+        XCTAssertEqual(
+            styled.statusExplanation,
+            StyleRewriteAvailability.unsupportedSystem.explanation(for: .translation)
+        )
+        XCTAssertEqual(styled.statusExplanation?.contains("Translation"), true)
+        XCTAssertEqual(styled.statusExplanation?.contains("Rewriting"), false)
+        XCTAssertEqual(
+            StyleRewriteStatus.unavailable(.unsupportedSystem).explanation,
+            StyleRewriteAvailability.unsupportedSystem.explanation(for: .rewriting)
+        )
+    }
+
     func testARefusedTranslationKeepsTheBodyAndSaysWhy() async {
         let styled = await TranslationRewrite.apply(
             to: processed("the team meets at 3."),

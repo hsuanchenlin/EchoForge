@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import OpenSuperWhisper
 
@@ -476,6 +477,59 @@ final class AskPanelViewModelTests: XCTestCase {
         }
     }
 
+    /// A conversation in a long-lived panel must not rebuild the overrun
+    /// `maximumQuestionCharacters` exists to prevent, so only the most recent
+    /// exchanges are written into the prompt.
+    func testOnlyTheMostRecentExchangesAreWrittenIntoThePrompt() {
+        let history = (1 ... AskService.maximumHistoryExchanges + 3).map {
+            AskExchange(question: "question \($0)", answer: "answer \($0)")
+        }
+
+        let prompt = AskPrompt.prompt(for: AskRequest(question: "latest", history: history))
+
+        let oldestKept = history.count - AskService.maximumHistoryExchanges + 1
+        XCTAssertFalse(prompt.contains("question \(oldestKept - 1)"))
+        XCTAssertTrue(prompt.contains("question \(oldestKept)"))
+        XCTAssertTrue(prompt.contains("question \(history.count)"))
+        XCTAssertTrue(prompt.hasSuffix("Q: latest"))
+    }
+
+    // MARK: - Where Insert would paste
+
+    /// This app itself is never a target: a panel opened from EchoForge's own
+    /// window must fall back to the clipboard, not inherit whichever app an
+    /// earlier presentation was over.
+    func testTheInsertionTargetIsNeverThisAppItself() {
+        let current = NSRunningApplication.current
+
+        XCTAssertNil(
+            AskPanelWindowController.capturedInsertionTarget(
+                frontmost: current, ownBundleIdentifier: current.bundleIdentifier
+            )
+        )
+        XCTAssertEqual(
+            AskPanelWindowController.capturedInsertionTarget(
+                frontmost: current, ownBundleIdentifier: "another.app.entirely"
+            ),
+            current
+        )
+        XCTAssertNil(
+            AskPanelWindowController.capturedInsertionTarget(
+                frontmost: nil, ownBundleIdentifier: current.bundleIdentifier
+            )
+        )
+    }
+
+    /// The remembered target lives only as long as the presentation.
+    func testHidingThePanelForgetsTheInsertionTarget() {
+        let controller = AskPanelWindowController.shared
+        controller.insertionTarget = NSRunningApplication.current
+
+        controller.hide()
+
+        XCTAssertNil(controller.insertionTarget)
+    }
+
     // MARK: - Stub models
 
     private struct FixedAnswerer: AskAnswering {
@@ -497,5 +551,31 @@ final class AskPanelViewModelTests: XCTestCase {
     private struct ThrowingAnswerer: AskAnswering {
         struct Failure: Error {}
         func answer(_ request: AskRequest) async throws -> String { throw Failure() }
+    }
+}
+
+/// The settings a voice follow-up is transcribed with, stated against
+/// preferences that would restyle or route a live dictation.
+final class AskPanelFollowUpSettingsTests: IsolatedPreferencesTestCase {
+
+    /// A follow-up is a question for the panel: never routed - it must not
+    /// reopen the panel it came from - and never restyled, because restyling a
+    /// question on its way to the model that is about to answer it changes what
+    /// was asked. Only the model-backed stage is withheld; the deterministic
+    /// stages keep their own preferences.
+    @MainActor
+    func testAFollowUpIsNeverRoutedAndNeverRestyled() {
+        let preferences = AppPreferences.shared
+        preferences.spokenIntentsEnabled = true
+        preferences.styleRewriteEnabled = true
+        preferences.styleRewriteStyleID = StyleRewriteCatalog.defaultStyleID
+
+        let settings = AskPanelWindowController.followUpTranscriptionSettings()
+
+        XCTAssertFalse(settings.routesSpokenIntents)
+        XCTAssertFalse(settings.styleRewrite.isRunnable)
+        // The same preferences would restyle a live dictation, so the pin - not
+        // the preference - is what turns the follow-up's rewrite off.
+        XCTAssertTrue(Settings(routesSpokenIntents: true).styleRewrite.isRunnable)
     }
 }

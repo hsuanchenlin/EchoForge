@@ -50,8 +50,15 @@ final class AskPanelWindowController {
     /// Captured up front rather than read at insertion time: by then the
     /// frontmost application may be this one, because the user has just been
     /// typing into this panel. Only the running application is held - no window,
-    /// no document, nothing about what is in it.
-    private var insertionTarget: NSRunningApplication?
+    /// no document, nothing about what is in it - and only for this one
+    /// presentation: hiding the panel forgets it, so a later presentation can
+    /// never paste into wherever the user was working an hour ago.
+    var insertionTarget: NSRunningApplication?
+
+    /// Which presentation the pending fade-out belongs to. A `present` can land
+    /// inside `hide`'s fade, and the stale completion must not order out the
+    /// panel it just re-showed.
+    private var presentationGeneration = 0
 
     private init() {
         viewModel = AskPanelViewModel()
@@ -96,18 +103,32 @@ final class AskPanelWindowController {
 
     func hide() {
         stopVoiceCaptureIfRunning()
+        let target = insertionTarget
+        insertionTarget = nil
         guard let panel, panel.isVisible else { return }
+        // Opening the panel took keyboard focus, so closing it hands focus back
+        // - the same hand-back `insert` does - or the user's next keystrokes go
+        // nowhere until they click. Only while this app still holds focus: if
+        // the user already clicked into another app, yanking it back from there
+        // would be worse than leaving it.
+        if NSApplication.shared.isActive {
+            target?.activate()
+        }
+        presentationGeneration += 1
+        let generation = presentationGeneration
         NSAnimationContext.runAnimationGroup { context in
             context.duration = Self.fadeDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().alphaValue = 0
-        } completionHandler: {
+        } completionHandler: { [weak self] in
+            guard let self, self.presentationGeneration == generation else { return }
             panel.orderOut(nil)
         }
     }
 
     private func showPanel() {
         guard let panel else { return }
+        presentationGeneration += 1
         if let screen = CapsuleHUDWindowController.targetScreen(nearPoint: nil) {
             panel.setFrameOrigin(
                 Self.origin(visibleFrame: screen.visibleFrame, windowSize: AskPanelView.windowSize)
@@ -187,9 +208,23 @@ final class AskPanelWindowController {
     // MARK: - What the answer does next
 
     private func captureInsertionTarget() {
-        let frontmost = NSWorkspace.shared.frontmostApplication
-        guard frontmost?.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
-        insertionTarget = frontmost
+        insertionTarget = Self.capturedInsertionTarget(
+            frontmost: NSWorkspace.shared.frontmostApplication,
+            ownBundleIdentifier: Bundle.main.bundleIdentifier
+        )
+    }
+
+    /// The application **Insert into Active App** would paste into, given who
+    /// was frontmost when the panel opened.
+    ///
+    /// This app itself is never a target: a panel opened from EchoForge's own
+    /// window remembers nothing, and the answer then goes to the clipboard and
+    /// nowhere else.
+    static func capturedInsertionTarget(
+        frontmost: NSRunningApplication?, ownBundleIdentifier: String?
+    ) -> NSRunningApplication? {
+        guard let frontmost, frontmost.bundleIdentifier != ownBundleIdentifier else { return nil }
+        return frontmost
     }
 
     /// Puts the answer into the application the user was working in.
@@ -204,14 +239,16 @@ final class AskPanelWindowController {
     /// Without a remembered target - the panel was opened from EchoForge's own
     /// window, or the frontmost application could not be read - the answer goes
     /// to the clipboard and nowhere else. Guessing where to paste is the one
-    /// thing this must not do.
+    /// thing this must not do, which is also why a target that cannot come
+    /// forward - quit while the panel was open - degrades to the clipboard
+    /// rather than to a paste into whatever happens to be frontmost.
     private func insert(_ answer: String) {
+        let target = insertionTarget
         hide()
-        guard let insertionTarget else {
+        guard let target, target.activate() else {
             ClipboardUtil.copyToClipboard(answer)
             return
         }
-        _ = insertionTarget.activate()
         // One runloop turn is not enough for another application to take
         // keyboard focus; the paste has to wait for the activation to land or
         // it is delivered to whoever still has it.
@@ -260,11 +297,8 @@ final class AskPanelWindowController {
             }
             defer { try? FileManager.default.removeItem(at: url) }
             do {
-                // `routesSpokenIntents` is left off on purpose: a follow-up that
-                // began "Ask: …" must not be routed back into this panel, and a
-                // question is not a dictation to restyle either.
                 let styled = try await TranscriptionService.shared.transcribeAudio(
-                    url: url, settings: Settings()
+                    url: url, settings: Self.followUpTranscriptionSettings()
                 )
                 await self.viewModel.voiceCaptureDidProduce(styled.final)
             } catch {
@@ -273,6 +307,20 @@ final class AskPanelWindowController {
                 )
             }
         }
+    }
+
+    /// The settings a voice follow-up is transcribed with.
+    ///
+    /// `routesSpokenIntents` stays off: a follow-up that began "Ask: …" must
+    /// not be routed back into the panel it came from. And the style rewrite is
+    /// pinned off whatever the user's preference says: a question is not a
+    /// dictation to restyle, and restyling it on its way to the model that is
+    /// about to answer it changes what was asked. The deterministic stages -
+    /// personal terms, CJK spacing - still run.
+    static func followUpTranscriptionSettings() -> Settings {
+        var settings = Settings()
+        settings.styleRewrite = .disabled
+        return settings
     }
 
     private func cancelVoiceCapture() {

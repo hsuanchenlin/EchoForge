@@ -31,17 +31,6 @@ enum TranslationRewrite {
     /// reports one.
     static let styleID = "translate"
 
-    static func style(for target: SpokenTranslationTarget) -> StyleRewriteStyle {
-        StyleRewriteStyle(
-            id: styleID,
-            name: "Translate to \(target.displayName)",
-            shortName: "Translate \(target.shortDisplayName)",
-            summary: "Translates what you said into \(target.displayName).",
-            instructions: .userWritten,
-            shape: .translating
-        )
-    }
-
     /// Runs the stage against an injected rewriter.
     ///
     /// Every input the decision depends on is a parameter, the same way
@@ -169,7 +158,7 @@ enum TranslationRewrite {
             rewriter: StyleRewriterFactory.makeRewriter()
         )
         await MainActor.run { StyleRewriteActivity.shared.end() }
-        if let explanation = result.status.explanation, !result.status.didRewrite {
+        if let explanation = result.status.explanation(for: .translation), !result.status.didRewrite {
             print("Translation: \(explanation)")
         }
         return result

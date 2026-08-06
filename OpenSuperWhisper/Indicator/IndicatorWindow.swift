@@ -307,7 +307,7 @@ class IndicatorViewModel: ObservableObject {
                             print("Ask: \(query)")
                         } else {
                             insertText(text)
-                            self.result = .inserted(styleNotice: styled.status.explanation)
+                            self.result = .inserted(styleNotice: styled.statusExplanation)
                             print("Transcription result: \(text)")
                         }
                     }

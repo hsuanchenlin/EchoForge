@@ -31,12 +31,16 @@ enum StyleRewriteStatus: Equatable, Sendable {
 
     /// One sentence for the Settings preview and the console. Nil when there is
     /// nothing worth saying.
-    var explanation: String? {
+    var explanation: String? { explanation(for: .rewriting) }
+
+    /// The same sentence, naming whichever feature produced this status - a
+    /// spoken translation's failure must not be reported as rewriting's.
+    func explanation(for feature: OnDeviceModelFeature) -> String? {
         switch self {
         case .notRequested:
             return nil
         case .unavailable(let availability):
-            return availability.explanation
+            return availability.explanation(for: feature)
         case .nothingToRewrite:
             return "There was nothing to rewrite."
         case .transcriptTooLong:
@@ -95,6 +99,15 @@ struct StyledTranscript: Equatable, Sendable {
     /// post-processing changed nothing and a second copy would say nothing.
     var originalWorthKeeping: String? {
         raw == final ? nil : raw
+    }
+
+    /// `status.explanation`, named for the feature that actually ran: a user
+    /// who spoke "Translate to …" must not be told about rewriting.
+    var statusExplanation: String? {
+        if case .translated = intent {
+            return status.explanation(for: .translation)
+        }
+        return status.explanation
     }
 
     /// A transcript that was never offered to the rewriting stage.

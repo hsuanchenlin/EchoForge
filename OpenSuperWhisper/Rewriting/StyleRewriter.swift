@@ -119,19 +119,21 @@ enum StyleRewriteAvailability: Equatable, Sendable {
     }
 }
 
-/// Which of the two things this app asks the on-device model to do.
+/// Which of the three things this app asks the on-device model to do.
 ///
-/// It exists only so an availability sentence names the right one. Both run on
-/// the same model, so anything that decides *whether* they can run is shared -
-/// see `StyleRewriterFactory.availability`.
+/// It exists only so an availability sentence names the right one. All of them
+/// run on the same model, so anything that decides *whether* they can run is
+/// shared - see `StyleRewriterFactory.availability`.
 enum OnDeviceModelFeature: Equatable, Sendable {
     case rewriting
     case ask
+    case translation
 
     var name: String {
         switch self {
         case .rewriting: return "Rewriting"
         case .ask: return "The Ask panel"
+        case .translation: return "Translation"
         }
     }
 
@@ -139,6 +141,7 @@ enum OnDeviceModelFeature: Equatable, Sendable {
         switch self {
         case .rewriting: return "rewriting"
         case .ask: return "the Ask panel"
+        case .translation: return "translation"
         }
     }
 
@@ -148,6 +151,7 @@ enum OnDeviceModelFeature: Equatable, Sendable {
         switch self {
         case .rewriting: return "Dictation and the dictionary are unaffected."
         case .ask: return "Dictation is unaffected."
+        case .translation: return "Dictation is unaffected."
         }
     }
 }

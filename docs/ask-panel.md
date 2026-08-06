@@ -78,9 +78,14 @@ with `activate()`, and the paste is synthesized after
 while this panel still has focus and the answer is pasted into the question
 field.
 
-With no remembered target - the panel was opened from EchoForge's own window -
-the answer goes to the clipboard and nowhere else. Guessing where to paste is
-the one thing this must not do.
+The target is remembered for one presentation only. Closing the panel hands
+keyboard focus back to it - the same hand-back Insert does, so Esc puts the
+user's keystrokes back in the document they came from - and then forgets it,
+so a panel opened later from EchoForge's own window has no target at all: the
+answer goes to the clipboard and nowhere else. Guessing where to paste is the
+one thing this must not do, which is also why a target that cannot come
+forward - quit while the panel was open - degrades to the clipboard rather
+than to a paste into whatever happens to be frontmost.
 
 ## The voice follow-up
 
@@ -90,16 +95,23 @@ It records through `AudioRecorder` and transcribes through
 this recording is a question for the panel that is already on screen - so the
 panel shows its own listening state and no indicator or capsule appears.
 
-The follow-up's own transcription passes `Settings()` with routing off: a
-follow-up that began "Ask: …" must not be routed back into the panel it came
-from.
+The follow-up's own transcription
+(`AskPanelWindowController.followUpTranscriptionSettings`) keeps routing off -
+a follow-up that began "Ask: …" must not be routed back into the panel it came
+from - and pins the style rewrite off whatever the user's preference says: a
+question is not a dictation to restyle, and restyling it on its way to the
+model that is about to answer it changes what was asked. The deterministic
+stages (personal terms, CJK spacing) still run.
 
 Conversation history is written into the prompt (`AskPrompt.prompt(for:)`)
 rather than kept in a live `LanguageModelSession`, because the panel outlives
 any one session - it can be left open across dictations - and a stored session
 created when the Mac was in a different state is harder to reason about than a
-string built each time. The conversation lives only while the panel does:
-nothing here is written to the database or anywhere else.
+string built each time. Only the most recent `AskService.maximumHistoryExchanges`
+exchanges are written: an unbounded conversation would rebuild exactly the
+overrun `maximumQuestionCharacters` exists to prevent. The conversation lives
+only while the panel does: nothing here is written to the database or anywhere
+else.
 
 ## Deadlines
 

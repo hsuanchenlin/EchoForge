@@ -403,10 +403,12 @@ enum SpokenLanguageLexicon {
             guard let range = text.range(
                 of: entry.spelling, options: [.caseInsensitive, .anchored], locale: nil
             ) else { continue }
-            // A name has to end where it ends: "Frenchman" is not French, and
-            // "德語課" is not a request to translate into German. A CJK name is
-            // followed by punctuation or by the text itself, so only the Latin
-            // case can run into a letter.
+            // A Latin name has to end where it ends: "Frenchman" is not
+            // French. Only ASCII spellings can take that check - the body a
+            // CJK name introduces is itself letters, so requiring a boundary
+            // would refuse every real CJK command. The accepted cost is that
+            // "德語課…" reads as German followed by "課…"; see the known limits
+            // in docs/spoken-intents.md.
             let rest = String(text[range.upperBound...])
             if let next = rest.first, next.isLetter, entry.spelling.allSatisfy(\.isASCII) {
                 continue

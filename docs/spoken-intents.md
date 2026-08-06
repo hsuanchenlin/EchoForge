@@ -130,7 +130,10 @@ and a length ratio.
 The stage's contract is the rewriting stage's contract: **it can translate the
 text or leave it alone.** When it fails - no model, timed out, refused - the
 user gets the *body*, with the spoken command stripped. Pasting "Translate to
-Spanish: hello" into their document would be worse than pasting nothing.
+Spanish: hello" into their document would be worse than pasting nothing. The
+notice that says why (`StyledTranscript.statusExplanation`) names translation,
+not rewriting - `OnDeviceModelFeature.translation`, the same device the Ask
+panel uses so a failure names the feature the user was actually using.
 
 ## Known limits
 
@@ -146,6 +149,11 @@ Spanish: hello" into their document would be worse than pasting nothing.
   always proper nouns, which do; a dictionary entry for an ordinary word could
   refuse a correct translation, and the failure is the safe one - the user keeps
   their own text.
+- The letter-boundary check on language names is Latin-only: "Frenchman" is not
+  French, but the text a CJK name introduces is itself letters, so requiring a
+  boundary there would refuse every real CJK command. The accepted cost is that
+  `翻譯成德語課的講義` is read as a request to translate `課的講義` into German
+  rather than staying dictation.
 - A marker only counts at the front of a dictation. "Tell them I will ask: what
   is the deadline?" is dictation.
 - The router runs on the *deterministic* output, so a personal terms entry can
