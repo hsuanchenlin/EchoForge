@@ -14,6 +14,9 @@ enum SpokenIntent: Equatable, Sendable {
     case ask(query: String)
     /// Text to translate, with the marker and the language name stripped.
     case translate(target: SpokenTranslationTarget, text: String)
+    /// A voice snippet, and the template it expands into. The expansion is the
+    /// user's own text and is carried through untouched - see `VoiceSnippet`.
+    case snippet(keyword: String, expansion: String)
 }
 
 /// The language a `translate` intent named, and the two ways it is written down.
@@ -75,21 +78,34 @@ enum SpokenIntentRouter {
     ///   - transcript: the deterministic pipeline's output - personal terms and
     ///     CJK spacing have already run, which is what makes a user's own
     ///     spelling of a language name work.
+    ///   - snippets: the user's voice snippets, already filtered to the ones
+    ///     that may fire. Empty - the default - is every caller that does not
+    ///     have them, and a router with no snippets behaves exactly as it did
+    ///     before they existed.
     ///   - fallbackChineseVariant: which Chinese "翻譯成中文" means when the
     ///     request itself does not say. Production reads the user's languages;
     ///     a test states it.
     static func route(
         _ transcript: String,
+        snippets: [VoiceSnippet] = [],
         fallbackChineseVariant: ChineseScriptVariant? = nil
     ) -> SpokenIntent {
         let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return .dictate(transcript) }
 
+        // The built-in grammar is tried first, so a snippet keyword can never
+        // take a command away from the two features that shipped before it.
+        // Nothing here competes in practice - a translation needs a language
+        // name and "Ask:" needs its punctuation - and a fixed order is one less
+        // thing for a user's own keyword to change about the app.
         if let translate = matchTranslate(trimmed, fallbackChineseVariant: fallbackChineseVariant) {
             return translate
         }
         if let ask = matchAsk(trimmed) {
             return ask
+        }
+        if let snippet = matchSnippet(trimmed, snippets: snippets) {
+            return snippet
         }
         return .dictate(transcript)
     }
@@ -149,6 +165,47 @@ enum SpokenIntentRouter {
     ) -> ChineseScriptVariant? {
         guard ChineseScriptVariant.chineseLanguageCodes.contains(languageCode) else { return nil }
         return fallback
+    }
+
+    // MARK: - Snippets
+
+    /// Two ways to fire a snippet, and both of them demand a keyword this user
+    /// actually stored.
+    ///
+    /// 1. **Marker-led** - "insert email signoff", "插入會議記錄". The marker is an
+    ///    ordinary word, so what carries the reading is not the marker but the
+    ///    exact keyword behind it: "insert a row here" names no snippet and is
+    ///    dictation, the same way "Translate the document" names no language.
+    /// 2. **The keyword alone** - a dictation that is nothing but the trigger.
+    ///    It has to be the *whole* transcript, which is what keeps a keyword
+    ///    that is also an ordinary phrase from swallowing the sentence it
+    ///    appears in. "Email signoff." said on its own is a macro; "the email
+    ///    signoff was wrong" is dictation.
+    ///
+    /// Nothing partial fires: a remainder that does not match a keyword in full
+    /// leaves the transcript alone, because inserting the wrong template costs
+    /// the user their dictation and a missed trigger costs them a retry.
+    private static func matchSnippet(_ text: String, snippets: [VoiceSnippet]) -> SpokenIntent? {
+        guard !snippets.isEmpty else { return nil }
+        // First one wins, so two enabled snippets sharing a trigger resolve to
+        // the one nearer the top of the user's own list rather than to whichever
+        // a dictionary happened to hash first.
+        var index: [String: VoiceSnippet] = [:]
+        for snippet in snippets where snippet.isValid {
+            let key = snippet.triggerKey
+            if index[key] == nil { index[key] = snippet }
+        }
+        guard !index.isEmpty else { return nil }
+
+        for marker in SpokenIntentGrammar.snippetMarkers {
+            guard let rest = remainder(after: marker, in: text) else { continue }
+            let key = VoiceSnippetTrigger.normalize(rest)
+            guard let snippet = index[key] else { continue }
+            return .snippet(keyword: snippet.keyword, expansion: snippet.expansion)
+        }
+
+        guard let snippet = index[VoiceSnippetTrigger.normalize(text)] else { return nil }
+        return .snippet(keyword: snippet.keyword, expansion: snippet.expansion)
     }
 
     // MARK: - Matching one marker
@@ -262,6 +319,26 @@ enum SpokenIntentGrammar {
         SpokenIntentMarker(text: "翻成", delimiter: .none),
         SpokenIntentMarker(text: "譯成", delimiter: .none),
         SpokenIntentMarker(text: "译成", delimiter: .none),
+    ]
+
+    /// "Insert email signoff" - and its Chinese equivalents.
+    ///
+    /// Longest first, so "insert snippet meeting template" is not read as
+    /// "insert" followed by a snippet called "snippet meeting template".
+    ///
+    /// The English markers need a space or punctuation behind them because they
+    /// are ordinary words; the Chinese ones need nothing, for the reason every
+    /// CJK marker here does - a Mandarin transcript has no space to require. In
+    /// both cases the real constraint is the one that follows: what comes after
+    /// the marker has to be a keyword this user stored, or the words stay
+    /// dictation.
+    static let snippetMarkers: [SpokenIntentMarker] = [
+        SpokenIntentMarker(text: "insert snippet", delimiter: .punctuationOrSpace),
+        SpokenIntentMarker(text: "insert", delimiter: .punctuationOrSpace),
+        SpokenIntentMarker(text: "snippet", delimiter: .punctuationOrSpace),
+        SpokenIntentMarker(text: "插入片語", delimiter: .none),
+        SpokenIntentMarker(text: "插入片语", delimiter: .none),
+        SpokenIntentMarker(text: "插入", delimiter: .none),
     ]
 }
 

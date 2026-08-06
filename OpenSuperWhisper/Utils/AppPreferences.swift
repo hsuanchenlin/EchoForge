@@ -179,6 +179,16 @@ final class AppPreferences {
     @UserDefault(key: "spokenIntentsEnabled", defaultValue: false)
     var spokenIntentsEnabled: Bool
 
+    /// Whether a spoken snippet trigger - "insert email signoff", "插入會議記錄" -
+    /// expands into the template the user stored for it.
+    ///
+    /// On by default, and unlike the settings around it that is not a change to
+    /// anyone's dictation: snippets ride on `spokenIntentsEnabled`, which is
+    /// off, so this switches the macro family off *within* spoken commands
+    /// without also switching off Ask and Translate. See `VoiceSnippetStore`.
+    @UserDefault(key: "voiceSnippetsEnabled", defaultValue: true)
+    var voiceSnippetsEnabled: Bool
+
     @UserDefault(key: "hasCompletedOnboarding", defaultValue: false)
     var hasCompletedOnboarding: Bool
     

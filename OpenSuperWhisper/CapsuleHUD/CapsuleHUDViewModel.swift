@@ -87,6 +87,22 @@ struct CapsuleHUDMode: Equatable {
     static func translate(to target: SpokenTranslationTarget) -> CapsuleHUDMode {
         CapsuleHUDMode(label: "Translate \(target.shortDisplayName)")
     }
+
+    /// The longest trigger the chip will name. Beyond it the chip says
+    /// "Snippet" and nothing else: a keyword is the user's own text and can be
+    /// a sentence, and the chip widens the whole capsule to hold it.
+    static let maximumSnippetKeywordCharacters = 18
+
+    /// "Snippet: email signoff" - or plain "Snippet" when the trigger is too
+    /// long to sit in a pill. The trigger, not a separate label, because the
+    /// trigger is the only name a snippet has.
+    static func snippet(named keyword: String) -> CapsuleHUDMode {
+        let trimmed = keyword.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= maximumSnippetKeywordCharacters else {
+            return CapsuleHUDMode(label: "Snippet")
+        }
+        return CapsuleHUDMode(label: "Snippet: \(trimmed)")
+    }
 }
 
 /// The capsule's state machine, and the only thing that decides what it shows.

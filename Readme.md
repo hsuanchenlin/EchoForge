@@ -28,6 +28,7 @@ instead of replacing it.
 - 💊 Optional floating capsule HUD - a pill at the top of the screen with live input level, duration and progress, shown instead of the card beside the cursor. Off by default ([details](docs/capsule-hud.md))
 - ❓ Ask panel - press ⌥A (configurable) and speak or type a question; a floating card answers it on device (macOS 26 with Apple Intelligence) and can copy the answer or insert it into the app you were using ([details](docs/ask-panel.md))
 - 🗣️ Optional spoken commands - start a dictation with "Ask: …" / "請問…" to send the question to the Ask panel, or "Translate to Spanish: …" / "翻譯成西班牙文：…" to paste the translation instead of the words themselves. Off by default ([details](docs/spoken-intents.md))
+- 📋 Voice snippets - save the boilerplate you retype (an email signoff, a meeting template) and say "insert email signoff" / "插入會議記錄", or the trigger alone, to type it exactly as stored - never rewritten. Part of spoken commands, so off until those are on ([details](docs/voice-snippets.md))
 
 ## Installation
 

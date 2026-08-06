@@ -83,6 +83,10 @@ struct PersonalTermsSettingsView: View {
             VStack(spacing: 20) {
                 safeCorrectionCard
                 termsCard
+                // The other thing a user's own words do to a transcription:
+                // the dictionary corrects what they said, snippets replace it
+                // with what they stored. Same pane, separate stages.
+                VoiceSnippetsSettingsView()
                 fileCard
             }
             .padding()
