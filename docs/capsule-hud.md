@@ -55,8 +55,8 @@ work the capsule is currently reporting on.
 | `.connecting` | mode chip, spinner, "Connecting…" | when capture starts |
 | `.recording` | mode chip, level meter, `m:ss` | when the audio stops |
 | `.recording` + confirmation | mode chip, "Press Esc to cancel", countdown bar | when the window lapses |
-| `.polishing(.transcribing)` | spinner, "Transcribing…", cancel | when the text arrives |
-| `.polishing(.rewriting)` | spinner, "Polishing…", cancel | when the text arrives |
+| `.polishing(.transcribing)` | mode chip, spinner, "Transcribing…", cancel | when the text arrives |
+| `.polishing(.rewriting)` | mode chip, spinner, "Polishing…", cancel | when the text arrives |
 | `.complete` | green checkmark, "Inserted" | after 1.5 s |
 | `.error(message)` | orange badge, one sentence | after 3.0 s |
 

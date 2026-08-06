@@ -3,8 +3,9 @@
 Rewriting a transcript into a style the user chose - formal, concise, bullets,
 or an instruction they wrote themselves - using the on-device language model.
 
-It is off by default and it is the only stage of the pipeline that can change
-what the user's words mean. Everything below follows from that one fact.
+It is off by default and it can change what the user's words mean - a power it
+shares only with its sibling `TranslationRewrite` (`docs/spoken-intents.md`).
+Everything below follows from that one fact.
 
 ## Where it sits
 
@@ -16,22 +17,24 @@ TextPostProcessor.process()        deterministic, cannot fail
      │                             personal terms → CJK spacing
      │                             ProcessedText { raw, final, mustSurviveTokens }
      ▼
-StyleRewriteService.apply()        the only stage that calls a model
+StyleRewriteService.apply()        calls the on-device model
      │                             1. is it switched on and configured?
      │                             2. can this Mac run it?
      │                             3. ask the model, with a deadline
      │                             4. StyleRewriteGuard checks the answer
      ▼
-StyledTranscript { raw, transcript, final, status }
+StyledTranscript { raw, transcript, final, status, intent }
      │
      ├── final ────────► pasted, stored, searched
      └── raw ──────────► Recording.rawTranscription, shown as "Show original"
 ```
 
 `docs/text-post-processing.md` describes the two deterministic stages above it.
-This stage is a peer of the terms dictionary and never its parent: turning
-rewriting off, or having it fail, leaves the dictionary working exactly as it
-did.
+On the live dictation path `SpokenIntentPipeline` sits between the two, and a
+spoken `Translate to …` command runs `TranslationRewrite` in this stage's place
+(`docs/spoken-intents.md`). This stage is a peer of the terms dictionary and
+never its parent: turning rewriting off, or having it fail, leaves the
+dictionary working exactly as it did.
 
 ## The contract
 
