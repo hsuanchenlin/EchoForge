@@ -209,6 +209,31 @@ final class AppPreferences {
     @UserDefault(key: "styleRewriteCustomPrompt", defaultValue: "")
     var styleRewriteCustomPrompt: String
 
+    /// Whether the app being dictated into may choose the rewriting style.
+    ///
+    /// Off by default, and for the same reason `capsuleHUDEnabled` is: an
+    /// install that already has a style chosen must keep using it. Switching
+    /// this on is the user saying that Slack and Mail should not get the same
+    /// words, and it changes nothing at all while `styleRewriteEnabled` is off.
+    /// See `AppStyleMappingStore`.
+    @UserDefault(key: "appAwareStyleEnabled", defaultValue: false)
+    var appAwareStyleEnabled: Bool
+
+    /// Per-app rules: normalized bundle identifier -> style identifier, with the
+    /// empty string meaning "use the style I chose".
+    ///
+    /// Bundle identifiers and style identifiers, and nothing else - no window
+    /// titles, document names or addresses are read, so none can be stored here.
+    /// `AppStyleMappingTests` asserts that about what actually lands in the
+    /// domain.
+    @UserDefault(key: "appStyleMappings", defaultValue: [:])
+    var appStyleMappings: [String: String]
+
+    /// Per-category rules: `AppCategory` raw value -> style identifier, same
+    /// encoding. Absent entries take `AppStyleMappingStore.builtInCategoryStyles`.
+    @UserDefault(key: "appStyleCategoryStyles", defaultValue: [:])
+    var appStyleCategoryStyles: [String: String]
+
     @OptionalUserDefault(key: "selectedMicrophoneData")
     var selectedMicrophoneData: Data?
     

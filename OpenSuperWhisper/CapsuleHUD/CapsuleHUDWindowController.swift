@@ -89,8 +89,11 @@ final class CapsuleHUDWindowController {
 
         // The chip promises what this dictation will do, so the promise is taken
         // from the preferences as they are now - the same snapshot the pipeline
-        // itself takes when the audio stops.
-        viewModel.beginSession(mode: CapsuleHUDMode.forStyleRewrite(Settings().styleRewrite))
+        // itself takes when the audio stops - and against the same app the
+        // session captured, so an app-matched style is named on the chip rather
+        // than arriving unannounced.
+        let settings = Settings(dictationTarget: indicatorViewModel.dictationTarget)
+        viewModel.beginSession(mode: CapsuleHUDMode.forStyleRewrite(settings.styleRewrite))
         viewModel.onCancel = { IndicatorWindowManager.shared.cancelWorkInFlight() }
 
         // Built now, while the caret position is still being resolved: the panel,
