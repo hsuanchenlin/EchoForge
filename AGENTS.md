@@ -234,6 +234,19 @@ Traditional and Simplified texts, `StyleRewriteLanguage` picks one **from the tr
 shared detector the guard also refuses a converted rewrite with. A new style needs all
 three; `docs/style-rewriting.md` has the measurements.
 
+Which style runs can be chosen by the app the user is dictating into
+(`Rewriting/AppDetector.swift`, `Rewriting/AppStyleMapping.swift`, off by
+default); `docs/app-aware-style.md` is its whole story. Two things there are
+absolute. The only signal read is the frontmost app's **bundle identifier** - no
+window title, document name or web address, and nothing logged or sent anywhere -
+and that is enforced by the shape of `FrontmostApplicationReading` and
+`DictationTargetApp` plus a source scan in `AppStyleMappingTests`. And a mapping
+chooses *which* style runs, never *whether* one runs, and never writes
+`styleRewriteStyleID` - the same separation `EngineSelector` keeps for engines.
+The app is read once per session (`IndicatorViewModel.dictationTarget`) and
+reaches the pipeline through `Settings(dictationTarget:)`, whose `nil` default
+means "no app has a say": dropped files, the queue, and history regenerates.
+
 Showing a user what post-processing changed is one implementation, not two: `TextDiffUtil`
 (`Utils/`) compares the stored original with the final text and `TextDiffView` styles the
 result, for both the Settings preview and the history row's "Compare". It must reproduce the

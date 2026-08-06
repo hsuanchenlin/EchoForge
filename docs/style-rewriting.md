@@ -98,6 +98,13 @@ write a second copy of that copy.
 The identifiers are persisted in preferences, so renaming one silently resets
 the style a user chose. `StyleRewriteCatalogTests` pins them.
 
+Which of them runs is normally the one selected in Settings, but it can also be
+chosen by the app being dictated into - Slack gets `casual`, a mail client gets
+`formal` - when the user switches that on. That mapping only ever changes *which*
+style runs, never *whether* one runs, and never writes the user's selection;
+`docs/app-aware-style.md` is its whole story, including the one signal it is
+allowed to read.
+
 Instructions are written for the on-device model as it actually behaves, not as
 it should. The bullet style deliberately does **not** name the bullet character:
 asking for lines starting with `"- "` makes the model emit its own marker *and*

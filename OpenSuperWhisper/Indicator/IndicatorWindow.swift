@@ -93,6 +93,15 @@ class IndicatorViewModel: ObservableObject {
     
     var recordingStartedAt: Date?
 
+    /// The app this dictation is going into, read once when the session starts.
+    ///
+    /// Once, and not again: the text is on its way into whatever the user was
+    /// typing in when they pressed the shortcut, and by the time it is decoded
+    /// the frontmost app may be something they alt-tabbed to while speaking. It
+    /// is also the value the capsule's chip is resolved from, so what the chip
+    /// promised and what the pipeline did cannot disagree.
+    let dictationTarget: DictationTargetApp?
+
     /// What this dictation produced, once it is known. Read by whoever is showing
     /// the session when it ends; `nil` while it is still running, and left `nil`
     /// for an ending that speaks for itself.
@@ -114,11 +123,12 @@ class IndicatorViewModel: ObservableObject {
     private let transcriptionService: TranscriptionService
     private let transcriptionQueue: TranscriptionQueue
     
-    init() {
+    init(dictationTarget: DictationTargetApp? = AppDetector.currentTarget()) {
+        self.dictationTarget = dictationTarget
         self.recordingStore = RecordingStore.shared
         self.transcriptionService = TranscriptionService.shared
         self.transcriptionQueue = TranscriptionQueue.shared
-        
+
         recorder.$isConnecting
             .receive(on: RunLoop.main)
             .sink { [weak self] isConnecting in
@@ -242,7 +252,9 @@ class IndicatorViewModel: ObservableObject {
                 let duration = await AudioUtil.audioDuration(url: tempURL)
                 do {
                     print("start decoding...")
-                    let styled = try await transcriptionService.transcribeAudio(url: tempURL, settings: Settings())
+                    let styled = try await transcriptionService.transcribeAudio(
+                        url: tempURL, settings: Settings(dictationTarget: self.dictationTarget)
+                    )
                     let text = styled.final
 
                     if text.isEmpty {

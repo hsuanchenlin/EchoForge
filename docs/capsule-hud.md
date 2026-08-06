@@ -107,6 +107,13 @@ It is resolved from `StyleRewriteConfiguration.isRunnable`, the same way the
 pipeline resolves it, so a chip never promises a rewrite that is not going to
 happen - including the enabled-but-empty custom prompt.
 
+When the style is chosen by the app being dictated into rather than in Settings
+(`docs/app-aware-style.md`), the chip names the matched style - that is where a
+user finds out that this dictation is going to be `Casual` and not `Concise`.
+Both the chip and the pipeline resolve against the same
+`IndicatorViewModel.dictationTarget`, captured once when the session started, so
+they cannot disagree about which app it was.
+
 ## The level meter
 
 `AudioRecorder.inputLevel` is published only between

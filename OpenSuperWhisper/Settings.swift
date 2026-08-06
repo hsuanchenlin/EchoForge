@@ -767,7 +767,12 @@ struct Settings {
         isAsianLanguage && useAsianAutocorrect
     }
     
-    init() {
+    /// - Parameter dictationTarget: the app this dictation is being typed into,
+    ///   captured once when the session started. `nil` - the default - is every
+    ///   other transcription: a dropped file, a queued recording, a regenerate
+    ///   from history, or dictation into EchoForge's own window. Those have no
+    ///   app to match, so the style the user chose is what they use.
+    init(dictationTarget: DictationTargetApp? = nil) {
         let prefs = AppPreferences.shared
         self.selectedLanguage = prefs.whisperLanguage
         self.suppressBlankAudio = prefs.suppressBlankAudio
@@ -779,11 +784,16 @@ struct Settings {
         self.beamSize = prefs.beamSize
         self.useAsianAutocorrect = prefs.useAsianAutocorrect
         self.safeCorrectionEnabled = prefs.safeCorrectionEnabled
-        self.styleRewrite = StyleRewriteConfiguration.resolve(
+        let chosen = StyleRewriteConfiguration.resolve(
             isEnabled: prefs.styleRewriteEnabled,
             storedStyleID: prefs.styleRewriteStyleID,
             customPrompt: prefs.styleRewriteCustomPrompt
         )
+        // The app being dictated into may change which style runs, never
+        // whether one does: `configuration` passes the toggle and the custom
+        // prompt through untouched. See `AppStyleMappingStore`.
+        self.styleRewrite = AppStyleMappingStore.load(from: prefs)
+            .configuration(chosen, for: dictationTarget)
     }
 }
 

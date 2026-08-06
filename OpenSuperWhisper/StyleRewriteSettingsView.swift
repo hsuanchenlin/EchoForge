@@ -129,6 +129,9 @@ struct StyleRewriteSettingsView: View {
                     if model.selectedStyle.isCustom {
                         customPromptEditor
                     }
+                    // Below the style list, because it is an exception to the
+                    // choice made there rather than a second way to make it.
+                    AppStyleMappingSettingsView()
                     previewSection
                 }
 
