@@ -234,6 +234,30 @@ Traditional and Simplified texts, `StyleRewriteLanguage` picks one **from the tr
 shared detector the guard also refuses a converted rewrite with. A new style needs all
 three; `docs/style-rewriting.md` has the measurements.
 
+A dictation can also be a **command** rather than text: `SpokenIntentRouter`
+(`Utils/`) reads "Ask: …" / "請問…" / "Translate to Spanish: …" / "翻譯成…" off the
+front of a transcript, and `SpokenIntentPipeline` runs whichever stage it names.
+`docs/spoken-intents.md` is its whole story. Three things there are absolute.
+The router is **pure grammar** - no model classifies a dictation, because that
+would put a model in front of every one of them. **Everything unrecognised is
+dictation**, so a marker that is also an ordinary word ("ask", "問") is only
+promoted when the transcript shows the pause a real command has. And routing
+needs *two* conditions - the user's `spokenIntentsEnabled` and a caller passing
+`Settings(routesSpokenIntents: true)` - which only live dictation does, so a
+dropped file or the Ask panel's own follow-up cannot route itself.
+
+`OpenSuperWhisper/Ask/` is the floating Ask panel (⌥A, or a spoken question) and
+`docs/ask-panel.md` is its story. It runs the same on-device model as rewriting
+and has deliberately **no `StyleRewriteGuard`**: a guard exists because a rewrite
+replaces the user's words unread, and an answer is read before it goes anywhere.
+It is also the one HUD that *takes* focus - a question box has to - which is why
+the app to paste into is captured before the panel opens rather than read at
+insertion time. `TranslationRewrite` is a sibling of `StyleRewriteService`, not a
+style inside it, because that stage's rules say "never translate this"; the one
+guard rule it relaxes is `StyleRewriteShape.translating`, and it relaxes it in
+that one place. `AsyncDeadline` (`Utils/`) is the shared hard budget both model
+callers use and documents why it is not a task group.
+
 Which style runs can be chosen by the app the user is dictating into
 (`Rewriting/AppDetector.swift`, `Rewriting/AppStyleMapping.swift`, off by
 default); `docs/app-aware-style.md` is its whole story. Two things there are

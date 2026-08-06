@@ -96,12 +96,13 @@ inserted and stored exactly as a plain success is.
 
 ## The mode chip
 
-EchoForge dictates; it does not translate or answer questions. So the chip names
-what this app actually has: `Dictate`, or the style the transcript is about to be
-rewritten into (`Polish`, `Formal`, `Bullets`, …). The label is
-`StyleRewriteStyle.shortName`, because `StyleRewriteCatalog` owns every
-user-facing word about a style and a surface that shortens `name` itself is a
-second copy that drifts.
+The chip names what is about to happen to the words: `Dictate`, the style the
+transcript is about to be rewritten into (`Polish`, `Formal`, `Bullets`, …), or
+- once the words exist - the spoken command they turned out to be (`Ask`,
+`Translate Spanish`). Style labels are `StyleRewriteStyle.shortName` and
+language names come from `LanguageUtil`, because those files own every
+user-facing word about a style and a language, and a surface that shortens
+`name` itself is a second copy that drifts.
 
 It is resolved from `StyleRewriteConfiguration.isRunnable`, the same way the
 pipeline resolves it, so a chip never promises a rewrite that is not going to
@@ -113,6 +114,21 @@ user finds out that this dictation is going to be `Casual` and not `Concise`.
 Both the chip and the pipeline resolve against the same
 `IndicatorViewModel.dictationTarget`, captured once when the session started, so
 they cannot disagree about which app it was.
+
+**A spoken command is the one thing the chip cannot know at `beginSession`.**
+Everything else is read from preferences before the recording starts;
+"Ask: …" only exists once the transcript does. So `setMode` renames the chip
+during the decode - which is why the chip is drawn in `.polishing` as well as
+while recording - and is refused unless the capsule is showing **its own**
+`.polishing(.transcribing)`. `SpokenIntentActivity` is global, exactly like
+`StyleRewriteActivity`, so without that scope a queue transcription's routing
+would relabel a recording still in progress. `docs/spoken-intents.md` is the
+router's story.
+
+A dictation that turned out to be a question ends on `DictationResult.asked`,
+which the capsule shows as no badge at all: the Ask panel is on screen with the
+question and the answer on it, and a checkmark reading "Inserted" over the top
+of it would be saying something that did not happen.
 
 ## The level meter
 

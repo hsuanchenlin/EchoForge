@@ -167,6 +167,18 @@ final class AppPreferences {
     @UserDefault(key: "capsuleHUDEnabled", defaultValue: false)
     var capsuleHUDEnabled: Bool
 
+    /// Whether a dictation is read for a spoken command - "Ask: …",
+    /// "Translate to Spanish: …" - before the words are inserted.
+    ///
+    /// Off by default, for the same reason `capsuleHUDEnabled` and
+    /// `appAwareStyleEnabled` are: it changes what happens to the user's words,
+    /// and an install where dictation already goes where its owner expects must
+    /// keep doing that. The Ask panel's own shortcut works either way - it is
+    /// this routing, not the panel, that the toggle is about.
+    /// See `SpokenIntentRouter` and `docs/spoken-intents.md`.
+    @UserDefault(key: "spokenIntentsEnabled", defaultValue: false)
+    var spokenIntentsEnabled: Bool
+
     @UserDefault(key: "hasCompletedOnboarding", defaultValue: false)
     var hasCompletedOnboarding: Bool
     

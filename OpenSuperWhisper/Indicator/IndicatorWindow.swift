@@ -69,6 +69,9 @@ enum DictationResult: Equatable {
     /// inserted and stored identically either way; the notice only changes what
     /// the badge says.
     case inserted(styleNotice: String?)
+    /// The words were a spoken question and went to the Ask panel instead of
+    /// into another app. Nothing was inserted, and that is the point.
+    case asked
     /// The recording decoded to nothing. The audio is discarded, as it always was.
     case noSpeech
     /// It failed for a reason worth telling the user.
@@ -253,7 +256,13 @@ class IndicatorViewModel: ObservableObject {
                 do {
                     print("start decoding...")
                     let styled = try await transcriptionService.transcribeAudio(
-                        url: tempURL, settings: Settings(dictationTarget: self.dictationTarget)
+                        url: tempURL,
+                        settings: Settings(
+                            dictationTarget: self.dictationTarget,
+                            // Live dictation is the one path where a spoken
+                            // command means anything - see `Settings`.
+                            routesSpokenIntents: true
+                        )
                     )
                     let text = styled.final
 
@@ -286,10 +295,21 @@ class IndicatorViewModel: ObservableObject {
                         await MainActor.run {
                             self.recordingStore.addRecording(newRecording)
                         }
-                        
-                        insertText(text)
-                        self.result = .inserted(styleNotice: styled.status.explanation)
-                        print("Transcription result: \(text)")
+
+                        // A spoken question goes to the Ask panel and nowhere
+                        // else. The recording is still kept and still searchable
+                        // - the user asked it out loud and may want it back -
+                        // but nothing is pasted into the app they were typing
+                        // in, because they did not ask for that.
+                        if case .ask(let query) = styled.intent {
+                            AskPanelWindowController.shared.present(query: query)
+                            self.result = .asked
+                            print("Ask: \(query)")
+                        } else {
+                            insertText(text)
+                            self.result = .inserted(styleNotice: styled.status.explanation)
+                            print("Transcription result: \(text)")
+                        }
                     }
                 } catch {
                     print("Error transcribing audio: \(error)")

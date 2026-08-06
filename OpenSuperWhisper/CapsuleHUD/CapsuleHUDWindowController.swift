@@ -143,6 +143,20 @@ final class CapsuleHUDWindowController {
             }
             .store(in: &sessionCancellables)
 
+        // The chip is set above from preferences, which is everything that can
+        // be known before the words exist. A spoken command is only recognised
+        // once they do, and this is how the chip finds out - cleared first so a
+        // `@Published` cannot replay the previous dictation's command onto a
+        // capsule that has only just appeared.
+        SpokenIntentActivity.shared.clear()
+        SpokenIntentActivity.shared.$outcome
+            .receive(on: RunLoop.main)
+            .sink { [weak self] outcome in
+                guard let mode = outcome?.capsuleMode else { return }
+                self?.viewModel.setMode(mode)
+            }
+            .store(in: &sessionCancellables)
+
         AudioRecorder.shared.setLevelMonitoring(enabled: true)
     }
 

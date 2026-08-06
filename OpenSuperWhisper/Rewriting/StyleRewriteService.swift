@@ -69,6 +69,28 @@ struct StyledTranscript: Equatable, Sendable {
     let final: String
     let status: StyleRewriteStatus
 
+    /// What the spoken-intent router made of this dictation, and therefore what
+    /// the caller should do with `final`.
+    ///
+    /// `.dictation` for everything the router did not recognise and for every
+    /// caller that never asked it to look - which is all of them except live
+    /// dictation. See `SpokenIntentPipeline`.
+    let intent: SpokenIntentOutcome
+
+    init(
+        raw: String,
+        transcript: String,
+        final: String,
+        status: StyleRewriteStatus,
+        intent: SpokenIntentOutcome = .dictation
+    ) {
+        self.raw = raw
+        self.transcript = transcript
+        self.final = final
+        self.status = status
+        self.intent = intent
+    }
+
     /// The text worth keeping alongside `final` in history, or nil when
     /// post-processing changed nothing and a second copy would say nothing.
     var originalWorthKeeping: String? {
@@ -225,74 +247,22 @@ enum StyleRewriteService {
     /// Races the rewrite against its deadline without waiting on whichever
     /// loses.
     ///
-    /// This was a `withThrowingTaskGroup` once, racing the rewrite against a
-    /// `Task.sleep` that threw `StyleRewriteTimeout`. That is wrong for this
-    /// job: leaving a task group - by return or by throw - implicitly
-    /// cancels every remaining child, but the group does not actually return
-    /// to *its* caller until every one of those children has finished. A
-    /// cancelled `Task.sleep` throws almost instantly, but
-    /// `LanguageModelSession.respond(to:options:)` is a closed framework
-    /// call with no documented cancellation behaviour; if it keeps running
-    /// after `cancel()`, the task group - and with it `apply`, and every
-    /// caller up to `TranscriptionService.transcribeAudio` - stayed blocked
-    /// for as long as the model actually took, not for the budget. Do not
-    /// put this back into a task group.
-    ///
-    /// Instead the rewrite runs in its own unstructured `Task`, which this
-    /// function never awaits `.value` on. Whichever of the rewrite or the
-    /// timer resolves the continuation first is what `rewrite` returns; the
-    /// loser is marked cancelled and left running unobserved. A rewriter
-    /// that never checks `Task.isCancelled` therefore still costs at most
-    /// `budget`, never more - which is what "hard deadline" has to mean
-    /// here. `RewriteRace` exists only because two unstructured tasks are
-    /// racing to resolve one continuation, and resolving it twice traps.
-    ///
-    /// One limit this does not remove: cancelling the *caller's* task (the
-    /// app's Stop action) while a non-cooperative rewrite is in flight still
-    /// waits out the budget rather than returning immediately, because the
-    /// rewrite's `Task` is unstructured and so is not part of the caller's
-    /// cancellation tree. That is bounded by `budget` now, where the old
-    /// implementation was not bounded at all - a smaller version of the same
-    /// problem, not a new one.
-    private static func rewrite(
+    /// `AsyncDeadline` is where the reasoning lives - in short, a task group
+    /// would make the budget a suggestion rather than a limit, because it waits
+    /// for its losing child and the model call has no documented cancellation
+    /// behaviour. The Ask panel bounds its own wait the same way.
+    static func rewrite(
         _ request: StyleRewriteRequest, using rewriter: StyleRewriting, budget: TimeInterval
     ) async throws -> String {
-        let race = RewriteRace()
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
-            let rewriteTask = Task {
-                do {
-                    let text = try await rewriter.rewrite(request)
-                    await race.resolve(continuation, with: .success(text))
-                } catch {
-                    await race.resolve(continuation, with: .failure(error))
-                }
+        do {
+            return try await AsyncDeadline.run(budget: budget) {
+                try await rewriter.rewrite(request)
             }
-            Task {
-                try? await Task.sleep(nanoseconds: UInt64(budget * 1_000_000_000))
-                rewriteTask.cancel()
-                await race.resolve(continuation, with: .failure(StyleRewriteTimeout()))
-            }
+        } catch is AsyncDeadline.Exceeded {
+            throw StyleRewriteTimeout()
         }
     }
 }
 
 /// The rewrite did not finish inside its budget.
 struct StyleRewriteTimeout: Error, Equatable {}
-
-/// Resolves a `rewrite` race's continuation exactly once.
-///
-/// The rewrite task and the timeout task both race to resolve the same
-/// continuation, and `CheckedContinuation.resume` traps if called twice;
-/// this actor is what makes "whichever finishes first" a fact instead of a
-/// crash.
-private actor RewriteRace {
-    private var isResolved = false
-
-    func resolve(
-        _ continuation: CheckedContinuation<String, Error>, with result: Result<String, Error>
-    ) {
-        guard !isResolved else { return }
-        isResolved = true
-        continuation.resume(with: result)
-    }
-}

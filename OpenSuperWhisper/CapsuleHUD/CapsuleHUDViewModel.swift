@@ -56,15 +56,21 @@ enum CapsuleHUDWork: Equatable {
 
 /// What the chip on the capsule says this dictation is going to do.
 ///
-/// EchoForge dictates; it does not translate or answer questions, so the chip
-/// names what this app actually has - plain dictation, or the style the
-/// transcript is about to be rewritten into. The label comes from
-/// `StyleRewriteCatalog`, which owns every user-facing word about a style.
+/// The chip names what is actually about to happen to the words: plain
+/// dictation, the style they are about to be rewritten into, or - once the
+/// spoken-intent router has read them - the command they turned out to be. The
+/// style labels come from `StyleRewriteCatalog` and the language names from
+/// `LanguageUtil`, because those are the places that own every user-facing word
+/// about a style and a language.
 struct CapsuleHUDMode: Equatable {
     let label: String
 
     /// Nothing will touch the words but the deterministic stages.
     static let dictate = CapsuleHUDMode(label: "Dictate")
+
+    /// The words are a question, and the answer is going to the Ask panel
+    /// rather than into whatever the user was typing in.
+    static let ask = CapsuleHUDMode(label: "Ask")
 
     /// The chip for a configuration, read the same way the pipeline reads it:
     /// `isRunnable` is false for rewriting that is switched off *and* for a
@@ -73,6 +79,13 @@ struct CapsuleHUDMode: Equatable {
     static func forStyleRewrite(_ configuration: StyleRewriteConfiguration) -> CapsuleHUDMode {
         guard configuration.isRunnable else { return .dictate }
         return CapsuleHUDMode(label: configuration.style.shortName)
+    }
+
+    /// "Translate Spanish". The short name, not the full one: a chip reading
+    /// "Translate Traditional Chinese" does not fit a 40 pt pill, which is the
+    /// same division `StyleRewriteStyle` makes between `name` and `shortName`.
+    static func translate(to target: SpokenTranslationTarget) -> CapsuleHUDMode {
+        CapsuleHUDMode(label: "Translate \(target.shortDisplayName)")
     }
 }
 
@@ -172,6 +185,21 @@ final class CapsuleHUDViewModel: ObservableObject {
         levels = []
         isConfirmingCancel = false
         state = .connecting
+    }
+
+    /// Renames the chip once the words exist and turn out to be a command.
+    ///
+    /// The chip is normally set at `beginSession`, from preferences, because
+    /// that is when what is going to happen can be known. A spoken command is
+    /// the one thing that cannot be known until the transcript exists, so this
+    /// is the exception - and it is scoped the same way `beginPolishing`'s
+    /// rewrite step is: only while the capsule is showing **its own** decode.
+    /// `SpokenIntentActivity` is global, so a queue transcription's routing
+    /// (file drop, open-with, history regenerate) must not relabel a recording
+    /// that is still in progress.
+    func setMode(_ mode: CapsuleHUDMode) {
+        guard state == .polishing(.transcribing) else { return }
+        self.mode = mode
     }
 
     func beginConnecting() {
@@ -334,6 +362,11 @@ final class CapsuleHUDViewModel: ObservableObject {
         // stage's own sentence for it.
         case .inserted(styleNotice: let notice?):
             fail(notice)
+        // No badge: the Ask panel is on screen with the question and the answer
+        // on it, and a checkmark reading "Inserted" over the top of it would be
+        // saying something that did not happen.
+        case .asked:
+            endWithoutBadge()
         case .noSpeech:
             fail("No speech detected")
         case .failed(let reason):

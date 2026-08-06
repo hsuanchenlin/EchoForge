@@ -189,12 +189,18 @@ class SettingsViewModel: ObservableObject {
         }
     }
 
+    @Published var spokenIntentsEnabled: Bool {
+        didSet {
+            AppPreferences.shared.spokenIntentsEnabled = spokenIntentsEnabled
+        }
+    }
+
     @Published var useAsianAutocorrect: Bool {
         didSet {
             AppPreferences.shared.useAsianAutocorrect = useAsianAutocorrect
         }
     }
-    
+
     @Published var modifierOnlyHotkey: ModifierKey {
         didSet {
             AppPreferences.shared.modifierOnlyHotkey = modifierOnlyHotkey.rawValue
@@ -270,6 +276,7 @@ class SettingsViewModel: ObservableObject {
         self.debugMode = prefs.debugMode
         self.playSoundOnRecordStart = prefs.playSoundOnRecordStart
         self.capsuleHUDEnabled = prefs.capsuleHUDEnabled
+        self.spokenIntentsEnabled = prefs.spokenIntentsEnabled
         self.useAsianAutocorrect = prefs.useAsianAutocorrect
         self.modifierOnlyHotkey = ModifierKey(rawValue: prefs.modifierOnlyHotkey) ?? .none
         self.mouseButtonHotkey = MouseButton(rawValue: prefs.mouseButtonHotkey) ?? .none
@@ -759,6 +766,17 @@ struct Settings {
     /// may decline to change anything at all. See `StyleRewriteService`.
     var styleRewrite: StyleRewriteConfiguration
 
+    /// Whether this transcription is read for a spoken command - "Ask: …",
+    /// "Translate to Spanish: …" - before anything is done with it.
+    ///
+    /// Two conditions, and both have to hold: the user switched the feature on,
+    /// **and** the caller is a path where a command makes sense. Only live
+    /// dictation is. A dropped file, a queued recording, a regenerate from
+    /// history and the Ask panel's own voice follow-up all take the plain path,
+    /// so a transcript that happens to open with the word "ask" cannot open a
+    /// panel nobody was looking at. See `SpokenIntentPipeline`.
+    var routesSpokenIntents: Bool
+
     var isAsianLanguage: Bool {
         Settings.asianLanguages.contains(selectedLanguage)
     }
@@ -767,13 +785,18 @@ struct Settings {
         isAsianLanguage && useAsianAutocorrect
     }
     
-    /// - Parameter dictationTarget: the app this dictation is being typed into,
-    ///   captured once when the session started. `nil` - the default - is every
-    ///   other transcription: a dropped file, a queued recording, a regenerate
-    ///   from history, or dictation into EchoForge's own window. Those have no
-    ///   app to match, so the style the user chose is what they use.
-    init(dictationTarget: DictationTargetApp? = nil) {
+    /// - Parameters:
+    ///   - dictationTarget: the app this dictation is being typed into,
+    ///     captured once when the session started. `nil` - the default - is
+    ///     every other transcription: a dropped file, a queued recording, a
+    ///     regenerate from history, or dictation into EchoForge's own window.
+    ///     Those have no app to match, so the style the user chose is what they
+    ///     use.
+    ///   - routesSpokenIntents: whether this path reads the transcript for a
+    ///     spoken command. Only live dictation passes `true`; see the property.
+    init(dictationTarget: DictationTargetApp? = nil, routesSpokenIntents: Bool = false) {
         let prefs = AppPreferences.shared
+        self.routesSpokenIntents = routesSpokenIntents && prefs.spokenIntentsEnabled
         self.selectedLanguage = prefs.whisperLanguage
         self.suppressBlankAudio = prefs.suppressBlankAudio
         self.showTimestamps = prefs.showTimestamps
@@ -1631,6 +1654,55 @@ struct SettingsView: View {
                                 .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
                                 .labelsHidden()
                         }
+                    }
+                }
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(.controlBackgroundColor).opacity(0.3))
+                .cornerRadius(12)
+
+                // Ask & spoken commands. Its own section rather than a row in
+                // Recording Behavior: one of these changes where a dictation
+                // ends up, which is a different kind of setting from how the
+                // recording is triggered or drawn.
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Ask & Spoken Commands")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Ask panel shortcut")
+                                    .font(.subheadline)
+                                Text("Opens a floating panel that answers questions on this Mac")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            KeyboardShortcuts.Recorder("", name: .askPanel)
+                                .frame(width: 150)
+                        }
+
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Spoken commands")
+                                    .font(.subheadline)
+                                Text("Start a dictation with \"Ask:\" to send it to the Ask panel, or \"Translate to Spanish:\" to translate it. Anything else is dictated as usual.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer()
+                            Toggle("", isOn: $viewModel.spokenIntentsEnabled)
+                                .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
+                                .labelsHidden()
+                        }
+
+                        Text("Both use the same on-device model as rewriting, so they need macOS 26 with Apple Intelligence. Nothing is sent anywhere.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .padding()
