@@ -74,7 +74,7 @@ final class AppStyleMappingTests: IsolatedPreferencesTestCase {
     func testTheNamedChatAppsAreChatApps() {
         for identifier in [
             "com.tinyspeck.slackmacgap", "com.apple.MobileSMS",
-            "com.whatsapp.WhatsApp", "com.tencent.xinWeChat",
+            "com.whatsapp.WhatsApp", "net.whatsapp.WhatsApp", "com.tencent.xinWeChat",
         ] {
             XCTAssertEqual(
                 AppCategoryCatalog.category(forBundleIdentifier: identifier), .workChat,

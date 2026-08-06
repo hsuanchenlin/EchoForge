@@ -69,6 +69,7 @@ enum AppCategoryCatalog {
         "com.apple.mobilesms": .workChat,
         "com.whatsapp.whatsapp": .workChat,
         "com.whatsapp.desktop": .workChat,
+        "net.whatsapp.whatsapp": .workChat,
         "com.tencent.xinwechat": .workChat,
         "com.hnc.discord": .workChat,
         "com.microsoft.teams": .workChat,
