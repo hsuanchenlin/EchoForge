@@ -21,6 +21,12 @@ TextPostProcessor.process()                TRANSCRIPT STAGE
         │                                  1. personal terms  (on by default)
         │                                  2. CJK autocorrect (protected spans held out)
         ▼
+SpokenIntentPipeline.apply()               SPOKEN-COMMAND ROUTING
+        │                                  live dictation only, off by default
+        │                                  "Translate to …" runs TranslationRewrite,
+        │                                  "Ask: …" goes to the Ask panel unpasted
+        │                                  see docs/spoken-intents.md
+        ▼
 StyleRewriteService.apply()                REWRITING STAGE
         │                                  off by default, on-device model
         │                                  guarded; falls back to the text above
@@ -60,11 +66,21 @@ applied first so they match what the user actually said, and the spans they
 marked never-correct are then held out of autocorrect so a pinned term is not
 respaced afterwards.
 
-**Rewriting stage** (`StyleRewriteService.apply`) is the one stage that calls a
-language model, and the only one that can change what the words mean. It is off
-by default, needs an on-device model most Macs running this app do not have, and
-returns the transcript stage's output unchanged whenever it is off, unavailable,
-too slow, or produces something its guard refuses. It is a peer of the terms
+**Spoken-command routing** (`SpokenIntentPipeline.apply`) sits between the
+transcript stage and the rewriting stage, and is a decision rather than a stage:
+it picks which model-backed stage runs. For ordinary dictation - and for every
+caller that never asked for routing - it *is* the rewriting stage, at the cost
+of a prefix comparison. A live dictation that starts with a spoken command runs
+`TranslationRewrite` instead, or nothing at all for a question, which
+`StyledTranscript.intent` marks so the text goes to the Ask panel and is never
+pasted. `docs/spoken-intents.md` is the whole story.
+
+**Rewriting stage** (`StyleRewriteService.apply`) calls a language model and can
+change what the words mean - a power only it and its sibling
+`TranslationRewrite` have. It is off by default, needs an on-device model most
+Macs running this app do not have, and returns the transcript stage's output
+unchanged whenever it is off, unavailable, too slow, or produces something its
+guard refuses. It is a peer of the terms
 dictionary and never its parent. `docs/style-rewriting.md` is the whole story.
 
 It is separate from `TextPostProcessor` because that type is deterministic,

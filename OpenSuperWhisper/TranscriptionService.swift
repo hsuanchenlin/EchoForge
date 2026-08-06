@@ -494,10 +494,12 @@ class TranscriptionService: ObservableObject {
             // passes through here, so they cannot drift apart.
             let processed = TextPostProcessor.process(rawResult, settings: settings)
 
-            // The rewriting stage is last, is the only one that can fail, and
-            // returns the deterministic text unchanged when it does. It is
-            // skipped entirely unless the user switched it on.
-            let styled = await StyleRewriteService.apply(to: processed, settings: settings)
+            // The model-backed stages are last, are the only ones that can
+            // fail, and return the deterministic text unchanged when they do.
+            // Which of them runs is `SpokenIntentPipeline`'s decision: normally
+            // the chosen style, and for a caller that asked for routing, a
+            // spoken command instead.
+            let styled = await SpokenIntentPipeline.apply(to: processed, settings: settings)
             let result = styled.final
 
             let finalCancelled = await MainActor.run { service.isCancelled }

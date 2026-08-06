@@ -3,8 +3,9 @@
 Rewriting a transcript into a style the user chose - formal, concise, bullets,
 or an instruction they wrote themselves - using the on-device language model.
 
-It is off by default and it is the only stage of the pipeline that can change
-what the user's words mean. Everything below follows from that one fact.
+It is off by default and it can change what the user's words mean - a power it
+shares only with its sibling `TranslationRewrite` (`docs/spoken-intents.md`).
+Everything below follows from that one fact.
 
 ## Where it sits
 
@@ -16,22 +17,24 @@ TextPostProcessor.process()        deterministic, cannot fail
      │                             personal terms → CJK spacing
      │                             ProcessedText { raw, final, mustSurviveTokens }
      ▼
-StyleRewriteService.apply()        the only stage that calls a model
+StyleRewriteService.apply()        calls the on-device model
      │                             1. is it switched on and configured?
      │                             2. can this Mac run it?
      │                             3. ask the model, with a deadline
      │                             4. StyleRewriteGuard checks the answer
      ▼
-StyledTranscript { raw, transcript, final, status }
+StyledTranscript { raw, transcript, final, status, intent }
      │
      ├── final ────────► pasted, stored, searched
      └── raw ──────────► Recording.rawTranscription, shown as "Show original"
 ```
 
 `docs/text-post-processing.md` describes the two deterministic stages above it.
-This stage is a peer of the terms dictionary and never its parent: turning
-rewriting off, or having it fail, leaves the dictionary working exactly as it
-did.
+On the live dictation path `SpokenIntentPipeline` sits between the two, and a
+spoken `Translate to …` command runs `TranslationRewrite` in this stage's place
+(`docs/spoken-intents.md`). This stage is a peer of the terms dictionary and
+never its parent: turning rewriting off, or having it fail, leaves the
+dictionary working exactly as it did.
 
 ## The contract
 
@@ -67,6 +70,11 @@ invent.** "Concise Summary" is allowed to leave a number out, because that is wh
 summarising is; no style is allowed to produce a number that was not said. What
 each style may do is `StyleRewriteShape`, and it is the only place a rule is
 relaxed.
+
+The one shape that is not a style is `translating`, which the spoken
+`Translate to …` command uses (`docs/spoken-intents.md`). It turns off the first
+two rows of the table above, because changing the language is what it is for,
+and inherits every other one.
 
 The one exception to "may omit" is the personal terms dictionary. Those entries
 are the user's own statement about how their own vocabulary is spelled, so every
@@ -181,17 +189,18 @@ was typing in, so a rewrite that has not finished is worth less than the
 transcript arriving now.
 
 `StyleRewriteBudget` scales the deadline with length (3 s plus 1 s per 200
-characters, capped at 12 s) and `StyleRewriteService` races the rewrite against
-it. The race is not a task group: a task group waits for its losing child to
-finish before returning, and `LanguageModelSession.respond(to:options:)` is a
-closed framework call with no documented cancellation behaviour, so that would
-make the deadline a suggestion rather than a limit. The rewrite runs in its own
+characters, capped at 12 s) and `AsyncDeadline` races the rewrite against it.
+The race is not a task group: a task group waits for its losing child to finish
+before returning, and `LanguageModelSession.respond(to:options:)` is a closed
+framework call with no documented cancellation behaviour, so that would make the
+deadline a suggestion rather than a limit. The rewrite runs in its own
 unstructured task instead, marked cancelled and left running unobserved if the
 timer wins, so the budget holds even against a model call that never checks
-`Task.isCancelled`. Measured latency on the shipping model is 0.3-2 s for a
-sentence or two. Transcripts over 4,000 characters are not offered to the
-model at all: they would overrun its context window and fail *after* spending
-the whole budget.
+`Task.isCancelled`. The Ask panel bounds its own wait with the same type - see
+`docs/ask-panel.md` for why its budget is much longer. Measured latency on the
+shipping model is 0.3-2 s for a sentence or two. Transcripts over 4,000
+characters are not offered to the model at all: they would overrun its context
+window and fail *after* spending the whole budget.
 
 The model is pre-warmed at launch, but only for users who have already switched
 rewriting on.

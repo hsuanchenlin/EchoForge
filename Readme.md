@@ -26,6 +26,8 @@ instead of replacing it.
 - ✨ Optional style rewriting — turn what you dictated into formal, concise, bulleted or casual writing, or write your own prompt. Runs on device (macOS 26 with Apple Intelligence), off by default, and always keeps the original transcript ([details](docs/style-rewriting.md))
 - 🎯 Optional app-aware style - let the app you dictate into pick the rewriting style: chat apps get casual, mail gets formal, code editors get grammar polish, with per-app rules on top. Reads only the frontmost app's bundle identifier - never window titles or web addresses. Off by default ([details](docs/app-aware-style.md))
 - 💊 Optional floating capsule HUD - a pill at the top of the screen with live input level, duration and progress, shown instead of the card beside the cursor. Off by default ([details](docs/capsule-hud.md))
+- ❓ Ask panel - press ⌥A (configurable) and speak or type a question; a floating card answers it on device (macOS 26 with Apple Intelligence) and can copy the answer or insert it into the app you were using ([details](docs/ask-panel.md))
+- 🗣️ Optional spoken commands - start a dictation with "Ask: …" / "請問…" to send the question to the Ask panel, or "Translate to Spanish: …" / "翻譯成西班牙文：…" to paste the translation instead of the words themselves. Off by default ([details](docs/spoken-intents.md))
 
 ## Installation
 

@@ -141,9 +141,16 @@ enum StyleRewriteGuard {
             return .rejected(.modelAddressedTheUser)
         }
 
-        guard scriptMatches(trimmed, transcript) else { return .rejected(.scriptChanged) }
-        guard chineseVariantSurvives(trimmed, transcript) else {
-            return .rejected(.chineseVariantChanged)
+        // Both language checks are asking the same question - "is this still the
+        // user's own text?" - and a translation's answer is deliberately no. It
+        // is the one shape that may say so; `StyleRewriteShape` is where that is
+        // decided, and `TranslationRewrite` documents what stands in their place
+        // (the target language is named in the instruction, in that language).
+        if !shape.mayChangeLanguage {
+            guard scriptMatches(trimmed, transcript) else { return .rejected(.scriptChanged) }
+            guard chineseVariantSurvives(trimmed, transcript) else {
+                return .rejected(.chineseVariantChanged)
+            }
         }
 
         if let lengthRejection = lengthRejection(for: trimmed, transcript: transcript, shape: shape) {

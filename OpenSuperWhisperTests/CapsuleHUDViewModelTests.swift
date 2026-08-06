@@ -442,6 +442,71 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         }
     }
 
+    // MARK: - The chip renaming itself for a spoken command
+
+    /// The chip is set from preferences when the session starts, because that
+    /// is everything that can be known before the words exist. A spoken command
+    /// is only recognised once they do, which is during the decode.
+    func testASpokenCommandRenamesTheChipDuringTheDecode() {
+        let viewModel = makeViewModel()
+        viewModel.beginSession(mode: .dictate)
+        viewModel.beginRecording()
+        viewModel.beginPolishing(.transcribing)
+
+        viewModel.setMode(.ask)
+
+        XCTAssertEqual(viewModel.mode, .ask)
+        XCTAssertEqual(viewModel.mode.label, "Ask")
+    }
+
+    func testATranslationChipNamesTheLanguage() {
+        let viewModel = makeViewModel()
+        viewModel.beginSession(mode: .dictate)
+        viewModel.beginRecording()
+        viewModel.beginPolishing(.transcribing)
+
+        viewModel.setMode(.translate(to: SpokenTranslationTarget(languageCode: "es")))
+
+        XCTAssertEqual(viewModel.mode.label, "Translate Spanish")
+    }
+
+    /// `SpokenIntentActivity` is global, and every transcription flow passes
+    /// through it. A queue item's routing - file drop, open-with, history
+    /// regenerate - must not relabel a recording that is still in progress, so
+    /// the chip only changes while the capsule is showing its own decode.
+    func testARoutingVerdictCannotRelabelASessionThatIsNotDecoding() {
+        for arrange in [
+            { (viewModel: CapsuleHUDViewModel) in },
+            { $0.beginSession(mode: .dictate) },
+            { $0.beginSession(mode: .dictate); $0.beginRecording() },
+            { $0.beginSession(mode: .dictate); $0.beginRecording(); $0.complete() },
+            { $0.beginSession(mode: .dictate); $0.beginRecording(); $0.fail("No speech detected") },
+        ] {
+            let viewModel = makeViewModel()
+            arrange(viewModel)
+            let before = viewModel.mode
+
+            viewModel.setMode(.ask)
+
+            XCTAssertEqual(viewModel.mode, before, "state \(viewModel.state) accepted a chip change")
+        }
+    }
+
+    /// A question's answer goes to the Ask panel, so the capsule has nothing
+    /// left to say - and a checkmark reading "Inserted" over the panel would be
+    /// saying something that did not happen.
+    func testAQuestionEndsTheCapsuleWithoutABadge() {
+        let viewModel = makeViewModel()
+        viewModel.beginSession(mode: .dictate)
+        viewModel.beginRecording()
+        viewModel.beginPolishing(.transcribing)
+        viewModel.setMode(.ask)
+
+        viewModel.finish(result: .asked)
+
+        XCTAssertEqual(viewModel.state, .idle)
+    }
+
     // MARK: - The level meter
 
     func testLevelsAreOnlyCollectedWhileRecording() {

@@ -16,6 +16,11 @@ enum StyleRewriteShape: String, Equatable, Sendable {
     case condensing
     /// Same content, different layout - bullets, headings, numbered steps.
     case restructuring
+    /// Same content, another language. The one shape whose whole purpose is to
+    /// change the script the text is written in, which is what every other
+    /// shape's guard exists to refuse. Reached only by the spoken
+    /// `Translate to …` command - see `TranslationRewrite`.
+    case translating
 
     /// Accepted length of the rewrite as a fraction of the input's length.
     ///
@@ -23,11 +28,23 @@ enum StyleRewriteShape: String, Equatable, Sendable {
     /// often - a model that answers with one line instead of rewriting - and the
     /// upper bound catches a model that starts explaining itself or inventing
     /// scenery.
+    ///
+    /// Translation gets a range so wide it is barely a check, and that is the
+    /// honest setting rather than a lax one: "會議三點開始。" is seven characters
+    /// and "The meeting starts at three o'clock in the afternoon." is
+    /// fifty-two, which is a correct translation at a ratio of 7.4. Anything
+    /// tight enough to be informative here would refuse real translations
+    /// between Chinese and English in one direction or the other. What it still
+    /// catches is the extremes - a model answering "OK." to a paragraph, or
+    /// returning an essay about the paragraph - and the checks that carry a
+    /// translation are the ones that do not depend on length: numbers, currency
+    /// symbols, dictionary terms and the model addressing the user.
     var acceptedLengthRatio: ClosedRange<Double> {
         switch self {
         case .preserving: return 0.5 ... 2.0
         case .condensing: return 0.15 ... 1.1
         case .restructuring: return 0.4 ... 2.5
+        case .translating: return 0.1 ... 8.0
         }
     }
 
@@ -43,6 +60,15 @@ enum StyleRewriteShape: String, Equatable, Sendable {
     /// A summary may omit a number it was given; nothing may ever invent one.
     /// The asymmetry is the whole rule - see `StyleRewriteGuard`.
     var mayOmitContent: Bool { self == .condensing }
+
+    /// Whether the rewrite may be written in another language than the input.
+    ///
+    /// True for exactly one shape, and stated here rather than tested for at
+    /// the call site because this enum is the single place a guard rule is
+    /// relaxed. Everything else the guard checks - numbers, currency symbols,
+    /// dictionary terms, length, the model addressing the user - still applies
+    /// to a translation, so this widens one rule and removes none.
+    var mayChangeLanguage: Bool { self == .translating }
 }
 
 /// One style's instruction, in each language the model is asked in.

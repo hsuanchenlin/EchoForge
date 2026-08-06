@@ -67,6 +67,13 @@ class LanguageUtil {
         "sk": "Slovak",
         "sl": "Slovenian",
         "uk": "Ukrainian",
+        // Translation targets rather than dictation languages: no engine here
+        // transcribes them, but a user can ask the rewriting model to translate
+        // into them, and a target with no name would show the user its ISO code.
+        // The same reason Cantonese has a name above without being in
+        // `availableLanguages`. See `SpokenLanguageLexicon`.
+        "vi": "Vietnamese",
+        "th": "Thai",
     ]
 
     /// Switched exhaustively on purpose: a new engine must state its language

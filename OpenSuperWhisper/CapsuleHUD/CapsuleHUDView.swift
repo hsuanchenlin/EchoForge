@@ -103,6 +103,11 @@ struct CapsuleHUDView: View {
 
         case .polishing(let work):
             row {
+                // The chip stays up through the wait, unlike the meter and the
+                // timer: this is when a spoken command is recognised, so it is
+                // the moment the chip changes from "Dictate" to "Ask" or
+                // "Translate …" and the one moment the user needs to see it.
+                modeChip
                 ProgressView()
                     .controlSize(.small)
                     .scaleEffect(0.7)

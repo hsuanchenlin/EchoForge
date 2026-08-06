@@ -5,6 +5,13 @@ import FoundationModels
 #endif
 
 /// One rewrite to attempt.
+///
+/// It carries the finished prompt as well as the pieces it was built from,
+/// because there are two stages that ask this model - restyling and the spoken
+/// `Translate to …` command - and their session rules are opposites: one says
+/// *never translate this*, the other says *translate all of it*. A backend that
+/// rebuilt the prompt from `language` would have to know which stage it was
+/// serving; given the finished text, it does not.
 struct StyleRewriteRequest: Equatable, Sendable {
     /// The deterministic pipeline's output - what the user will get if this
     /// fails.
@@ -14,10 +21,45 @@ struct StyleRewriteRequest: Equatable, Sendable {
     let instruction: String
     /// The dictation language code, or `auto`.
     let languageCode: String
-    /// The language the model is asked in, resolved once by
-    /// `StyleRewriteService` so the instruction and the session rules cannot
-    /// disagree about it.
+    /// The language the model is asked in, resolved once by the stage that
+    /// built this, so the instruction and the session rules cannot disagree
+    /// about it.
     let language: StyleRewriteLanguage
+    /// The rules the model is given before the request itself.
+    let sessionInstructions: String
+    /// The heading `instruction` is written under, which is part of the
+    /// language decision too - an English heading over a Chinese instruction is
+    /// one more reason for the model to answer in English.
+    let instructionLabel: String
+
+    /// - Parameters:
+    ///   - sessionInstructions: the stage's own rules. Defaults to the
+    ///     restyling ones, which is what every caller but `TranslationRewrite`
+    ///     wants.
+    ///   - instructionLabel: defaults to the restyling heading in `language`.
+    init(
+        text: String,
+        instruction: String,
+        languageCode: String,
+        language: StyleRewriteLanguage,
+        sessionInstructions: String? = nil,
+        instructionLabel: String? = nil
+    ) {
+        self.text = text
+        self.instruction = instruction
+        self.languageCode = languageCode
+        self.language = language
+        self.sessionInstructions = sessionInstructions
+            ?? StyleRewritePrompt.instructions(language: language, languageCode: languageCode)
+        self.instructionLabel = instructionLabel
+            ?? StyleRewritePrompt.instructionLabel(for: language)
+    }
+
+    /// What the model is actually sent: the instruction, then the delimited
+    /// transcript.
+    var prompt: String {
+        StyleRewritePrompt.prompt(instruction: instruction, transcript: text, label: instructionLabel)
+    }
 }
 
 /// Anything that can turn a transcript into a restyled transcript.
@@ -53,18 +95,63 @@ enum StyleRewriteAvailability: Equatable, Sendable {
 
     /// One sentence for the Settings pane, phrased as what the user can do
     /// about it where there is anything they can do.
-    var explanation: String {
+    var explanation: String { explanation(for: .rewriting) }
+
+    /// The same sentence, naming whichever feature the user was trying to use.
+    ///
+    /// There is one on-device model and one set of reasons it might be missing,
+    /// so there is one set of sentences - but a user who pressed ⌥A does not
+    /// want to be told about rewriting. The feature is a parameter rather than a
+    /// second copy of the reasons.
+    func explanation(for feature: OnDeviceModelFeature) -> String {
         switch self {
         case .available:
-            return "Rewriting runs on this Mac, on device."
+            return "\(feature.name) runs on this Mac, on device."
         case .unsupportedSystem:
-            return "Rewriting needs macOS 26 or later. Dictation and the dictionary are unaffected."
+            return "\(feature.name) needs macOS 26 or later. \(feature.unaffected)"
         case .deviceNotEligible:
-            return "This Mac does not support Apple Intelligence, which rewriting runs on."
+            return "This Mac does not support Apple Intelligence, which \(feature.lowercasedName) runs on."
         case .appleIntelligenceOff:
-            return "Turn on Apple Intelligence in System Settings to use rewriting."
+            return "Turn on Apple Intelligence in System Settings to use \(feature.lowercasedName)."
         case .modelNotReady:
-            return "Apple Intelligence is still preparing its model. Rewriting will work once it has finished."
+            return "Apple Intelligence is still preparing its model. \(feature.name) will work once it has finished."
+        }
+    }
+}
+
+/// Which of the three things this app asks the on-device model to do.
+///
+/// It exists only so an availability sentence names the right one. All of them
+/// run on the same model, so anything that decides *whether* they can run is
+/// shared - see `StyleRewriterFactory.availability`.
+enum OnDeviceModelFeature: Equatable, Sendable {
+    case rewriting
+    case ask
+    case translation
+
+    var name: String {
+        switch self {
+        case .rewriting: return "Rewriting"
+        case .ask: return "The Ask panel"
+        case .translation: return "Translation"
+        }
+    }
+
+    var lowercasedName: String {
+        switch self {
+        case .rewriting: return "rewriting"
+        case .ask: return "the Ask panel"
+        case .translation: return "translation"
+        }
+    }
+
+    /// What still works without it, so the sentence does not read as the app
+    /// being broken.
+    var unaffected: String {
+        switch self {
+        case .rewriting: return "Dictation and the dictionary are unaffected."
+        case .ask: return "Dictation is unaffected."
+        case .translation: return "Dictation is unaffected."
         }
     }
 }
@@ -225,8 +312,12 @@ enum StyleRewritePrompt {
     static func prompt(
         instruction: String, transcript: String, language: StyleRewriteLanguage = .other
     ) -> String {
+        prompt(instruction: instruction, transcript: transcript, label: instructionLabel(for: language))
+    }
+
+    static func prompt(instruction: String, transcript: String, label: String) -> String {
         """
-        \(instructionLabel(for: language))\(instruction)
+        \(label)\(instruction)
 
         \(openingDelimiter)
         \(transcript)
@@ -234,7 +325,7 @@ enum StyleRewritePrompt {
         """
     }
 
-    private static func instructionLabel(for language: StyleRewriteLanguage) -> String {
+    static func instructionLabel(for language: StyleRewriteLanguage) -> String {
         switch language {
         case .chinese(.traditional): return "風格指示："
         case .chinese(.simplified): return "风格指示："
@@ -255,17 +346,9 @@ enum StyleRewritePrompt {
 struct FoundationModelsStyleRewriter: StyleRewriting {
 
     func rewrite(_ request: StyleRewriteRequest) async throws -> String {
-        let session = LanguageModelSession(
-            instructions: StyleRewritePrompt.instructions(
-                language: request.language, languageCode: request.languageCode
-            )
-        )
+        let session = LanguageModelSession(instructions: request.sessionInstructions)
         let response = try await session.respond(
-            to: StyleRewritePrompt.prompt(
-                instruction: request.instruction,
-                transcript: request.text,
-                language: request.language
-            ),
+            to: request.prompt,
             // Near-deterministic on purpose: this is a rewrite of something the
             // user already said, and the same dictation restyled differently on
             // each attempt would make the feature impossible to trust or to

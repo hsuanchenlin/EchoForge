@@ -9,6 +9,15 @@ import SwiftUI
 extension KeyboardShortcuts.Name {
     static let toggleRecord = Self("toggleRecord", default: .init(.backtick, modifiers: .option))
     static let escape = Self("escape", default: .init(.escape))
+
+    /// Opens the Ask panel, or closes it if it is already up.
+    ///
+    /// Its own shortcut rather than a mode of the recording one: the panel is
+    /// something the user goes to, types in and reads, and folding it into the
+    /// dictation hotkey would make every dictation ambiguous. ⌥A by default, and
+    /// configurable like the others - it is a plain global hotkey, so whatever
+    /// the key would otherwise type is consumed while it is bound.
+    static let askPanel = Self("askPanel", default: .init(.a, modifiers: .option))
 }
 
 class ShortcutManager {
@@ -70,6 +79,15 @@ class ShortcutManager {
             }
         }
         KeyboardShortcuts.disable(.escape)
+
+        // Deliberately independent of the recording trigger's three exclusive
+        // modes below: the Ask panel is reached the same way whether dictation
+        // is on a key combination, a modifier or a mouse button.
+        KeyboardShortcuts.onKeyUp(for: .askPanel) {
+            Task { @MainActor in
+                AskPanelWindowController.shared.toggle()
+            }
+        }
     }
     
     private func setupRecordingTrigger() {
