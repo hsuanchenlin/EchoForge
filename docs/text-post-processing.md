@@ -71,12 +71,13 @@ respaced afterwards.
 
 **Spoken-command routing** (`SpokenIntentPipeline.apply`) sits between the
 transcript stage and the rewriting stage, and is a decision rather than a stage:
-it picks which model-backed stage runs. For ordinary dictation - and for every
-caller that never asked for routing - it *is* the rewriting stage, at the cost
-of a prefix comparison. A live dictation that starts with a spoken command runs
-`TranslationRewrite` instead, or nothing at all for a question, which
-`StyledTranscript.intent` marks so the text goes to the Ask panel and is never
-pasted. `docs/spoken-intents.md` is the whole story.
+it picks what runs in the rewriting stage's place. For ordinary dictation - and
+for every caller that never asked for routing - it *is* the rewriting stage, at
+the cost of a prefix comparison. A live dictation that starts with a spoken
+command runs `TranslationRewrite` instead, inserts a stored voice snippet with
+no model consulted (`docs/voice-snippets.md`), or runs nothing at all for a
+question, which `StyledTranscript.intent` marks so the text goes to the Ask
+panel and is never pasted. `docs/spoken-intents.md` is the whole story.
 
 **Rewriting stage** (`StyleRewriteService.apply`) calls a language model and can
 change what the words mean - a power only it and its sibling

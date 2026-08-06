@@ -99,10 +99,11 @@ inserted and stored exactly as a plain success is.
 The chip names what is about to happen to the words: `Dictate`, the style the
 transcript is about to be rewritten into (`Polish`, `Formal`, `Bullets`, …), or
 - once the words exist - the spoken command they turned out to be (`Ask`,
-`Translate Spanish`). Style labels are `StyleRewriteStyle.shortName` and
-language names come from `LanguageUtil`, because those files own every
-user-facing word about a style and a language, and a surface that shortens
-`name` itself is a second copy that drifts.
+`Translate Spanish`, `Snippet: email signoff` - or plain `Snippet` past the
+trigger-length cap `docs/voice-snippets.md` explains). Style labels are
+`StyleRewriteStyle.shortName` and language names come from `LanguageUtil`,
+because those files own every user-facing word about a style and a language,
+and a surface that shortens `name` itself is a second copy that drifts.
 
 It is resolved from `StyleRewriteConfiguration.isRunnable`, the same way the
 pipeline resolves it, so a chip never promises a rewrite that is not going to
