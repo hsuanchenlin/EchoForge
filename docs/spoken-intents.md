@@ -1,12 +1,14 @@
 # Spoken commands
 
-Two things a user can say instead of dictating: **"Ask: …"**, which sends the
-question to the Ask panel, and **"Translate to Spanish: …"**, which translates
-what follows instead of pasting it. Everything else is dictation, unchanged.
+Three things a user can say instead of dictating: **"Ask: …"**, which sends the
+question to the Ask panel, **"Translate to Spanish: …"**, which translates what
+follows instead of pasting it, and **"insert [trigger]"**, which expands one of
+their own voice snippets. Everything else is dictation, unchanged.
 
 It is off by default (`Settings → Shortcuts → Ask & Spoken Commands → Spoken
-commands`). `docs/ask-panel.md` is the panel's own story; this file is the
-router and the translation.
+commands`). `docs/ask-panel.md` is the panel's own story and
+`docs/voice-snippets.md` is the snippets'; this file is the router and the
+translation.
 
 ## Where it sits
 
@@ -22,6 +24,7 @@ SpokenIntentPipeline.apply()       only when the caller asked AND the user
      │
      ├── .dictate ──► StyleRewriteService.apply()   the chosen style
      ├── .translate ► TranslationRewrite.apply()    the spoken target
+     ├── .snippet ──► the stored template, byte for byte
      └── .ask ──────► nothing at all
      │
      ▼
@@ -58,6 +61,7 @@ into the panel it came from.
 | `請問…` `请问…` `問 …` `问：…` | `.ask(query:)` |
 | `Translate to Spanish: …` (also `into` / `this to` / `it to` / bare `Translate Spanish`) | `.translate(target:text:)` |
 | `翻譯成西班牙文：…` (also `翻译成` `翻成` `譯成` `翻譯為` `幫我翻譯成`) | `.translate(target:text:)` |
+| `insert [trigger]` `snippet [trigger]` `插入[觸發詞]`, or the trigger alone | `.snippet(keyword:expansion:)` - see `docs/voice-snippets.md` |
 | anything else | `.dictate` - the transcript, byte for byte |
 
 **Everything that is not recognised is dictation.** That bias is the whole
@@ -82,6 +86,13 @@ shows the pause a real command has:
 - **`translate to …`** needs no delimiter of its own, because a language name
   has to follow and that is a far stronger constraint. "Translate the document
   before Friday" names no language and stays dictation.
+- **`insert …`** is delimited like `問`, and carries the same constraint
+  `translate to` does: a trigger the user actually stored has to follow, in
+  full. "Insert a row above this one" names none and stays dictation.
+
+The built-in markers are matched before the user's own triggers, so a snippet
+can never take `Ask:` or `Translate to …` away from the features that shipped
+before it.
 
 ### Language names
 
@@ -160,5 +171,6 @@ panel uses so a failure names the feature the user was actually using.
   change what is matched. That is deliberate: it is also what makes a user's own
   spelling of a language name work.
 
-`SpokenIntentRouterTests`, `SpokenIntentPipelineTests` and
-`TranslationRewriteTests` pin all of the above.
+`SpokenIntentRouterTests`, `SpokenIntentPipelineTests`,
+`SpokenIntentRouterSnippetTests` and `TranslationRewriteTests` pin all of the
+above.

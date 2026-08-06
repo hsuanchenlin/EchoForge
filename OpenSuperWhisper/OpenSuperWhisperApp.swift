@@ -135,6 +135,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         // actually downloaded, rather than failing at the user's first dictation.
         EngineConfiguration.recoverIfNeeded()
 
+        // Once per install, and never again once the user has a list of their
+        // own: the samples are how the Snippets pane explains itself, not a
+        // floor the app keeps restoring. See `VoiceSnippetStore`.
+        VoiceSnippetStore.shared.installSamplesIfNeeded()
+
         setupStatusBarItem()
 
         // The WindowGroup window usually does not exist yet at this point:

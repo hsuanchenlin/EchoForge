@@ -24,8 +24,11 @@ TextPostProcessor.process()                TRANSCRIPT STAGE
 SpokenIntentPipeline.apply()               SPOKEN-COMMAND ROUTING
         │                                  live dictation only, off by default
         │                                  "Translate to …" runs TranslationRewrite,
-        │                                  "Ask: …" goes to the Ask panel unpasted
-        │                                  see docs/spoken-intents.md
+        │                                  "Ask: …" goes to the Ask panel unpasted,
+        │                                  "insert [trigger]" expands a voice snippet
+        │                                  and skips the stage below entirely
+        │                                  see docs/spoken-intents.md,
+        │                                  docs/voice-snippets.md
         ▼
 StyleRewriteService.apply()                REWRITING STAGE
         │                                  off by default, on-device model

@@ -246,6 +246,19 @@ needs *two* conditions - the user's `spokenIntentsEnabled` and a caller passing
 `Settings(routesSpokenIntents: true)` - which only live dictation does, so a
 dropped file or the Ask panel's own follow-up cannot route itself.
 
+The third thing a dictation can be is a **voice snippet**: `VoiceSnippet` /
+`VoiceSnippetStore` (`Models/`) hold the user's triggers and templates, the
+router expands one on "insert [trigger]" / "插入[觸發詞]" / the trigger said
+alone, and `docs/voice-snippets.md` is its whole story. Two rules carry it.
+The template is inserted **byte for byte** - the rewriting stage is never
+consulted, because a model asked to polish a form returns prose - and a trigger
+fires only on an exact, whole match of something this user stored, which is what
+keeps "insert a row here" and "the email signoff was wrong" as dictation. The
+list lives in the defaults domain rather than beside `terms.json`, since the
+dictionary is a file to be hand-edited and this is not; `Settings.voiceSnippets`
+resolves the three gates (`spokenIntentsEnabled`, `routesSpokenIntents`,
+`voiceSnippetsEnabled`) in one place.
+
 `OpenSuperWhisper/Ask/` is the floating Ask panel (⌥A, or a spoken question) and
 `docs/ask-panel.md` is its story. It runs the same on-device model as rewriting
 and has deliberately **no `StyleRewriteGuard`**: a guard exists because a rewrite

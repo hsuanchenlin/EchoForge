@@ -19,6 +19,9 @@ enum SpokenIntentOutcome: Equatable, Sendable {
     /// A translation. Inserted exactly as dictation is; the target is carried so
     /// a surface can say which language it went into.
     case translated(SpokenTranslationTarget)
+    /// A voice snippet fired. Inserted like dictation; the keyword is carried so
+    /// a surface can say which template went in.
+    case snippet(keyword: String)
 
     /// Whether the text goes into whatever the user was typing in.
     var insertsText: Bool {
@@ -33,6 +36,7 @@ enum SpokenIntentOutcome: Equatable, Sendable {
         case .dictation: return nil
         case .ask: return .ask
         case .translated(let target): return .translate(to: target)
+        case .snippet(let keyword): return .snippet(named: keyword)
         }
     }
 }
@@ -53,6 +57,7 @@ enum SpokenIntentOutcome: Equatable, Sendable {
 ///          │                            user switched it on
 ///          ├── .dictate ──► StyleRewriteService.apply()   the chosen style
 ///          ├── .translate ► TranslationRewrite.apply()    the spoken target
+///          ├── .snippet ──► the stored template, byte for byte
 ///          └── .ask ──────► nothing at all, marked for the Ask panel
 /// ```
 ///
@@ -70,7 +75,9 @@ enum SpokenIntentPipeline {
         }
 
         let intent = SpokenIntentRouter.route(
-            processed.final, fallbackChineseVariant: ChineseScriptVariant.systemPreferred
+            processed.final,
+            snippets: settings.voiceSnippets,
+            fallbackChineseVariant: ChineseScriptVariant.systemPreferred
         )
         await MainActor.run { SpokenIntentActivity.shared.resolved(intent.outcome) }
 
@@ -90,6 +97,18 @@ enum SpokenIntentPipeline {
             )
         case .translate(let target, let text):
             return await TranslationRewrite.apply(to: processed, body: text, target: target)
+        case .snippet(let keyword, let expansion):
+            // The rewriting stage is skipped, and skipping it is the feature.
+            // A template's blank lines, indentation and deliberate lack of a
+            // full stop are the user's own formatting; a model asked to polish
+            // it would return prose. What is stored is what goes in.
+            return StyledTranscript(
+                raw: processed.raw,
+                transcript: processed.final,
+                final: expansion,
+                status: .notRequested,
+                intent: .snippet(keyword: keyword)
+            )
         }
     }
 }
@@ -101,6 +120,7 @@ extension SpokenIntent {
         case .dictate: return .dictation
         case .ask(let query): return .ask(query: query)
         case .translate(let target, _): return .translated(target)
+        case .snippet(let keyword, _): return .snippet(keyword: keyword)
         }
     }
 }

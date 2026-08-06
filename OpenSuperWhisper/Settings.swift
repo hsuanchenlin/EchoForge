@@ -777,6 +777,15 @@ struct Settings {
     /// panel nobody was looking at. See `SpokenIntentPipeline`.
     var routesSpokenIntents: Bool
 
+    /// The voice snippets this transcription may fire.
+    ///
+    /// Resolved here rather than read by the pipeline so the whole decision -
+    /// routing off, snippets off, or nothing stored - is made in one place and
+    /// the router stays a pure function of "these words, these snippets".
+    /// Empty whenever `routesSpokenIntents` is false, so a dropped file or a
+    /// regenerate from history cannot expand a macro.
+    var voiceSnippets: [VoiceSnippet]
+
     var isAsianLanguage: Bool {
         Settings.asianLanguages.contains(selectedLanguage)
     }
@@ -797,6 +806,9 @@ struct Settings {
     init(dictationTarget: DictationTargetApp? = nil, routesSpokenIntents: Bool = false) {
         let prefs = AppPreferences.shared
         self.routesSpokenIntents = routesSpokenIntents && prefs.spokenIntentsEnabled
+        self.voiceSnippets = (self.routesSpokenIntents && prefs.voiceSnippetsEnabled)
+            ? VoiceSnippetStore.shared.activeSnippets
+            : []
         self.selectedLanguage = prefs.whisperLanguage
         self.suppressBlankAudio = prefs.suppressBlankAudio
         self.showTimestamps = prefs.showTimestamps
@@ -858,10 +870,10 @@ struct SettingsView: View {
                 }
                 .tag(2)
             
-            // Personal terms dictionary
+            // Personal terms dictionary, and the voice snippets beneath it
             PersonalTermsSettingsView()
                 .tabItem {
-                    Label("Dictionary", systemImage: "character.book.closed")
+                    Label("Dictionary & Snippets", systemImage: "character.book.closed")
                 }
                 .tag(3)
 
