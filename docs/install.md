@@ -168,6 +168,14 @@ It runs on your Mac using Apple Intelligence, so it needs **macOS 26 or later** 
 that supports Apple Intelligence, with Apple Intelligence switched on in System Settings.
 The pane tells you which of those is missing. Nothing is sent anywhere.
 
+The same pane can also let the app you are dictating into pick the style: turn on
+**Match the style to the app I dictate into** under the style list, and a chat app gets
+**Casual Chat**, a mail client **Formal Business**, code editors and terminals
+**Grammar & Polishing** - all changeable, per kind of app or for one app. Apps without a
+rule, and this switch while it is off, use the style you chose above. EchoForge only ever
+reads the frontmost app's identifier - never window titles, documents or web addresses -
+and that identifier never leaves your Mac ([details](app-aware-style.md)).
+
 Two things are worth knowing before you rely on it:
 
 - **Your original is always kept.** The words you actually said stay with the recording.

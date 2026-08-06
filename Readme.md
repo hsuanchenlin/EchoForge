@@ -24,6 +24,7 @@ instead of replacing it.
 - 🇯🇵🇨🇳🇰🇷 Asian language autocorrect ([autocorrect](https://github.com/huacnlee/autocorrect))
 - 📖 Personal terms dictionary for deterministic replacements, preferred spellings, names, and protected text
 - ✨ Optional style rewriting — turn what you dictated into formal, concise, bulleted or casual writing, or write your own prompt. Runs on device (macOS 26 with Apple Intelligence), off by default, and always keeps the original transcript ([details](docs/style-rewriting.md))
+- 🎯 Optional app-aware style - let the app you dictate into pick the rewriting style: chat apps get casual, mail gets formal, code editors get grammar polish, with per-app rules on top. Reads only the frontmost app's bundle identifier - never window titles or web addresses. Off by default ([details](docs/app-aware-style.md))
 - 💊 Optional floating capsule HUD - a pill at the top of the screen with live input level, duration and progress, shown instead of the card beside the cursor. Off by default ([details](docs/capsule-hud.md))
 
 ## Installation
