@@ -213,7 +213,11 @@ if [[ "$ADHOC" == false ]]; then
     fi
 fi
 
-shasum -a 256 "$DMG_PATH" > "${DMG_PATH}.sha256"
+# Named relative to the DMG's own directory. The .sha256 is published beside the
+# DMG as a release asset, so `shasum -a 256 -c EchoForge.dmg.sha256` has to work
+# in the folder a user downloaded it into - not at the absolute path of whatever
+# machine built it.
+(cd "$(dirname "$DMG_PATH")" && shasum -a 256 "$(basename "$DMG_PATH")") > "${DMG_PATH}.sha256"
 
 # --- Verify -------------------------------------------------------------------
 
