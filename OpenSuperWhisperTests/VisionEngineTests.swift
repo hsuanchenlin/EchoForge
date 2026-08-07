@@ -442,18 +442,28 @@ final class AskPanelScreenQueryTests: XCTestCase {
         return (AskPanelViewModel { await stub.answer($0) }, stub)
     }
 
+    /// Runs the ask task until the view model reaches `state`, bounded so a
+    /// regression fails instead of hanging the suite.
+    private func yieldUntil(_ viewModel: AskPanelViewModel, reaches state: AskPanelState) async {
+        for _ in 0..<1000 where viewModel.state != state {
+            await Task.yield()
+        }
+        XCTAssertEqual(viewModel.state, state)
+    }
+
     func testAScreenQueryRunsFromTheShortcutThroughToAnAnsweredExchange() async {
         let (viewModel, stub) = makeViewModel(.answered("A spreadsheet of invoices."))
         var started = 0
         viewModel.onStartVoiceCapture = { started += 1 }
         let screen = VisionEngineTests.observation()
 
-        viewModel.startScreenQuery()
+        let token = viewModel.startScreenQuery()
+        XCTAssertNotNil(token)
         XCTAssertEqual(viewModel.state, .listening)
         XCTAssertTrue(viewModel.isScreenQuery)
         XCTAssertEqual(started, 1, "the microphone starts with the screenshot, not after it")
 
-        viewModel.attachScreen(screen)
+        viewModel.attachScreen(screen, token: token)
         XCTAssertEqual(viewModel.pendingScreen, screen)
 
         viewModel.finishVoiceFollowUp()
@@ -466,14 +476,87 @@ final class AskPanelScreenQueryTests: XCTestCase {
         XCTAssertFalse(viewModel.isScreenQuery)
     }
 
+    /// The capture races the user's own speech, and can lose: a transcript that
+    /// arrives first waits for the screenshot instead of asking without it - a
+    /// screen query is never answered blind.
+    func testATranscriptThatBeatsTheScreenshotWaitsForItInsteadOfAskingBlind() async {
+        let (viewModel, stub) = makeViewModel(.answered("A spreadsheet."))
+        let screen = VisionEngineTests.observation()
+        let token = viewModel.startScreenQuery()
+        viewModel.finishVoiceFollowUp()
+
+        let asking = Task { await viewModel.voiceCaptureDidProduce("What am I looking at?") }
+        await yieldUntil(viewModel, reaches: .thinking(question: "What am I looking at?"))
+        XCTAssertTrue(stub.requests.isEmpty, "the question must not be sent before the screenshot")
+
+        viewModel.attachScreen(screen, token: token)
+        await asking.value
+
+        XCTAssertEqual(stub.requests.first?.screen, screen)
+        XCTAssertEqual(viewModel.answer, "A spreadsheet.")
+        XCTAssertEqual(viewModel.exchanges.first?.screen, screen)
+    }
+
+    /// A capture that fails after the question was already transcribed fails
+    /// the query the same way a failure during recording does, instead of being
+    /// swallowed while the question is answered blind.
+    func testACaptureFailureAfterTheTranscriptFailsTheQueryInsteadOfAskingBlind() async {
+        let (viewModel, stub) = makeViewModel(.answered("should not happen"))
+        let token = viewModel.startScreenQuery()
+        viewModel.finishVoiceFollowUp()
+
+        let asking = Task { await viewModel.voiceCaptureDidProduce("What am I looking at?") }
+        await yieldUntil(viewModel, reaches: .thinking(question: "What am I looking at?"))
+
+        viewModel.screenCaptureDidFail(ScreenCaptureError.nothingToCapture.message, token: token)
+        await asking.value
+
+        XCTAssertEqual(viewModel.state, .failed(ScreenCaptureError.nothingToCapture.message))
+        XCTAssertTrue(stub.requests.isEmpty)
+        XCTAssertFalse(viewModel.isScreenQuery)
+        XCTAssertNil(viewModel.pendingScreen)
+    }
+
+    /// A capture that never resolves at all cannot hang the panel: the wait has
+    /// its own budget, and running it out fails the query with a sentence.
+    func testAWedgedCaptureFailsTheQueryInsideItsBudget() async {
+        let (viewModel, stub) = makeViewModel(.answered("should not happen"))
+        viewModel.captureWaitBudget = 0.05
+        viewModel.startScreenQuery()
+        viewModel.finishVoiceFollowUp()
+
+        await viewModel.voiceCaptureDidProduce("What am I looking at?")
+
+        XCTAssertEqual(viewModel.state, .failed(AskPanelViewModel.captureTimedOutMessage))
+        XCTAssertTrue(stub.requests.isEmpty)
+        XCTAssertFalse(viewModel.isScreenQuery)
+    }
+
+    /// Closing the panel while a question is waiting on its screenshot abandons
+    /// the wait with everything else instead of leaving the ask suspended.
+    func testClosingThePanelWhileAQuestionWaitsForItsScreenshotAbandonsIt() async {
+        let (viewModel, stub) = makeViewModel(.answered("should not happen"))
+        viewModel.startScreenQuery()
+        viewModel.finishVoiceFollowUp()
+
+        let asking = Task { await viewModel.voiceCaptureDidProduce("What is this?") }
+        await yieldUntil(viewModel, reaches: .thinking(question: "What is this?"))
+
+        viewModel.close()
+        await asking.value
+
+        XCTAssertEqual(viewModel.state, .idle)
+        XCTAssertTrue(stub.requests.isEmpty)
+    }
+
     /// A typed question is about nothing but its words - a screenshot that
     /// silently followed the user into the next question would be answering
     /// about a window they had moved on from.
     func testAScreenshotIsUsedOnceAndNeverFollowsTheNextQuestion() async {
         let (viewModel, stub) = makeViewModel(.answered("Something."))
 
-        viewModel.startScreenQuery()
-        viewModel.attachScreen(VisionEngineTests.observation())
+        let token = viewModel.startScreenQuery()
+        viewModel.attachScreen(VisionEngineTests.observation(), token: token)
         viewModel.finishVoiceFollowUp()
         await viewModel.voiceCaptureDidProduce("What is this?")
         await viewModel.ask("And what is the capital of France?")
@@ -488,9 +571,9 @@ final class AskPanelScreenQueryTests: XCTestCase {
     func testAScreenshotArrivingAfterCancellationIsDropped() async {
         let (viewModel, stub) = makeViewModel(.answered("should not happen"))
 
-        viewModel.startScreenQuery()
+        let token = viewModel.startScreenQuery()
         viewModel.cancelVoiceFollowUp()
-        viewModel.attachScreen(VisionEngineTests.observation())
+        viewModel.attachScreen(VisionEngineTests.observation(), token: token)
 
         XCTAssertNil(viewModel.pendingScreen)
         XCTAssertFalse(viewModel.isScreenQuery)
@@ -498,6 +581,35 @@ final class AskPanelScreenQueryTests: XCTestCase {
 
         await viewModel.ask("A plain question")
         XCTAssertNil(stub.requests.first?.screen)
+    }
+
+    /// The delivery is keyed to the query that started the capture, not to how
+    /// the panel happens to look: a follow-up the user starts after abandoning
+    /// a screen query is listening again, and the abandoned query's capture
+    /// must neither attach to it nor cancel it.
+    func testAStaleCaptureCannotHijackAnUnrelatedVoiceFollowUp() async {
+        let (viewModel, stub) = makeViewModel(.answered("Paris."))
+        var cancelled = 0
+        viewModel.onCancelVoiceCapture = { cancelled += 1 }
+        let token = viewModel.startScreenQuery()
+        viewModel.cancelVoiceFollowUp()
+        XCTAssertEqual(cancelled, 1)
+
+        viewModel.startVoiceFollowUp()
+        XCTAssertEqual(viewModel.state, .listening)
+
+        viewModel.attachScreen(VisionEngineTests.observation(), token: token)
+        XCTAssertNil(viewModel.pendingScreen, "a capture from an abandoned query must not attach")
+
+        viewModel.screenCaptureDidFail("boom", token: token)
+        XCTAssertEqual(viewModel.state, .listening, "a stale failure must not cancel the follow-up")
+        XCTAssertEqual(cancelled, 1)
+
+        viewModel.finishVoiceFollowUp()
+        await viewModel.voiceCaptureDidProduce("What is the capital of France?")
+
+        XCTAssertNil(stub.requests.first?.screen)
+        XCTAssertEqual(viewModel.answer, "Paris.")
     }
 
     /// The user asked about their screen. Without the screenshot there is no
@@ -508,8 +620,8 @@ final class AskPanelScreenQueryTests: XCTestCase {
         var cancelled = 0
         viewModel.onCancelVoiceCapture = { cancelled += 1 }
 
-        viewModel.startScreenQuery()
-        viewModel.screenCaptureDidFail(ScreenCaptureError.permissionDenied.message)
+        let token = viewModel.startScreenQuery()
+        viewModel.screenCaptureDidFail(ScreenCaptureError.permissionDenied.message, token: token)
 
         XCTAssertEqual(cancelled, 1)
         XCTAssertEqual(viewModel.state, .failed(ScreenCaptureError.permissionDenied.message))
@@ -539,13 +651,26 @@ final class AskPanelScreenQueryTests: XCTestCase {
     func testClosingThePanelForgetsTheScreenshot() {
         let (viewModel, _) = makeViewModel(.answered("unused"))
 
-        viewModel.startScreenQuery()
-        viewModel.attachScreen(VisionEngineTests.observation())
+        let token = viewModel.startScreenQuery()
+        viewModel.attachScreen(VisionEngineTests.observation(), token: token)
         viewModel.close()
 
         XCTAssertNil(viewModel.pendingScreen)
         XCTAssertFalse(viewModel.isScreenQuery)
         XCTAssertTrue(viewModel.exchanges.isEmpty)
+    }
+
+    /// The first refused ⌥S is the one where the OS permission dialog is
+    /// already on screen, so the panel explains and nothing else opens; every
+    /// later refusal has no dialog left, so it goes to System Settings.
+    func testTheFirstRefusalLeavesTheSystemDialogAsTheOnlyOtherSurface() {
+        let first = AskPanelWindowController.screenRecordingRefusal(previouslyAsked: false)
+        XCTAssertFalse(first.opensSystemSettings)
+        XCTAssertTrue(first.message.contains("dialog"), "the sentence points at the OS dialog")
+
+        let later = AskPanelWindowController.screenRecordingRefusal(previouslyAsked: true)
+        XCTAssertTrue(later.opensSystemSettings)
+        XCTAssertEqual(later.message, ScreenCaptureError.permissionDenied.message)
     }
 
     /// ⌥S is a toggle, and only the half of it that is still being spoken is

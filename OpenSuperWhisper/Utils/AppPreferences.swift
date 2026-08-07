@@ -298,4 +298,15 @@ final class AppPreferences {
 
     @UserDefault(key: "autoDeleteRecordingsAfterDays", defaultValue: 30)
     var autoDeleteRecordingsAfterDays: Int
+
+    /// Whether macOS has ever been asked for Screen Recording on this install.
+    ///
+    /// macOS shows that permission dialog once per app and never again, and has
+    /// no API that says which side of the once an app is on. Written whenever
+    /// the request is actually made (`SystemScreenRecordingAuthorizer`), so a
+    /// refused screen query can tell the first press - the OS dialog is on
+    /// screen, leave it alone - from every later one, where System Settings is
+    /// the only door left. See `AskPanelWindowController.screenRecordingRefusal`.
+    @UserDefault(key: "screenRecordingAccessRequested", defaultValue: false)
+    var screenRecordingAccessRequested: Bool
 }

@@ -224,6 +224,8 @@ struct AskPanelView: View {
             VStack(alignment: .leading, spacing: 6) {
                 if let screen = viewModel.pendingScreen {
                     screenBadge(screen, caption: "Asking about this screen")
+                } else if viewModel.isScreenQuery {
+                    statusRow(systemImage: "viewfinder", tint: .secondary, text: "Capturing the screen…")
                 }
                 progressRow("Transcribing…")
             }
@@ -232,6 +234,11 @@ struct AskPanelView: View {
             VStack(alignment: .leading, spacing: 6) {
                 if let screen = viewModel.pendingScreen {
                     screenBadge(screen, caption: "Asking about this screen")
+                } else if viewModel.isScreenQuery {
+                    // A spoken question can finish transcribing before its
+                    // screenshot arrives; the question is waiting for it, and
+                    // the panel says so instead of claiming to think.
+                    statusRow(systemImage: "viewfinder", tint: .secondary, text: "Capturing the screen…")
                 }
                 questionLine(question)
                 progressRow("Thinking…")

@@ -132,15 +132,21 @@ final class AskPanelWindowController {
     private func startScreenQuery() {
         let frontmost = NSWorkspace.shared.frontmostApplication
 
-        guard screenRecordingAuthorizer.isScreenRecordingGranted()
-            || screenRecordingAuthorizer.requestScreenRecordingAccess()
-        else {
-            // macOS prompts once and never again, so a refusal is a trip to
-            // System Settings rather than a second dialog.
-            present()
-            viewModel.screenQueryRefused(ScreenCaptureError.permissionDenied.message)
-            PermissionsManager.openSystemSettings(for: .screenRecording)
-            return
+        if !screenRecordingAuthorizer.isScreenRecordingGranted() {
+            let previouslyAsked = AppPreferences.shared.screenRecordingAccessRequested
+            guard screenRecordingAuthorizer.requestScreenRecordingAccess() else {
+                // `screenRecordingRefusal` decides what else the user sees: on
+                // the first press the OS dialog is already up and is the one
+                // thing to act on; every later press has no dialog left, so
+                // System Settings is opened instead.
+                let refusal = Self.screenRecordingRefusal(previouslyAsked: previouslyAsked)
+                present()
+                viewModel.screenQueryRefused(refusal.message)
+                if refusal.opensSystemSettings {
+                    PermissionsManager.openSystemSettings(for: .screenRecording)
+                }
+                return
+            }
         }
 
         let capture = Task { [screenCapture] in
@@ -148,20 +154,53 @@ final class AskPanelWindowController {
         }
 
         present()
-        viewModel.startScreenQuery()
+        guard let token = viewModel.startScreenQuery() else {
+            capture.cancel()
+            return
+        }
 
         Task { [weak self] in
             do {
                 let observation = try await capture.value
-                self?.viewModel.attachScreen(observation)
+                self?.viewModel.attachScreen(observation, token: token)
             } catch let error as ScreenCaptureError {
-                self?.viewModel.screenCaptureDidFail(error.message)
+                self?.viewModel.screenCaptureDidFail(error.message, token: token)
             } catch {
                 self?.viewModel.screenCaptureDidFail(
-                    ScreenCaptureError.captureFailed(error.localizedDescription).message
+                    ScreenCaptureError.captureFailed(error.localizedDescription).message,
+                    token: token
                 )
             }
         }
+    }
+
+    /// What a refused Screen Recording check puts on the panel, and whether it
+    /// also opens System Settings.
+    ///
+    /// macOS shows its own permission dialog exactly once per app, and the
+    /// first ⌥S without a grant is that once: the dialog is already on screen
+    /// when the request returns false, so the panel explains and nothing else
+    /// opens - jumping to System Settings as well would bury the dialog that
+    /// matters under a third surface. Every later refusal has no dialog left to
+    /// show (`screenRecordingAccessRequested` is how the app knows), so the
+    /// panel's sentence points at System Settings and the pane is opened.
+    struct ScreenRecordingRefusal: Equatable {
+        let message: String
+        let opensSystemSettings: Bool
+    }
+
+    static func screenRecordingRefusal(previouslyAsked: Bool) -> ScreenRecordingRefusal {
+        if previouslyAsked {
+            return ScreenRecordingRefusal(
+                message: ScreenCaptureError.permissionDenied.message,
+                opensSystemSettings: true
+            )
+        }
+        return ScreenRecordingRefusal(
+            message: "EchoForge just asked macOS for Screen Recording permission. "
+                + "Grant it in the dialog that appeared, then try again.",
+            opensSystemSettings: false
+        )
     }
 
     /// Opens the panel on a question, which is how a spoken `Ask: …` arrives.

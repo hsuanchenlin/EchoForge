@@ -39,9 +39,14 @@ Three things happen on ⌥S, and the order is the feature:
 
 The screenshot usually lands during the first fraction of a second of recording;
 until it does the panel says "Capturing the screen…", and from then on it shows
-the thumbnail. If the capture fails, the recording is **stopped** rather than
-carried on with: the user asked about their screen, and answering from the words
-alone would be a confident reply about something nothing ever looked at.
+the thumbnail. If the capture fails while the user is still speaking, the
+recording is **stopped** rather than carried on with: the user asked about their
+screen, and answering from the words alone would be a confident reply about
+something nothing ever looked at. The same rule holds when the race goes the
+other way - a spoken question that finishes transcribing before its screenshot
+has arrived **waits** for the capture's own outcome, with a budget so a wedged
+capture cannot hang the panel, and a capture that fails or never resolves fails
+the query with its own sentence. A screen query is never answered blind.
 
 ## Which window
 
@@ -68,10 +73,15 @@ check, and `PermissionsManager.isMissingRequiredPermission` does not include it.
 An install that never presses ⌥S never sees a prompt, and dictation is unchanged
 on a Mac that has refused it.
 
-macOS prompts once per app and never again, so a refusal is a trip to System
-Settings rather than a second dialog: the panel says so and the Settings pane is
-opened. Note that a grant applies to the app bundle that asked for it - a fresh
-download of EchoForge asks again.
+macOS prompts once per app and never again, and has no API that says whether it
+already did, so the app remembers having asked
+(`screenRecordingAccessRequested`, written by the request itself). On the first
+refused ⌥S the OS dialog is already on screen and is the one thing to act on:
+the panel explains, and nothing else opens. Every later refusal has no dialog
+left to show, so the panel's sentence points at System Settings and the pane is
+opened - `AskPanelWindowController.screenRecordingRefusal` is that decision.
+Note that a grant applies to the app bundle that asked for it - a fresh download
+of EchoForge asks again.
 
 ## Why the engine is a protocol
 
@@ -123,12 +133,18 @@ glance that it did not. It stays with the exchange afterwards, so an answer thre
 questions back still says which screen it was about, and the caption names the
 application and window title - and nothing else about them.
 
-Two rules in `AskPanelViewModel` carry the rest, and both are pinned by
+Three rules in `AskPanelViewModel` carry the rest, and all are pinned by
 `AskPanelScreenQueryTests`:
 
-- **A screenshot is used once.** It is cleared when the answer arrives, so the
-  next question the user types is about their words and not about a window they
-  have moved on from.
-- **A screenshot that arrives late belongs to nothing.** A capture landing after
-  the user cancelled is dropped rather than left pending, the same generation
-  rule the panel already applies to answers.
+- **A screenshot is used once.** It is cleared when the answer arrives - and
+  when the query fails - so the next question the user types is about their
+  words and not about a window they have moved on from.
+- **A screenshot that arrives late belongs to nothing.** Every capture delivery
+  quotes back the token of the query that started it, the same generation
+  device the panel already applies to answers, so a capture landing after a
+  cancel, a reset, a close or the start of an unrelated follow-up is dropped
+  rather than attached to whatever replaced it.
+- **A screen question is never asked without its screenshot.** A transcript
+  that beats the capture waits for it, and a capture that fails - or never
+  arrives inside the wait's budget - fails the question with its own message
+  instead of letting it be answered blind.

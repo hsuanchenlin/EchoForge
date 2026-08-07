@@ -139,9 +139,14 @@ struct SystemScreenRecordingAuthorizer: ScreenRecordingAuthorizing {
         CGPreflightScreenCaptureAccess()
     }
 
+    /// The request is remembered in `screenRecordingAccessRequested` on its way
+    /// through, whichever caller makes it: macOS only ever shows its dialog
+    /// once and has no API for asking whether it already did, and the Ask panel
+    /// needs to tell the first refusal from every later one.
     @discardableResult
     func requestScreenRecordingAccess() -> Bool {
-        CGRequestScreenCaptureAccess()
+        AppPreferences.shared.screenRecordingAccessRequested = true
+        return CGRequestScreenCaptureAccess()
     }
 }
 
