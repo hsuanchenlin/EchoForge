@@ -679,6 +679,9 @@ final class AskPanelScreenQueryTests: XCTestCase {
     /// does not take a screenshot the panel would refuse.
     func testOnlyASpokenScreenQueryIsSomethingToFinish() async {
         let (viewModel, _) = makeViewModel(.answered("Something."))
+        // No capture ever resolves in this test, so the final ask waits out the
+        // capture budget; the default would stall the suite for its full 10 s.
+        viewModel.captureWaitBudget = 0.05
 
         XCTAssertFalse(viewModel.isCapturingScreenQuery)
 
