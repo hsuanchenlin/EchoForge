@@ -44,6 +44,12 @@ final class AskPanelWindowController {
 
     private var panel: NSPanel?
 
+    /// The two halves of a screen query that talk to the system, kept as
+    /// properties so the panel can be driven in a test without a window server
+    /// or a Screen Recording grant.
+    private let screenCapture: ScreenCapturing
+    private let screenRecordingAuthorizer: ScreenRecordingAuthorizing
+
     /// The application that was frontmost when the panel opened, and the one
     /// **Insert into Active App** puts the answer into.
     ///
@@ -60,7 +66,12 @@ final class AskPanelWindowController {
     /// panel it just re-showed.
     private var presentationGeneration = 0
 
-    private init() {
+    private init(
+        screenCapture: ScreenCapturing = ScreenCaptureService.shared,
+        screenRecordingAuthorizer: ScreenRecordingAuthorizing = SystemScreenRecordingAuthorizer()
+    ) {
+        self.screenCapture = screenCapture
+        self.screenRecordingAuthorizer = screenRecordingAuthorizer
         viewModel = AskPanelViewModel()
         viewModel.onClose = { [weak self] in self?.hide() }
         viewModel.onCopy = { ClipboardUtil.copyToClipboard($0) }
@@ -89,6 +100,68 @@ final class AskPanelWindowController {
         // The user is about to wait for the model, and the first request after
         // launch is the slow one. A no-op on a Mac that cannot run it.
         AskModelFactory.prewarmIfAvailable()
+    }
+
+    // MARK: - Asking about the screen
+
+    /// The ⌥S action: start a spoken question about the screen, or finish the
+    /// one already being spoken.
+    ///
+    /// A toggle rather than a hold, and the same shape as the recording hotkey:
+    /// press to start, press again when you have finished asking.
+    func toggleScreenQuery() {
+        if viewModel.isCapturingScreenQuery {
+            viewModel.finishVoiceFollowUp()
+            return
+        }
+        // Nothing to toggle into while the panel is already working: taking a
+        // screenshot the view model would refuse is wasted work, and a second
+        // question mid-answer is what `isBusy` exists to prevent.
+        guard !viewModel.isBusy else { return }
+        startScreenQuery()
+    }
+
+    /// Takes the screenshot, opens the panel, and starts listening.
+    ///
+    /// The order is the feature. The frontmost application is read **first**,
+    /// while it is still the user's own - opening this panel activates EchoForge
+    /// - and the capture is started before the panel is shown so the shot is of
+    /// what they were looking at rather than of the card that just appeared over
+    /// it. Screen Recording is checked here and nowhere else: a Mac that has
+    /// never granted it dictates exactly as it always did.
+    private func startScreenQuery() {
+        let frontmost = NSWorkspace.shared.frontmostApplication
+
+        guard screenRecordingAuthorizer.isScreenRecordingGranted()
+            || screenRecordingAuthorizer.requestScreenRecordingAccess()
+        else {
+            // macOS prompts once and never again, so a refusal is a trip to
+            // System Settings rather than a second dialog.
+            present()
+            viewModel.screenQueryRefused(ScreenCaptureError.permissionDenied.message)
+            PermissionsManager.openSystemSettings(for: .screenRecording)
+            return
+        }
+
+        let capture = Task { [screenCapture] in
+            try await screenCapture.captureScreen(ofProcess: frontmost?.processIdentifier)
+        }
+
+        present()
+        viewModel.startScreenQuery()
+
+        Task { [weak self] in
+            do {
+                let observation = try await capture.value
+                self?.viewModel.attachScreen(observation)
+            } catch let error as ScreenCaptureError {
+                self?.viewModel.screenCaptureDidFail(error.message)
+            } catch {
+                self?.viewModel.screenCaptureDidFail(
+                    ScreenCaptureError.captureFailed(error.localizedDescription).message
+                )
+            }
+        }
     }
 
     /// Opens the panel on a question, which is how a spoken `Ask: …` arrives.

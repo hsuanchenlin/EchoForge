@@ -52,6 +52,21 @@ final class AskPanelViewModel: ObservableObject {
     /// does - see `AskExchange`.
     @Published private(set) var exchanges: [AskExchange] = []
 
+    /// The screenshot the question being asked right now is about, from the
+    /// moment the capture lands until the answer does.
+    ///
+    /// Held here rather than in `state` so a screen query is one badge moving
+    /// through the states the panel already has, instead of a second copy of
+    /// each of them. It belongs to the generation that set it: cancelling,
+    /// resetting or closing drops it, so a screenshot can never end up attached
+    /// to a question the user typed afterwards.
+    @Published private(set) var pendingScreen: ScreenObservation?
+
+    /// Whether what is in flight is a ⌥S screen query rather than an ordinary
+    /// question. The panel says so while it listens - the screenshot has usually
+    /// not arrived yet at that point, so the badge cannot say it on its own.
+    @Published private(set) var isScreenQuery = false
+
     /// Called when the user asks for the answer to go somewhere. The controller
     /// supplies both; this type has no idea what a pasteboard is.
     var onCopy: ((String) -> Void)?
@@ -91,6 +106,12 @@ final class AskPanelViewModel: ObservableObject {
         }
     }
 
+    /// True while a screen query is still being spoken, which is the only state
+    /// pressing ⌥S again should finish rather than start something new.
+    var isCapturingScreenQuery: Bool {
+        isScreenQuery && (state == .listening || state == .transcribing)
+    }
+
     /// The answer on screen, or nil when there is not one.
     var answer: String? {
         if case .answered(let exchange) = state { return exchange.answer }
@@ -112,13 +133,18 @@ final class AskPanelViewModel: ObservableObject {
         await ask(draft)
     }
 
-    /// Asks one question, from wherever it came - typed, spoken as a command, or
-    /// captured as a follow-up.
+    /// Asks one question, from wherever it came - typed, spoken as a command,
+    /// captured as a follow-up, or asked about the screen.
     ///
     /// A blank question is refused rather than sent: an empty prompt does not
     /// get a neutral answer from a language model, it gets an arbitrary one.
-    func ask(_ question: String) async {
+    ///
+    /// - Parameter screen: the screenshot the question is about. Defaults to
+    ///   whatever a ⌥S capture left pending, so the spoken path does not have to
+    ///   carry it by hand; pass one explicitly to ask about a specific image.
+    func ask(_ question: String, screen: ScreenObservation? = nil) async {
         let trimmed = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        let screen = screen ?? pendingScreen
         guard !trimmed.isEmpty else {
             fail(AskOutcome.nothingAsked.explanation ?? "Ask a question first.")
             return
@@ -131,19 +157,25 @@ final class AskPanelViewModel: ObservableObject {
         generation += 1
         let asked = generation
         draft = ""
+        pendingScreen = screen
         state = .thinking(question: trimmed)
 
         let outcome = await answering(
-            AskRequest(question: trimmed, history: exchanges)
+            AskRequest(question: trimmed, history: exchanges, screen: screen)
         )
 
         // The panel may have been closed, reset, or asked something else while
         // the model worked.
         guard generation == asked else { return }
 
+        // Whatever happened, this screenshot has been used. Leaving it pending
+        // would silently make the user's next typed question about it too.
+        pendingScreen = nil
+        isScreenQuery = false
+
         switch outcome {
         case .answered(let text):
-            let exchange = AskExchange(question: trimmed, answer: text)
+            let exchange = AskExchange(question: trimmed, answer: text, screen: screen)
             exchanges.append(exchange)
             state = .answered(exchange)
         default:
@@ -171,6 +203,56 @@ final class AskPanelViewModel: ObservableObject {
         onFinishVoiceCapture?()
     }
 
+    // MARK: - Asking about the screen
+
+    /// The ⌥S flow: the user is about to say what they want to know about the
+    /// screen in front of them.
+    ///
+    /// The same capture the voice follow-up uses - the panel listens, the
+    /// microphone records, nothing else on screen changes - with one difference
+    /// the whole feature turns on: the screenshot was taken *before* this ran,
+    /// while the user's own application was still frontmost, and arrives through
+    /// `attachScreen` a moment later.
+    func startScreenQuery() {
+        guard !isBusy else { return }
+        generation += 1
+        pendingScreen = nil
+        isScreenQuery = true
+        state = .listening
+        onStartVoiceCapture?()
+    }
+
+    /// The screenshot arrived.
+    ///
+    /// Ignored unless a capture is still running: a screenshot that lands after
+    /// the user cancelled belongs to nothing, and leaving it pending would make
+    /// their next question about a screen they had already abandoned.
+    func attachScreen(_ screen: ScreenObservation) {
+        guard state == .listening || state == .transcribing else { return }
+        pendingScreen = screen
+    }
+
+    /// A screen query could not be started at all - Screen Recording has not
+    /// been granted - so nothing was recorded and nothing was captured.
+    func screenQueryRefused(_ message: String) {
+        pendingScreen = nil
+        isScreenQuery = false
+        fail(message)
+    }
+
+    /// The screenshot could not be taken.
+    ///
+    /// The recording is stopped rather than carried on with: the user asked
+    /// about their screen, and answering from the words alone would be a
+    /// confident reply about something nothing ever looked at.
+    func screenCaptureDidFail(_ message: String) {
+        guard state == .listening || state == .transcribing else { return }
+        onCancelVoiceCapture?()
+        pendingScreen = nil
+        isScreenQuery = false
+        fail(message)
+    }
+
     /// The capture produced text. Nothing heard is its own message rather than
     /// an empty question, because "say that again" and "this Mac cannot answer"
     /// are different things to be told.
@@ -189,6 +271,8 @@ final class AskPanelViewModel: ObservableObject {
     /// The capture failed for a reason worth telling the user.
     func voiceCaptureDidFail(_ message: String) {
         guard state == .listening || state == .transcribing else { return }
+        pendingScreen = nil
+        isScreenQuery = false
         fail(message)
     }
 
@@ -196,6 +280,8 @@ final class AskPanelViewModel: ObservableObject {
     func cancelVoiceFollowUp() {
         guard state == .listening || state == .transcribing else { return }
         generation += 1
+        pendingScreen = nil
+        isScreenQuery = false
         onCancelVoiceCapture?()
         // Back to whatever the panel was showing before, so cancelling costs
         // the user nothing they had already been given.
@@ -226,6 +312,8 @@ final class AskPanelViewModel: ObservableObject {
         state = .idle
         draft = ""
         exchanges = []
+        pendingScreen = nil
+        isScreenQuery = false
     }
 
     private func fail(_ message: String) {

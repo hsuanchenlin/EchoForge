@@ -18,6 +18,16 @@ extension KeyboardShortcuts.Name {
     /// configurable like the others - it is a plain global hotkey, so whatever
     /// the key would otherwise type is consumed while it is bound.
     static let askPanel = Self("askPanel", default: .init(.a, modifiers: .option))
+
+    /// Asks a question about what is on screen: takes a screenshot of the window
+    /// the user is in and starts recording the question at the same moment.
+    ///
+    /// ⌥S by default, beside ⌥A because it is the same panel reached with one
+    /// more thing attached. Its own shortcut rather than a modifier on ⌥A: the
+    /// screenshot has to be taken *before* this app comes forward, which is a
+    /// decision that cannot be made after a panel is already open.
+    /// See `docs/screen-context.md`.
+    static let askAboutScreen = Self("askAboutScreen", default: .init(.s, modifiers: .option))
 }
 
 class ShortcutManager {
@@ -86,6 +96,15 @@ class ShortcutManager {
         KeyboardShortcuts.onKeyUp(for: .askPanel) {
             Task { @MainActor in
                 AskPanelWindowController.shared.toggle()
+            }
+        }
+
+        // Independent of the recording trigger for the same reason ⌥A is, and
+        // independent of ⌥A itself: pressing this while the panel happens to be
+        // open starts a screen query rather than closing it.
+        KeyboardShortcuts.onKeyUp(for: .askAboutScreen) {
+            Task { @MainActor in
+                AskPanelWindowController.shared.toggleScreenQuery()
             }
         }
     }
