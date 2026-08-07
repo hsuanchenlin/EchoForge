@@ -14,16 +14,22 @@ struct AskExchange: Equatable, Sendable, Identifiable {
     let id: UUID
     let question: String
     let answer: String
+    /// The screenshot this question was asked about, for a ⌥S screen query, and
+    /// nil for every other question. Kept with the exchange rather than beside
+    /// it so the panel can show which screen an answer belongs to after three
+    /// more questions have been asked - see `docs/screen-context.md`.
+    let screen: ScreenObservation?
 
-    init(id: UUID = UUID(), question: String, answer: String) {
+    init(id: UUID = UUID(), question: String, answer: String, screen: ScreenObservation? = nil) {
         self.id = id
         self.question = question
         self.answer = answer
+        self.screen = screen
     }
 }
 
 /// One question to put to the on-device model.
-struct AskRequest: Equatable, Sendable {
+struct AskRequest: Equatable, @unchecked Sendable {
     let question: String
     /// Earlier turns of this conversation, oldest first.
     let history: [AskExchange]
@@ -32,12 +38,24 @@ struct AskRequest: Equatable, Sendable {
     /// answers in the language it was addressed in, so a Chinese question asked
     /// in English comes back in English.
     let language: StyleRewriteLanguage
+    /// The screen this question is about, for a ⌥S screen query.
+    ///
+    /// Its presence - not a flag, not a separate service - is what routes the
+    /// question to a `VisionEngine` instead of the plain answerer, so a question
+    /// asked about a screenshot can never be answered without it.
+    let screen: ScreenObservation?
 
-    init(question: String, history: [AskExchange] = [], language: StyleRewriteLanguage? = nil) {
+    init(
+        question: String,
+        history: [AskExchange] = [],
+        language: StyleRewriteLanguage? = nil,
+        screen: ScreenObservation? = nil
+    ) {
         self.question = question
         self.history = history
         self.language = language
             ?? StyleRewriteLanguage.resolve(languageCode: "auto", transcript: question)
+        self.screen = screen
     }
 }
 
@@ -142,22 +160,42 @@ enum AskService {
         _ request: AskRequest,
         availability: StyleRewriteAvailability,
         answerer: AskAnswering?,
+        vision: VisionEngine? = nil,
         budgetOverride: TimeInterval? = nil
     ) async -> AskOutcome {
         let question = request.question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty else { return .nothingAsked }
         guard availability.canRun else { return .unavailable(availability) }
-        // Availability and the model are resolved separately and it can become
+        guard question.count <= maximumQuestionCharacters else { return .questionTooLong }
+
+        // A question asked about a screenshot goes to the vision engine or
+        // nowhere: answering it from the words alone would produce a confident
+        // reply about a screen nothing ever looked at.
+        //
+        // Availability and the backend are resolved separately and it can become
         // unavailable between the two - the same reason the rewriting stage
         // reports this as not-ready rather than as the availability it just read.
-        guard let answerer else { return .unavailable(.modelNotReady) }
-        guard question.count <= maximumQuestionCharacters else { return .questionTooLong }
+        let work: @Sendable () async throws -> String
+        if let screen = request.screen {
+            guard let vision else { return .unavailable(.modelNotReady) }
+            let visionRequest = VisionRequest(
+                question: question,
+                screen: screen,
+                history: request.history,
+                language: request.language
+            )
+            work = { try await vision.answer(visionRequest) }
+        } else {
+            guard let answerer else { return .unavailable(.modelNotReady) }
+            work = { try await answerer.answer(request) }
+        }
 
         let text: String
         do {
-            text = try await AsyncDeadline.run(budget: budgetOverride ?? budget) {
-                try await answerer.answer(request)
-            }
+            // One budget for the whole attempt, and for a screen query that
+            // includes reading the screenshot: the user is waiting for an
+            // answer, not for a stage.
+            text = try await AsyncDeadline.run(budget: budgetOverride ?? budget, operation: work)
         } catch is AsyncDeadline.Exceeded {
             return .timedOut
         } catch is CancellationError {
@@ -181,7 +219,11 @@ enum AskService {
         return await answer(
             request,
             availability: AskModelFactory.availability(),
-            answerer: AskModelFactory.makeAnswerer()
+            answerer: AskModelFactory.makeAnswerer(),
+            // Built only for the request that needs it: constructing the vision
+            // engine loads the text recognizer, and an ordinary typed question
+            // has no screenshot to read.
+            vision: request.screen == nil ? nil : VisionEngineFactory.makeEngine()
         )
     }
 }

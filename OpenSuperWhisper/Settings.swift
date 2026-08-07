@@ -1698,6 +1698,27 @@ struct SettingsView: View {
 
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
+                                Text("Ask about the screen")
+                                    .font(.subheadline)
+                                Text("Captures the window you are looking at and answers a spoken question about it. Needs Screen Recording permission, which is asked for the first time you use it.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer()
+                            KeyboardShortcuts.Recorder("", name: .askAboutScreen)
+                                .frame(width: 150)
+                        }
+
+                        permissionWarning(
+                            message: "Screen Recording is not granted, so asking about the screen will not work.",
+                            isGranted: permissionsManager.isScreenRecordingPermissionGranted
+                        ) {
+                            permissionsManager.requestScreenRecordingPermissionOrOpenSystemPreferences()
+                        }
+
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
                                 Text("Spoken commands")
                                     .font(.subheadline)
                                 Text("Start a dictation with \"Ask:\" to send it to the Ask panel, or \"Translate to Spanish:\" to translate it. Anything else is dictated as usual.")
@@ -1749,6 +1770,10 @@ struct SettingsView: View {
             }
             .padding()
         }
+        // Screen Recording is not part of the polled check - see
+        // `PermissionsManager.isScreenRecordingPermissionGranted` - so this pane
+        // reads it when it appears, which is when it has something to say about it.
+        .onAppear { permissionsManager.checkScreenRecordingPermission() }
     }
 }
 

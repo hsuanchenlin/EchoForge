@@ -1,8 +1,9 @@
 # The Ask panel
 
-A floating card that answers a question on this Mac. Opened with **⌥A** or by
+A floating card that answers a question on this Mac. Opened with **⌥A**, by
 dictating "Ask: …" with spoken commands switched on
-(`docs/spoken-intents.md`).
+(`docs/spoken-intents.md`), or with **⌥S** to ask about what is on screen
+(`docs/screen-context.md`).
 
 Everything about it is on device: it runs the same Apple `FoundationModels`
 system model the rewriting stage does, for the same reason - dictation is the
@@ -33,6 +34,7 @@ test.
 | `.listening` | red mic, "Listening…", Stop | **Ask by voice** |
 | `.transcribing` | spinner, "Transcribing…" | Stop |
 | `.thinking(question:)` | the question, spinner, "Thinking…" | asking |
+| (any of the above) | a screenshot thumbnail above the question | **⌥S** |
 | `.answered(exchange)` | the question and the answer card | the model replying |
 | `.failed(message)` | orange badge, one sentence | anything going wrong |
 
@@ -49,6 +51,12 @@ Two rules in the view model carry it:
 - **Nothing leaves the panel on its own.** Copying and inserting are closures
   the controller supplies and the user triggers. The view model has no idea what
   a pasteboard is.
+
+A question can also carry a **screenshot** (`AskRequest.screen`), which is what
+⌥S adds. Its presence - not a flag - is what routes the question to a
+`VisionEngine` instead of the plain answerer, so a question asked about a screen
+can never be answered without it. `docs/screen-context.md` is that feature's
+whole story.
 
 ## Why there is no guard
 

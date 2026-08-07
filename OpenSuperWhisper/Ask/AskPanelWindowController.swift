@@ -44,6 +44,12 @@ final class AskPanelWindowController {
 
     private var panel: NSPanel?
 
+    /// The two halves of a screen query that talk to the system, kept as
+    /// properties so the panel can be driven in a test without a window server
+    /// or a Screen Recording grant.
+    private let screenCapture: ScreenCapturing
+    private let screenRecordingAuthorizer: ScreenRecordingAuthorizing
+
     /// The application that was frontmost when the panel opened, and the one
     /// **Insert into Active App** puts the answer into.
     ///
@@ -60,7 +66,12 @@ final class AskPanelWindowController {
     /// panel it just re-showed.
     private var presentationGeneration = 0
 
-    private init() {
+    private init(
+        screenCapture: ScreenCapturing = ScreenCaptureService.shared,
+        screenRecordingAuthorizer: ScreenRecordingAuthorizing = SystemScreenRecordingAuthorizer()
+    ) {
+        self.screenCapture = screenCapture
+        self.screenRecordingAuthorizer = screenRecordingAuthorizer
         viewModel = AskPanelViewModel()
         viewModel.onClose = { [weak self] in self?.hide() }
         viewModel.onCopy = { ClipboardUtil.copyToClipboard($0) }
@@ -89,6 +100,107 @@ final class AskPanelWindowController {
         // The user is about to wait for the model, and the first request after
         // launch is the slow one. A no-op on a Mac that cannot run it.
         AskModelFactory.prewarmIfAvailable()
+    }
+
+    // MARK: - Asking about the screen
+
+    /// The ⌥S action: start a spoken question about the screen, or finish the
+    /// one already being spoken.
+    ///
+    /// A toggle rather than a hold, and the same shape as the recording hotkey:
+    /// press to start, press again when you have finished asking.
+    func toggleScreenQuery() {
+        if viewModel.isCapturingScreenQuery {
+            viewModel.finishVoiceFollowUp()
+            return
+        }
+        // Nothing to toggle into while the panel is already working: taking a
+        // screenshot the view model would refuse is wasted work, and a second
+        // question mid-answer is what `isBusy` exists to prevent.
+        guard !viewModel.isBusy else { return }
+        startScreenQuery()
+    }
+
+    /// Takes the screenshot, opens the panel, and starts listening.
+    ///
+    /// The order is the feature. The frontmost application is read **first**,
+    /// while it is still the user's own - opening this panel activates EchoForge
+    /// - and the capture is started before the panel is shown so the shot is of
+    /// what they were looking at rather than of the card that just appeared over
+    /// it. Screen Recording is checked here and nowhere else: a Mac that has
+    /// never granted it dictates exactly as it always did.
+    private func startScreenQuery() {
+        let frontmost = NSWorkspace.shared.frontmostApplication
+
+        if !screenRecordingAuthorizer.isScreenRecordingGranted() {
+            let previouslyAsked = AppPreferences.shared.screenRecordingAccessRequested
+            guard screenRecordingAuthorizer.requestScreenRecordingAccess() else {
+                // `screenRecordingRefusal` decides what else the user sees: on
+                // the first press the OS dialog is already up and is the one
+                // thing to act on; every later press has no dialog left, so
+                // System Settings is opened instead.
+                let refusal = Self.screenRecordingRefusal(previouslyAsked: previouslyAsked)
+                present()
+                viewModel.screenQueryRefused(refusal.message)
+                if refusal.opensSystemSettings {
+                    PermissionsManager.openSystemSettings(for: .screenRecording)
+                }
+                return
+            }
+        }
+
+        let capture = Task { [screenCapture] in
+            try await screenCapture.captureScreen(ofProcess: frontmost?.processIdentifier)
+        }
+
+        present()
+        guard let token = viewModel.startScreenQuery() else {
+            capture.cancel()
+            return
+        }
+
+        Task { [weak self] in
+            do {
+                let observation = try await capture.value
+                self?.viewModel.attachScreen(observation, token: token)
+            } catch let error as ScreenCaptureError {
+                self?.viewModel.screenCaptureDidFail(error.message, token: token)
+            } catch {
+                self?.viewModel.screenCaptureDidFail(
+                    ScreenCaptureError.captureFailed(error.localizedDescription).message,
+                    token: token
+                )
+            }
+        }
+    }
+
+    /// What a refused Screen Recording check puts on the panel, and whether it
+    /// also opens System Settings.
+    ///
+    /// macOS shows its own permission dialog exactly once per app, and the
+    /// first ⌥S without a grant is that once: the dialog is already on screen
+    /// when the request returns false, so the panel explains and nothing else
+    /// opens - jumping to System Settings as well would bury the dialog that
+    /// matters under a third surface. Every later refusal has no dialog left to
+    /// show (`screenRecordingAccessRequested` is how the app knows), so the
+    /// panel's sentence points at System Settings and the pane is opened.
+    struct ScreenRecordingRefusal: Equatable {
+        let message: String
+        let opensSystemSettings: Bool
+    }
+
+    static func screenRecordingRefusal(previouslyAsked: Bool) -> ScreenRecordingRefusal {
+        if previouslyAsked {
+            return ScreenRecordingRefusal(
+                message: ScreenCaptureError.permissionDenied.message,
+                opensSystemSettings: true
+            )
+        }
+        return ScreenRecordingRefusal(
+            message: "EchoForge just asked macOS for Screen Recording permission. "
+                + "Grant it in the dialog that appeared, then try again.",
+            opensSystemSettings: false
+        )
     }
 
     /// Opens the panel on a question, which is how a spoken `Ask: …` arrives.

@@ -7,6 +7,10 @@ enum Permission {
     case microphone
     case accessibility
     case inputMonitoring
+    /// Needed only to answer a question about the screen (⌥S). Like Input
+    /// Monitoring it is conditional: it is read when that shortcut is used and
+    /// at no other time, and it must never gate dictation.
+    case screenRecording
 }
 
 /// The three TCC facts the permission UI reflects.
@@ -40,6 +44,16 @@ class PermissionsManager: ObservableObject {
     @Published var isMicrophonePermissionGranted = false
     @Published var isAccessibilityPermissionGranted = false
     @Published var isInputMonitoringPermissionGranted = false
+    /// Whether this app may record the screen, as of the last time anything
+    /// asked.
+    ///
+    /// Deliberately not part of the polled check below. Screen Recording is
+    /// needed by one shortcut (⌥S, `docs/screen-context.md`), reading it is a
+    /// TCC round-trip like the others, and polling for a permission almost
+    /// nobody's dictation depends on would cost every user main-thread time for
+    /// a feature they may never press. It is read when that shortcut runs and
+    /// when the Settings pane showing it appears.
+    @Published private(set) var isScreenRecordingPermissionGranted = false
     /// False until the first async TCC check completes; the UI must not show
     /// "permission missing" warnings while the actual status is still unknown,
     /// otherwise they flash on every settings screen open.
@@ -63,6 +77,7 @@ class PermissionsManager: ObservableObject {
     // frames every second while the polling timer was active).
     private let checkQueue = DispatchQueue(label: "com.opensuperwhisper.permissions", qos: .utility)
     private let statusReader: PermissionStatusReading
+    private let screenRecordingAuthorizer: ScreenRecordingAuthorizing
     private var isCheckInFlight = false
     /// A refresh that arrived while a check was in flight. Without it a grant
     /// could be dropped: the in-flight check may have read tccd just before the
@@ -86,8 +101,12 @@ class PermissionsManager: ObservableObject {
     /// once. Bounded and sparse on purpose: this is a settle-in, not a poll.
     private static let refreshCatchUpDelays: [TimeInterval] = [0.3, 1.0, 2.5]
 
-    init(statusReader: PermissionStatusReading = SystemPermissionStatusReader()) {
+    init(
+        statusReader: PermissionStatusReading = SystemPermissionStatusReader(),
+        screenRecordingAuthorizer: ScreenRecordingAuthorizing = SystemScreenRecordingAuthorizer()
+    ) {
         self.statusReader = statusReader
+        self.screenRecordingAuthorizer = screenRecordingAuthorizer
 
         checkAllPermissions()
         setupSystemSettingsObservers()
@@ -289,6 +308,42 @@ class PermissionsManager: ObservableObject {
         }
     }
 
+    /// Whether the screen can be captured right now.
+    ///
+    /// `CGPreflightScreenCaptureAccess()` behind the injectable seam, read on
+    /// demand: a screen query asks this before it records anything, and nothing
+    /// else in the app asks at all.
+    var isScreenRecordingGranted: Bool {
+        screenRecordingAuthorizer.isScreenRecordingGranted()
+    }
+
+    @discardableResult
+    func checkScreenRecordingPermission() -> Bool {
+        let granted = isScreenRecordingGranted
+        isScreenRecordingPermissionGranted = granted
+        return granted
+    }
+
+    /// Shows the system Screen Recording prompt if it has not been decided yet,
+    /// otherwise opens System Settings so the user can grant it manually.
+    ///
+    /// The same shape as the Input Monitoring request above, and for the same
+    /// reason: macOS asks once, so an app that has already been refused has
+    /// nothing left to prompt with.
+    @discardableResult
+    func requestScreenRecordingPermissionOrOpenSystemPreferences() -> Bool {
+        if screenRecordingAuthorizer.isScreenRecordingGranted() {
+            isScreenRecordingPermissionGranted = true
+            return true
+        }
+        let granted = screenRecordingAuthorizer.requestScreenRecordingAccess()
+        isScreenRecordingPermissionGranted = granted
+        if !granted {
+            openSystemPreferences(for: .screenRecording)
+        }
+        return granted
+    }
+
     func requestAccessibilityPermissionOrOpenSystemPreferences() {
         if statusReader.isAccessibilityGranted() {
             isAccessibilityPermissionGranted = true
@@ -332,6 +387,16 @@ class PermissionsManager: ObservableObject {
     }
 
     func openSystemPreferences(for permission: Permission) {
+        Self.openSystemSettings(for: permission)
+    }
+
+    /// The same trip to System Settings, reachable without a manager.
+    ///
+    /// The Ask panel needs it: a screen query is the one place a permission is
+    /// asked for outside the permission UI, and instantiating a
+    /// `PermissionsManager` there would start its polling timer and its window
+    /// observers for a single URL.
+    static func openSystemSettings(for permission: Permission) {
         let urlString: String
         switch permission {
         case .microphone:
@@ -342,6 +407,9 @@ class PermissionsManager: ObservableObject {
         case .inputMonitoring:
             urlString =
                 "x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent"
+        case .screenRecording:
+            urlString =
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
         }
 
         if let url = URL(string: urlString) {

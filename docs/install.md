@@ -91,6 +91,8 @@ On first launch macOS asks for a few permissions, in **System Settings → Priva
 - **Accessibility** - required to paste the transcription into whatever app you are in.
 - **Input Monitoring** - only needed if you choose a single modifier key (for example
   Right ⌥) as your recording shortcut, because macOS needs it to see that key globally.
+- **Screen Recording** - only asked the first time you press ⌥S to ask a question about
+  what is on your screen ([details](screen-context.md)); ordinary dictation never needs it.
 
 ## Basic usage
 

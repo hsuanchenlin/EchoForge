@@ -271,6 +271,18 @@ guard rule it relaxes is `StyleRewriteShape.translating`, and it relaxes it in
 that one place. `AsyncDeadline` (`Utils/`) is the shared hard budget both model
 callers use and documents why it is not a task group.
 
+**⌥S** asks that same panel about the screen: `Utils/ScreenCaptureService.swift`
+takes the shot and `Vision/` reads and answers it, with `docs/screen-context.md`
+as the whole story. Three things there are absolute. The frontmost app is read
+and the capture started **before** the panel opens, because opening it makes
+EchoForge frontmost - and this app is never in the picture either way. Screen
+Recording is **conditional** like Input Monitoring: read when ⌥S runs, never
+polled, never part of `isMissingRequiredPermission`. And what is on the screen is
+*data* - `ScreenQueryPrompt` fences the text read off it the way
+`StyleRewritePrompt` fences a transcript - while `VisionEngine` stays shaped
+around the image, so today's OCR-plus-text-model backend can be replaced by a
+real multimodal one without touching anything above it.
+
 Which style runs can be chosen by the app the user is dictating into
 (`Rewriting/AppDetector.swift`, `Rewriting/AppStyleMapping.swift`, off by
 default); `docs/app-aware-style.md` is its whole story. Two things there are
@@ -335,7 +347,8 @@ low.
 
 `OpenSuperWhisper/PermissionsManager.swift` owns the permission state the root view switches on.
 `isMissingRequiredPermission` is that switch: microphone and Accessibility only - Input Monitoring
-is conditional on the shortcut mode and must never gate the app. Accessibility is the one grant
+and Screen Recording are conditional on the shortcut being used and must never gate the app, and
+Screen Recording is not part of the polled check either (`docs/screen-context.md`). Accessibility is the one grant
 made entirely outside the app, with no completion handler to hang off the way microphone and Input
 Monitoring have; the file documents the triggers that stand in for one and why the obvious-looking
 `NSWorkspace` notification is not among them. Statuses are read through `PermissionStatusReading`

@@ -135,10 +135,55 @@ struct AskPanelView: View {
     @ViewBuilder
     private func exchangeView(_ exchange: AskExchange) -> some View {
         VStack(alignment: .leading, spacing: 6) {
+            if let screen = exchange.screen {
+                screenBadge(screen, caption: "Asked about this screen")
+            }
             questionLine(exchange.question)
             answerCard(exchange.answer)
         }
     }
+
+    // MARK: - What the model was shown
+
+    /// The screenshot a ⌥S question was asked about.
+    ///
+    /// It is shown, not merely mentioned: the whole risk of a screen query is
+    /// answering about the wrong window, and a thumbnail is the only way the user
+    /// can tell at a glance that the right one was captured. It stays with the
+    /// exchange afterwards, so an answer three questions back still says which
+    /// screen it was about.
+    private func screenBadge(_ screen: ScreenObservation, caption: String) -> some View {
+        HStack(alignment: .center, spacing: 8) {
+            Image(decorative: screen.image, scale: 1)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: Self.thumbnailSize.width, height: Self.thumbnailSize.height)
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(borderColor, lineWidth: 0.5)
+                }
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(caption)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                Text(screen.source.label)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Screenshot of \(screen.source.label)")
+    }
+
+    /// Wide enough to recognise a window by, small enough that the answer stays
+    /// the thing being read.
+    static let thumbnailSize = CGSize(width: 64, height: 40)
 
     /// The row that changes: whatever the panel is doing right now, under
     /// everything it has already done.
@@ -150,7 +195,7 @@ struct AskPanelView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Ask a question")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("Type it below, or hold your shortcut and say \"Ask: …\". Answers are generated on this Mac.")
+                    Text("Type it below, hold your shortcut and say \"Ask: …\", or press ⌥S to ask about what is on your screen. Answers are generated on this Mac.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -159,13 +204,42 @@ struct AskPanelView: View {
             }
 
         case .listening:
-            statusRow(systemImage: "mic.fill", tint: .red, text: "Listening…")
+            VStack(alignment: .leading, spacing: 6) {
+                if let screen = viewModel.pendingScreen {
+                    screenBadge(screen, caption: "Asking about this screen")
+                } else if viewModel.isScreenQuery {
+                    // The shortcut takes the screenshot and starts the recording
+                    // at the same moment, so this is what the first fraction of a
+                    // second of every screen query looks like.
+                    statusRow(systemImage: "viewfinder", tint: .secondary, text: "Capturing the screen…")
+                }
+                statusRow(
+                    systemImage: "mic.fill",
+                    tint: .red,
+                    text: viewModel.isScreenQuery ? "Listening - ask about this screen…" : "Listening…"
+                )
+            }
 
         case .transcribing:
-            progressRow("Transcribing…")
+            VStack(alignment: .leading, spacing: 6) {
+                if let screen = viewModel.pendingScreen {
+                    screenBadge(screen, caption: "Asking about this screen")
+                } else if viewModel.isScreenQuery {
+                    statusRow(systemImage: "viewfinder", tint: .secondary, text: "Capturing the screen…")
+                }
+                progressRow("Transcribing…")
+            }
 
         case .thinking(let question):
             VStack(alignment: .leading, spacing: 6) {
+                if let screen = viewModel.pendingScreen {
+                    screenBadge(screen, caption: "Asking about this screen")
+                } else if viewModel.isScreenQuery {
+                    // A spoken question can finish transcribing before its
+                    // screenshot arrives; the question is waiting for it, and
+                    // the panel says so instead of claiming to think.
+                    statusRow(systemImage: "viewfinder", tint: .secondary, text: "Capturing the screen…")
+                }
                 questionLine(question)
                 progressRow("Thinking…")
             }
