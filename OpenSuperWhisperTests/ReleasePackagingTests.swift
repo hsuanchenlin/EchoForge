@@ -164,6 +164,12 @@ final class ReleasePackagingTests: XCTestCase {
     /// Runs the verifier against synthesised bundles that are broken in the ways
     /// a release can be broken - including v0.3.0's exact defect, rebuilt from
     /// first principles with clang so it needs no models, submodules or network.
+    ///
+    /// The script never starts a fixture that cannot start, which is what keeps
+    /// this test silent: a bundle that dies in dyld is killed by SIGABRT, and
+    /// running that from a test suite put a crash report and a "Fixture.app quit
+    /// unexpectedly" dialog on the screen for every execution. The script's own
+    /// header says how each case is asserted instead.
     func testVerifierRejectsUnlaunchablePackages() throws {
         let script = repositoryRoot
             .appendingPathComponent("Scripts/tests/verify_release_package_test.sh")

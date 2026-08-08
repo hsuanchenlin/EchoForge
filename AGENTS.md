@@ -53,7 +53,11 @@ passed on the published, unopenable v0.3.0 DMG. The verifier's load-bearing part
 **starts the app**: `ECHOFORGE_LAUNCH_CHECK=1` makes `LaunchDiagnostics` report which
 bundled libraries dyld mapped and exit from `AppEntryPoint`, before anything touches the
 operator's preferences, model cache or database. `Scripts/tests/verify_release_package_test.sh`
-tests the verifier against synthesised broken bundles and `ReleasePackagingTests` runs it.
+tests the verifier against synthesised broken bundles and `ReleasePackagingTests` runs it - so
+that script must never start a fixture that cannot start. Such a bundle is killed by SIGABRT
+and macOS answers with a crash report and a "quit unexpectedly" dialog on every test run;
+its unlaunchable cases are asserted off the signature and verified with `--no-launch`
+instead, and the script's header says how.
 
 This fork has no "Developer ID Application" certificate and no `notarytool` keychain
 profile, so its releases are unsigned and unnotarized and users have to get past Gatekeeper
