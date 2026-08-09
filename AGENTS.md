@@ -94,9 +94,12 @@ The download is written around one measured platform fact: **`URLSession` delive
 `download(from:delegate:)`** - four megabytes produced zero progress callbacks that way and
 fourteen the other. That is why `UpdateDownload` owns the session it runs on instead of the
 installer holding a shared one, and it is worth re-measuring before anyone "simplifies" it
-back. Nothing in `Updates/` may use `URLSession.shared`: its `timeoutIntervalForResource` is
-seven days, which is how a 0.5.0 update sat at 0% forever after a connection died silently
-mid-transfer. `UpdateDownloadSettings` carries the configuration and the stall interval, and
+back. The **download** must never run on `URLSession.shared`: its `timeoutIntervalForResource`
+is seven days, which is how a 0.5.0 update sat at 0% forever after a connection died silently
+mid-transfer. The *check* is a different case and deliberately stays on `.shared`
+(`GitHubReleaseMetadataFetcher`): it is one small GET whose request carries its own 20 s
+`timeoutInterval`, so it cannot wedge the same way.
+`UpdateDownloadSettings` carries the configuration and the stall interval, and
 the watchdog it feeds measures **silence, not throughput** - a slow link is a normal way to
 take a 222 MB update and must complete, so nothing there may become a rate floor or a cap on
 total transfer time. `UpdateDownloadWatchdogTests` drives all of it against a real loopback
