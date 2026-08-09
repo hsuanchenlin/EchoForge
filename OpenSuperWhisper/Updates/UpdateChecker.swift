@@ -25,9 +25,25 @@ struct GitHubReleaseMetadataFetcher: ReleaseMetadataFetching {
     /// inside it, but it still has to be read into memory first.
     static let maximumDocumentBytes = 2 * 1_000_000
 
+    /// The backstop on the whole fetch: with the document capped at 2 MB, a
+    /// healthy fetch is seconds even on a slow link, and the per-request
+    /// timeout alone is an idle timer a trickling response never trips.
+    static let resourceTimeout: TimeInterval = 60
+
+    /// Not `URLSession.shared` - its `timeoutIntervalForResource` is seven
+    /// days (see `UpdateDownloadSettings`). One session serves every check:
+    /// unlike a download, there is no delegate to fix at creation.
+    static let defaultSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = timeout
+        configuration.timeoutIntervalForResource = resourceTimeout
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: configuration)
+    }()
+
     let session: URLSession
 
-    init(session: URLSession = .shared) {
+    init(session: URLSession = GitHubReleaseMetadataFetcher.defaultSession) {
         self.session = session
     }
 
