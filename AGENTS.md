@@ -89,6 +89,25 @@ The allow-list check on the initial URL is not enough by itself: GitHub's API al
 re-checks every redirect it follows against the same host allow-list
 (`UpdateManifest.isAllowedRedirectHost`) before continuing.
 
+The download is written around one measured platform fact: **`URLSession` delivers
+`didWriteData` only to a session's own delegate, never to one passed to
+`download(from:delegate:)`** - four megabytes produced zero progress callbacks that way and
+fourteen the other. That is why `UpdateDownload` owns the session it runs on instead of the
+installer holding a shared one, and it is worth re-measuring before anyone "simplifies" it
+back. Nothing in `Updates/` may use `URLSession.shared`: its `timeoutIntervalForResource` is
+seven days, which is how a 0.5.0 update sat at 0% forever after a connection died silently
+mid-transfer. `UpdateDownloadSettings` carries the configuration and the stall interval, and
+the watchdog it feeds measures **silence, not throughput** - a slow link is a normal way to
+take a 222 MB update and must complete, so nothing there may become a rate floor or a cap on
+total transfer time. `UpdateDownloadWatchdogTests` drives all of it against a real loopback
+HTTP server, because a `URLProtocol` stub hands `URLSession` the body in one piece and so
+cannot show progress arriving at all.
+
+The pane's states are the other half: a download can be cancelled (back to `.available`), a
+failure carries the release so it can be retried in one press, and `.verifying` is its own
+state so the seconds `hdiutil` and `codesign` take are never shown as a download that has
+stopped moving.
+
 The swap runs in a detached shell script that waits for the app to exit first, because a running
 bundle cannot replace itself; `UpdateInstaller` documents the sequence. Two consequences of that
 wait are load-bearing, and both once made "Install and Relaunch" quietly reopen the old version.

@@ -38,6 +38,101 @@ enum UpdateInstallError: LocalizedError, Equatable {
     }
 }
 
+/// What an update is doing, as one value reported out of `downloadAndVerify`.
+///
+/// Downloading and verifying are separate cases because from outside they look
+/// identical - the app is busy with an update - and a pane still showing a
+/// download bar while `hdiutil` and `codesign` work through a 222 MB image is
+/// indistinguishable from the stall this watchdog exists to catch.
+enum UpdateProgress: Equatable, Sendable {
+    case downloading(fraction: Double)
+    case verifying
+}
+
+/// How a download is carried, and how long it is allowed to deliver nothing
+/// before it is treated as dead.
+///
+/// `URLSession.shared` is deliberately not used. Its
+/// `timeoutIntervalForResource` is seven days, and neither of `URLSession`'s
+/// timeouts describes the failure this type is about: a connection that was
+/// established, answered nothing, and never reported an error. On a Mac moving
+/// between networks mid-request that is not exotic - it is what wedged an
+/// update at "Downloading - 0%" indefinitely, with no bytes, no error and no way
+/// out of the pane.
+///
+/// The watchdog therefore measures **silence, not throughput**. A rate floor
+/// would be wrong: the asset is tens of megabytes, a slow link is a normal way
+/// to take an update, and a transfer that is merely slow must complete. Only a
+/// transfer that has delivered nothing at all for `stallInterval` is refused.
+struct UpdateDownloadSettings {
+    /// How long the transfer may say nothing. Long enough that no live
+    /// connection reaches it - bytes arrive continuously at any rate - and short
+    /// enough that a user is told rather than left watching 0%.
+    static let defaultStallInterval: TimeInterval = 30
+
+    /// A ceiling on the whole transfer, under the watchdog rather than instead
+    /// of it: the watchdog is what actually catches a stall, and this is the
+    /// backstop for anything that keeps trickling bytes forever.
+    static let resourceTimeout: TimeInterval = 30 * 60
+
+    /// Per-request timeout. `URLSession` resets this on every byte received, so
+    /// it only ever fires before the response arrives.
+    static let requestTimeout: TimeInterval = 60
+
+    /// A configuration rather than a session, because each download has to own
+    /// its session: progress is only ever delivered to a session's *own*
+    /// delegate (see `UpdateDownload`), and that delegate is fixed when the
+    /// session is created.
+    ///
+    /// Ephemeral because caching a disk image this size, on the way to
+    /// installing it once, has no purpose.
+    static func makeConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = requestTimeout
+        configuration.timeoutIntervalForResource = resourceTimeout
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return configuration
+    }
+
+    let configuration: URLSessionConfiguration
+    let stallInterval: TimeInterval
+
+    /// `stallInterval` is injected so a test can prove the watchdog fires
+    /// without waiting out the shipped interval.
+    init(configuration: URLSessionConfiguration = UpdateDownloadSettings.makeConfiguration(),
+         stallInterval: TimeInterval = UpdateDownloadSettings.defaultStallInterval) {
+        self.configuration = configuration
+        self.stallInterval = stallInterval
+    }
+}
+
+/// The last moment a download delivered anything.
+///
+/// Monotonic (`DispatchTime`) rather than `Date`, so a clock adjustment cannot
+/// move the watchdog; lock-protected because the delegate writes it on
+/// `URLSession`'s queue while the watchdog reads it from its own task.
+final class DownloadActivityClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var lastActivity = DispatchTime.now()
+
+    func recordActivity() {
+        lock.lock()
+        lastActivity = DispatchTime.now()
+        lock.unlock()
+    }
+
+    /// Seconds of silence. Starts counting from when the clock was made, which
+    /// is when the download started: a request that is never answered at all is
+    /// the stall that was reported from the field, and it has no first byte to
+    /// measure from.
+    var secondsSinceActivity: TimeInterval {
+        lock.lock()
+        defer { lock.unlock() }
+        let elapsed = DispatchTime.now().uptimeNanoseconds &- lastActivity.uptimeNanoseconds
+        return TimeInterval(elapsed) / 1_000_000_000
+    }
+}
+
 /// What has to be true of a downloaded app bundle before it is allowed to
 /// replace the running one.
 ///
@@ -161,11 +256,20 @@ final class UpdateInstaller {
     /// ready to be swapped in. Does not replace anything.
     func downloadAndVerify(
         _ release: PublishedRelease,
-        session: URLSession = .shared,
-        progress: @escaping @Sendable (Double) -> Void
+        settings: UpdateDownloadSettings = UpdateDownloadSettings(),
+        progress: @escaping @Sendable (UpdateProgress) -> Void
     ) async throws -> URL {
-        let downloaded = try await download(release, session: session, progress: progress)
+        let downloaded = try await download(release, settings: settings, progress: progress)
         defer { try? fileManager.removeItem(at: downloaded.deletingLastPathComponent()) }
+
+        // Everything from here is local work on a file that has already landed:
+        // mounting, checking a signature and copying a bundle. It takes seconds,
+        // it reports no fraction, and saying so is the difference between "still
+        // working" and the stuck download this class now refuses to produce.
+        progress(.verifying)
+        // The user may have cancelled while the last bytes were arriving; the
+        // one honest place to notice is before anything is mounted or staged.
+        try Task.checkCancellation()
 
         let attributes = try? fileManager.attributesOfItem(atPath: downloaded.path)
         let size = (attributes?[.size] as? Int) ?? 0
@@ -339,49 +443,164 @@ final class UpdateInstaller {
     }
 
     /// Streams the asset to a temporary file, reporting a byte fraction as it
-    /// goes.
+    /// goes, and failing it if it goes quiet.
     ///
     /// A download *task* rather than `URLSession.bytes`: the asset is tens of
     /// megabytes and `bytes` yields one `UInt8` at a time, which turns a network
     /// wait into a CPU one. The delegate is where the progress fraction comes
     /// from, and it is a real byte fraction - the size is known up front from
-    /// both the release metadata and `Content-Length`.
+    /// both the release metadata and `Content-Length`. It is also what feeds the
+    /// stall watchdog: the same callback that proves the bar should move is the
+    /// proof the transfer is alive.
     private func download(
         _ release: PublishedRelease,
-        session: URLSession,
-        progress: @escaping @Sendable (Double) -> Void
+        settings: UpdateDownloadSettings,
+        progress: @escaping @Sendable (UpdateProgress) -> Void
     ) async throws -> URL {
-        let observer = DownloadProgressObserver(expectedBytes: release.sizeInBytes, report: progress)
-        let (temporary, response) = try await session.download(from: release.downloadURL, delegate: observer)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            try? fileManager.removeItem(at: temporary)
-            throw UpdateInstallError.downloadFailed("The server returned an unexpected response.")
-        }
-
         let directory = fileManager.temporaryDirectory
             .appendingPathComponent("EchoForgeDownload-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         let destination = directory.appendingPathComponent(UpdateManifest.assetName)
-        // `download` hands back a file URL that is deleted when this returns, so
-        // it is moved rather than referenced.
-        try fileManager.moveItem(at: temporary, to: destination)
-        progress(1)
+
+        let activity = DownloadActivityClock()
+        let transfer = UpdateDownload(
+            expectedBytes: release.sizeInBytes,
+            destination: destination,
+            activity: activity
+        ) { fraction in
+            progress(.downloading(fraction: fraction))
+        }
+        let session = URLSession(configuration: settings.configuration, delegate: transfer, delegateQueue: nil)
+        // Sessions with a delegate hold on to it until they are invalidated, and
+        // this one exists for exactly one download.
+        defer { session.finishTasksAndInvalidate() }
+
+        let url = release.downloadURL
+        do {
+            let response = try await withStallWatchdog(interval: settings.stallInterval, activity: activity) {
+                try await transfer.run(session: session, url: url)
+            }
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+                throw UpdateInstallError.downloadFailed("The server returned an unexpected response.")
+            }
+        } catch {
+            try? fileManager.removeItem(at: directory)
+            throw error
+        }
+
+        progress(.downloading(fraction: 1))
         return destination
+    }
+
+    /// Which half of the race finished first.
+    private enum StallRace<Value: Sendable>: Sendable {
+        case completed(Value)
+        case stalled
+    }
+
+    /// Runs `work` against a watchdog that fails it once `activity` has reported
+    /// nothing for `interval`.
+    ///
+    /// A race rather than a `URLSession` timeout because no `URLSession` timeout
+    /// expresses this: `timeoutIntervalForRequest` is reset by every byte and so
+    /// never fires mid-transfer, and `timeoutIntervalForResource` is a ceiling on
+    /// the whole download that cannot tell a big slow file from a dead one. The
+    /// losing side is cancelled on the way out of the group - which for the
+    /// download means `URLSession` cancels the task and discards its partial
+    /// file - and its error is discarded with it.
+    ///
+    /// User cancellation is *not* a stall: cancelling the surrounding task
+    /// cancels both children, and the error that surfaces is the download's own
+    /// cancellation, which callers re-read as cancellation rather than failure.
+    private func withStallWatchdog<Value: Sendable>(
+        interval: TimeInterval,
+        activity: DownloadActivityClock,
+        work: @escaping @Sendable () async throws -> Value
+    ) async throws -> Value {
+        guard interval > 0 else { return try await work() }
+
+        return try await withThrowingTaskGroup(of: StallRace<Value>.self) { group in
+            group.addTask { .completed(try await work()) }
+            group.addTask {
+                // Polled rather than scheduled off each byte: bytes arrive
+                // thousands of times a second on a healthy transfer, and a
+                // rescheduled timer per callback would cost more than the check.
+                let poll = max(0.05, min(interval / 4, 1))
+                while true {
+                    try await Task.sleep(nanoseconds: UInt64(poll * 1_000_000_000))
+                    if activity.secondsSinceActivity >= interval { return .stalled }
+                }
+            }
+
+            guard let first = try await group.next() else {
+                throw UpdateInstallError.downloadFailed("The download ended without a result.")
+            }
+            group.cancelAll()
+
+            switch first {
+            case .completed(let value):
+                return value
+            case .stalled:
+                // Rounded up, never to zero: a test injects a sub-second
+                // interval, and "stopped receiving data for 0 seconds" is not a
+                // sentence to ship.
+                let seconds = max(1, Int(interval.rounded(.up)))
+                throw UpdateInstallError.downloadFailed(
+                    "It stopped receiving data for \(seconds) seconds. Check your connection and try again."
+                )
+            }
+        }
     }
 }
 
-/// Turns `URLSession`'s byte counts into the fraction the About pane shows, and
-/// re-checks every redirect the download follows against the host allow-list.
+/// One download: it owns the `URLSession`, turns byte counts into the fraction
+/// the About pane shows, keeps the stall watchdog's clock, moves the finished
+/// file somewhere that outlives the callback, and answers the caller.
 ///
-/// Not `private`: a test constructs one directly to exercise the redirect
-/// check without a real network call.
-final class DownloadProgressObserver: NSObject, URLSessionTaskDelegate, URLSessionDownloadDelegate {
+/// It has to own the session, and that is the whole reason this type exists.
+/// `URLSession.download(from:delegate:)` accepts a `URLSessionDownloadDelegate`
+/// and compiles, but it never calls `didWriteData` on it - measured against a
+/// 4 MB transfer: zero progress callbacks to a task-supplied delegate, fourteen
+/// to a session's own. That is why the pane could only ever show 0% and then
+/// jump to done, and it is why a stalled transfer looked exactly like a healthy
+/// one that had not finished yet. Progress goes to the *session's* delegate, so
+/// the download creates the session it needs.
+final class UpdateDownload: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private let expectedBytes: Int
+    private let destination: URL
+    private let activity: DownloadActivityClock?
     private let report: @Sendable (Double) -> Void
 
-    init(expectedBytes: Int, report: @escaping @Sendable (Double) -> Void) {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<URLResponse, Error>?
+    private var moveFailure: Error?
+    private var hasFinished = false
+
+    init(expectedBytes: Int,
+         destination: URL,
+         activity: DownloadActivityClock? = nil,
+         report: @escaping @Sendable (Double) -> Void) {
         self.expectedBytes = expectedBytes
+        self.destination = destination
+        self.activity = activity
         self.report = report
+    }
+
+    /// Runs the transfer, returning the response once the bytes are at
+    /// `destination`. Cancelling the surrounding task cancels the transfer,
+    /// which is how the About pane's Cancel reaches the socket.
+    func run(session: URLSession, url: URL) async throws -> URLResponse {
+        let task = session.downloadTask(with: url)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                lock.lock()
+                self.continuation = continuation
+                lock.unlock()
+                task.resume()
+            }
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     func urlSession(
@@ -391,6 +610,11 @@ final class DownloadProgressObserver: NSObject, URLSessionTaskDelegate, URLSessi
         totalBytesWritten: Int64,
         totalBytesExpectedToWrite: Int64
     ) {
+        // Stamped here rather than by whoever passes `report`: this is the one
+        // callback that means bytes actually arrived, so the watchdog's notion
+        // of "alive" cannot drift from the bar's.
+        activity?.recordActivity()
+
         // The server's own figure is preferred when it gives one; the release
         // metadata is the fallback, and the size is checked against the metadata
         // again once the file has landed.
@@ -399,9 +623,40 @@ final class DownloadProgressObserver: NSObject, URLSessionTaskDelegate, URLSessi
         report(min(Double(totalBytesWritten) / Double(total), 1))
     }
 
+    /// The file `URLSession` hands over here is deleted the moment this returns,
+    /// so it is moved now rather than remembered.
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        // Required by the protocol; the async `download(from:delegate:)` takes
-        // care of handing the file back to the caller.
+        do {
+            try FileManager.default.moveItem(at: location, to: destination)
+        } catch {
+            lock.lock()
+            moveFailure = error
+            lock.unlock()
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        lock.lock()
+        let pending = continuation
+        continuation = nil
+        let alreadyFinished = hasFinished
+        hasFinished = true
+        let moveFailure = self.moveFailure
+        lock.unlock()
+        guard let pending, !alreadyFinished else { return }
+
+        if let error {
+            return pending.resume(throwing: error)
+        }
+        if let moveFailure {
+            return pending.resume(
+                throwing: UpdateInstallError.downloadFailed("It could not be written to disk. \(moveFailure.localizedDescription)")
+            )
+        }
+        guard let response = task.response else {
+            return pending.resume(throwing: UpdateInstallError.downloadFailed("The server returned no response."))
+        }
+        pending.resume(returning: response)
     }
 
     /// GitHub's API only ever hands back a `github.com` URL; the bytes

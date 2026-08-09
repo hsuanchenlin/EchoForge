@@ -1,3 +1,5 @@
+import Combine
+import Network
 import XCTest
 
 @testable import OpenSuperWhisper
@@ -20,6 +22,9 @@ private final class MockCommandRunner: CommandRunning, @unchecked Sendable {
     /// When set, `launchDetached` throws it, standing in for the swap script
     /// never starting.
     var launchFailure: Error?
+    /// Makes `hdiutil attach` take real time, standing in for mounting a real
+    /// 200 MB image - which is what the pane has to have something to say about.
+    var attachDelay: TimeInterval = 0
 
     private let lock = NSLock()
     private var _invocations: [Invocation] = []
@@ -36,6 +41,7 @@ private final class MockCommandRunner: CommandRunning, @unchecked Sendable {
 
         switch executable {
         case "/usr/bin/hdiutil" where arguments.first == "attach":
+            if attachDelay > 0 { Thread.sleep(forTimeInterval: attachDelay) }
             if let mountIndex = arguments.firstIndex(of: "-mountpoint") {
                 let mountedApp = URL(fileURLWithPath: arguments[mountIndex + 1])
                     .appendingPathComponent("EchoForge.app", isDirectory: true)
@@ -100,10 +106,10 @@ private final class StubURLProtocol: URLProtocol, @unchecked Sendable {
 
     override func stopLoading() {}
 
-    static func makeSession() -> URLSession {
+    static func makeConfiguration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
-        return URLSession(configuration: configuration)
+        return configuration
     }
 }
 
@@ -167,7 +173,7 @@ final class UpdateInstallerStagingTests: XCTestCase {
 
         let staged = try await installer.downloadAndVerify(
             release(sizeInBytes: 42),
-            session: StubURLProtocol.makeSession()
+            settings: UpdateDownloadSettings(configuration: StubURLProtocol.makeConfiguration())
         ) { _ in }
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: priorAttempt.path))
@@ -185,7 +191,7 @@ final class UpdateInstallerStagingTests: XCTestCase {
         let installer = UpdateInstaller(commandRunner: MockCommandRunner(), installedAppURL: installedApp)
         let viewModel = UpdateViewModel(installer: installer)
 
-        viewModel.download(release(sizeInBytes: 10), session: StubURLProtocol.makeSession())
+        viewModel.download(release(sizeInBytes: 10), settings: UpdateDownloadSettings(configuration: StubURLProtocol.makeConfiguration()))
         let stagedApp = try await waitForReadyToInstall(viewModel)
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: stagedApp.path))
@@ -200,11 +206,11 @@ final class UpdateInstallerStagingTests: XCTestCase {
         let installer = UpdateInstaller(commandRunner: MockCommandRunner(), installedAppURL: installedApp)
         let viewModel = UpdateViewModel(installer: installer)
 
-        viewModel.download(release(sizeInBytes: 10), session: StubURLProtocol.makeSession())
+        viewModel.download(release(sizeInBytes: 10), settings: UpdateDownloadSettings(configuration: StubURLProtocol.makeConfiguration()))
         let firstStagedApp = try await waitForReadyToInstall(viewModel)
         XCTAssertTrue(FileManager.default.fileExists(atPath: firstStagedApp.path))
 
-        viewModel.download(release(sizeInBytes: 10), session: StubURLProtocol.makeSession())
+        viewModel.download(release(sizeInBytes: 10), settings: UpdateDownloadSettings(configuration: StubURLProtocol.makeConfiguration()))
         XCTAssertFalse(FileManager.default.fileExists(atPath: firstStagedApp.deletingLastPathComponent().path))
         _ = try await waitForReadyToInstall(viewModel)
     }
@@ -225,7 +231,7 @@ final class UpdateInstallerStagingTests: XCTestCase {
         let terminator = SpyTerminator()
         let viewModel = UpdateViewModel(installer: installer, terminator: terminator)
 
-        viewModel.download(offered, session: StubURLProtocol.makeSession())
+        viewModel.download(offered, settings: UpdateDownloadSettings(configuration: StubURLProtocol.makeConfiguration()))
         let stagedApp = try await waitForReadyToInstall(viewModel)
 
         viewModel.installAndRelaunch(offered, stagedApp: stagedApp)
@@ -251,7 +257,7 @@ final class UpdateInstallerStagingTests: XCTestCase {
         let terminator = SpyTerminator()
         let viewModel = UpdateViewModel(installer: installer, terminator: terminator)
 
-        viewModel.download(offered, session: StubURLProtocol.makeSession())
+        viewModel.download(offered, settings: UpdateDownloadSettings(configuration: StubURLProtocol.makeConfiguration()))
         let stagedApp = try await waitForReadyToInstall(viewModel)
         runner.launchFailure = UpdateInstallError.replacementFailed("no shell")
 
@@ -271,7 +277,7 @@ final class UpdateInstallerStagingTests: XCTestCase {
             if case .readyToInstall(_, let stagedApp) = viewModel.state {
                 return stagedApp
             }
-            if case .failed(let message) = viewModel.state {
+            if case .failed(let message, _) = viewModel.state {
                 XCTFail("update failed: \(message)")
                 throw UpdateInstallError.replacementFailed(message)
             }
@@ -342,5 +348,360 @@ final class UpdateInstallerSwapScriptTests: XCTestCase {
         XCTAssertTrue(FileManager.default.isExecutableFile(atPath: scriptURL.path))
         // Its own cleanup, since nothing in this app is alive to do it.
         XCTAssertTrue(try String(contentsOf: scriptURL, encoding: .utf8).contains("rm -f \"$script\""))
+    }
+}
+
+/// A loopback HTTP server that serves one scripted transfer: a size it
+/// announces, an amount it actually delivers, in chunks, with a pause before
+/// each. When it delivers less than it announced it then goes quiet and stays
+/// quiet - no more bytes, no completion, no error - which is exactly the wedge
+/// seen in the field.
+///
+/// A real socket rather than a `URLProtocol` stub, and the reason is the thing
+/// under test. A stubbed protocol hands `URLSession` its body in one piece, so
+/// `didWriteData` - the delegate callback the progress bar and the stall
+/// watchdog both live on - fires once, at the end. Only a real connection makes
+/// `URLSession` report progress the way it does against GitHub, and progress
+/// arriving *incrementally* is the whole signal being asserted here.
+private final class LoopbackDownloadServer: @unchecked Sendable {
+    struct Script {
+        /// What `Content-Length` claims.
+        var announcedBytes: Int
+        /// What is actually sent. Less than `announcedBytes` means the transfer
+        /// never completes.
+        var deliveredBytes: Int
+        var chunks: Int
+        var pauseBeforeEachChunk: TimeInterval
+
+        static func completing(bytes: Int, chunks: Int, pause: TimeInterval) -> Script {
+            Script(announcedBytes: bytes, deliveredBytes: bytes, chunks: chunks, pauseBeforeEachChunk: pause)
+        }
+
+        /// Starts, delivers a little, and then says nothing for as long as
+        /// anyone waits.
+        static func stalling(announcing bytes: Int, delivering delivered: Int) -> Script {
+            Script(announcedBytes: bytes, deliveredBytes: delivered, chunks: 1, pauseBeforeEachChunk: 0)
+        }
+    }
+
+    private let listener: NWListener
+    private let script: Script
+    private let queue = DispatchQueue(label: "LoopbackDownloadServer")
+    private let deliveryQueue = DispatchQueue(label: "LoopbackDownloadServer.delivery", attributes: .concurrent)
+    private let lock = NSLock()
+    private var connections: [NWConnection] = []
+
+    private(set) var port: UInt16 = 0
+
+    init(script: Script) throws {
+        self.script = script
+        let parameters = NWParameters.tcp
+        parameters.allowLocalEndpointReuse = true
+        listener = try NWListener(using: parameters, on: .any)
+    }
+
+    /// Starts listening and returns only once the port is known, so a test never
+    /// races the URL it is about to download from.
+    func start() throws {
+        let ready = DispatchSemaphore(value: 0)
+        listener.stateUpdateHandler = { [weak self] state in
+            if case .ready = state {
+                self?.port = self?.listener.port?.rawValue ?? 0
+                ready.signal()
+            }
+        }
+        listener.newConnectionHandler = { [weak self] connection in self?.accept(connection) }
+        listener.start(queue: queue)
+        guard ready.wait(timeout: .now() + 5) == .success, port != 0 else {
+            throw UpdateInstallError.downloadFailed("the loopback server never became ready")
+        }
+    }
+
+    func stop() {
+        listener.cancel()
+        lock.lock()
+        let open = connections
+        connections = []
+        lock.unlock()
+        open.forEach { $0.cancel() }
+    }
+
+    /// Where the asset appears to live.
+    var assetURL: URL { URL(string: "http://127.0.0.1:\(port)/\(UpdateManifest.assetName)")! }
+
+    private func accept(_ connection: NWConnection) {
+        lock.lock()
+        connections.append(connection)
+        lock.unlock()
+        connection.start(queue: queue)
+        readRequest(on: connection)
+    }
+
+    private func readRequest(on connection: NWConnection, received: Data = Data()) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 16 * 1024) { [weak self] data, _, isComplete, error in
+            guard let self, error == nil, !isComplete else { return }
+            var accumulated = received
+            if let data { accumulated.append(data) }
+            guard String(decoding: accumulated, as: UTF8.self).contains("\r\n\r\n") else {
+                return self.readRequest(on: connection, received: accumulated)
+            }
+            self.respond(on: connection)
+        }
+    }
+
+    private func respond(on connection: NWConnection) {
+        let script = self.script
+        deliveryQueue.async {
+            let headers = "HTTP/1.1 200 OK\r\n"
+                + "Content-Length: \(script.announcedBytes)\r\n"
+                + "Content-Type: application/octet-stream\r\n"
+                + "Connection: close\r\n\r\n"
+            connection.send(content: Data(headers.utf8), completion: .contentProcessed { _ in })
+
+            let chunkSize = max(1, script.deliveredBytes / max(1, script.chunks))
+            var sent = 0
+            while sent < script.deliveredBytes {
+                if script.pauseBeforeEachChunk > 0 {
+                    Thread.sleep(forTimeInterval: script.pauseBeforeEachChunk)
+                }
+                let size = min(chunkSize, script.deliveredBytes - sent)
+                connection.send(content: Data(repeating: 0xAB, count: size), completion: .contentProcessed { _ in })
+                sent += size
+            }
+            // Deliberately no close and no further bytes when less was sent than
+            // announced: the client is left waiting on a live connection that
+            // will never say anything again.
+        }
+    }
+}
+
+/// The update download can no longer wedge silently.
+///
+/// A 0.5.0 install sat at "Downloading - 0%" indefinitely: no open connection,
+/// no CPU, no bytes and no error, against `URLSession.shared`'s seven-day
+/// resource timeout, so nothing was ever going to end it. These pin the four
+/// things that answer that - progress while alive, failure when silent,
+/// tolerance of slow-but-alive, and a way out by hand - with the watchdog
+/// interval injected so they stay quick.
+final class UpdateDownloadWatchdogTests: XCTestCase {
+
+    private var workDirectory: URL!
+    private var installedApp: URL!
+    private var server: LoopbackDownloadServer!
+
+    override func setUp() {
+        super.setUp()
+        workDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        installedApp = workDirectory.appendingPathComponent("EchoForge.app")
+        try? FileManager.default.createDirectory(at: installedApp, withIntermediateDirectories: true)
+    }
+
+    override func tearDown() {
+        server?.stop()
+        server = nil
+        try? FileManager.default.removeItem(at: workDirectory)
+        super.tearDown()
+    }
+
+    /// Starts the scripted server and returns the release it is serving.
+    private func serve(_ script: LoopbackDownloadServer.Script) throws -> PublishedRelease {
+        server?.stop()
+        let server = try LoopbackDownloadServer(script: script)
+        try server.start()
+        self.server = server
+        return PublishedRelease(
+            version: AppVersion("0.3.0")!,
+            tag: "v0.3.0",
+            notes: "",
+            downloadURL: server.assetURL,
+            sizeInBytes: script.announcedBytes
+        )
+    }
+
+    private func settings(stallInterval: TimeInterval) -> UpdateDownloadSettings {
+        UpdateDownloadSettings(stallInterval: stallInterval)
+    }
+
+    /// (a) The bar moves *while* bytes are arriving, and the pane is told when
+    /// the download gives way to verification.
+    func testReportsProgressWhileTheTransferIsRunningAndThenVerification() async throws {
+        let release = try serve(.completing(bytes: 512 * 1024, chunks: 8, pause: 0.05))
+        let installer = await UpdateInstaller(commandRunner: MockCommandRunner(), installedAppURL: installedApp)
+
+        let reports = ProgressRecorder()
+        _ = try await installer.downloadAndVerify(release, settings: settings(stallInterval: 5)) {
+            reports.record($0)
+        }
+
+        let fractions = reports.fractions
+        XCTAssertTrue(
+            fractions.contains { $0 > 0 && $0 < 1 },
+            "expected progress during the transfer, got \(fractions)"
+        )
+        XCTAssertEqual(fractions.last, 1)
+        XCTAssertEqual(reports.all.last, .verifying, "verification is what follows the bar filling")
+    }
+
+    /// (b) A transfer that goes quiet fails on the watchdog's own interval, and
+    /// says what happened.
+    func testAStalledTransferFailsWithinTheWatchdogInterval() async throws {
+        let release = try serve(.stalling(announcing: 512 * 1024, delivering: 4 * 1024))
+        let installer = await UpdateInstaller(commandRunner: MockCommandRunner(), installedAppURL: installedApp)
+
+        let stallInterval: TimeInterval = 1
+        let started = Date()
+        do {
+            _ = try await installer.downloadAndVerify(release, settings: settings(stallInterval: stallInterval)) { _ in }
+            XCTFail("a transfer that delivered nothing for \(stallInterval)s must not succeed")
+        } catch let error as UpdateInstallError {
+            guard case .downloadFailed(let detail) = error else {
+                return XCTFail("expected .downloadFailed, got \(error)")
+            }
+            XCTAssertTrue(detail.contains("stopped receiving data"), detail)
+            XCTAssertTrue(
+                error.errorDescription?.contains("could not be downloaded") == true,
+                "the pane shows this string: \(error.errorDescription ?? "nil")"
+            )
+        }
+        XCTAssertLessThan(
+            Date().timeIntervalSince(started), stallInterval + 4,
+            "the watchdog must end it, not a URLSession timeout"
+        )
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: workDirectory.path).sorted(),
+            ["EchoForge.app"],
+            "a failed download stages nothing"
+        )
+    }
+
+    /// (c) The watchdog measures silence, not speed. This transfer takes several
+    /// times the stall interval end to end and never once goes quiet for it, so
+    /// it must complete - the regression a rate floor, or a bound on total
+    /// transfer time, would introduce for anyone on a slow link.
+    func testASlowButLiveTransferIsNotTreatedAsAStall() async throws {
+        let release = try serve(.completing(bytes: 512 * 1024, chunks: 10, pause: 0.15))
+        let installer = await UpdateInstaller(commandRunner: MockCommandRunner(), installedAppURL: installedApp)
+
+        let staged = try await installer.downloadAndVerify(release, settings: settings(stallInterval: 0.5)) { _ in }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path))
+    }
+
+    /// (d) The user's own way out of the state the wedge left them in.
+    @MainActor
+    func testCancellingADownloadRestoresTheOfferAndStagesNothing() async throws {
+        let offered = try serve(.stalling(announcing: 512 * 1024, delivering: 4 * 1024))
+        let installer = UpdateInstaller(commandRunner: MockCommandRunner(), installedAppURL: installedApp)
+        let viewModel = UpdateViewModel(installer: installer)
+
+        // A long interval, so what ends this download is the press and nothing else.
+        viewModel.download(offered, settings: settings(stallInterval: 60))
+        try await waitUntil("the download is under way") {
+            if case .downloading = viewModel.state { return true }
+            return false
+        }
+
+        viewModel.cancelDownload()
+
+        XCTAssertEqual(viewModel.state, .available(offered))
+        try await Task.sleep(nanoseconds: 500_000_000)
+        XCTAssertEqual(viewModel.state, .available(offered), "a cancelled download must not report back")
+        XCTAssertEqual(
+            try FileManager.default.contentsOfDirectory(atPath: workDirectory.path).sorted(),
+            ["EchoForge.app"]
+        )
+    }
+
+    /// The stall reaches the user as a message they can act on, with the release
+    /// still on offer - and taking that offer works.
+    @MainActor
+    func testAStalledDownloadFailsWithARetryableReleaseThatSucceedsOnRetry() async throws {
+        let offered = try serve(.stalling(announcing: 512 * 1024, delivering: 4 * 1024))
+        let installer = UpdateInstaller(commandRunner: MockCommandRunner(), installedAppURL: installedApp)
+        let viewModel = UpdateViewModel(installer: installer)
+
+        viewModel.download(offered, settings: settings(stallInterval: 1))
+        try await waitUntil("the stall is reported", timeout: 10) {
+            if case .failed = viewModel.state { return true }
+            return false
+        }
+
+        guard case .failed(let message, let retryable) = viewModel.state else {
+            return XCTFail("expected .failed, got \(viewModel.state)")
+        }
+        XCTAssertTrue(message.contains("stopped receiving data"), message)
+        XCTAssertEqual(retryable, offered, "the pane has to be able to offer the same release again")
+
+        // The same release, from a server that now behaves: the retry is a
+        // press, not a reopened pane and another check.
+        let recovered = try serve(.completing(bytes: 512 * 1024, chunks: 4, pause: 0))
+        viewModel.download(recovered, settings: settings(stallInterval: 5))
+        try await waitUntil("the retry lands", timeout: 10) {
+            if case .readyToInstall = viewModel.state { return true }
+            return false
+        }
+    }
+
+    /// A slow verify is not a stuck download, and the pane has to say which one
+    /// it is.
+    @MainActor
+    func testShowsVerifyingBetweenTheDownloadAndTheInstallOffer() async throws {
+        let offered = try serve(.completing(bytes: 64 * 1024, chunks: 2, pause: 0))
+        let runner = MockCommandRunner()
+        runner.attachDelay = 0.3
+        let installer = UpdateInstaller(commandRunner: runner, installedAppURL: installedApp)
+        let viewModel = UpdateViewModel(installer: installer)
+
+        var observed: [UpdateState] = []
+        let subscription = viewModel.$state.sink { observed.append($0) }
+        defer { subscription.cancel() }
+
+        viewModel.download(offered, settings: settings(stallInterval: 5))
+        try await waitUntil("the download is verified", timeout: 10) {
+            if case .readyToInstall = viewModel.state { return true }
+            return false
+        }
+
+        let verifyingIndex = observed.firstIndex { $0 == .verifying(offered) }
+        let readyIndex = observed.firstIndex { if case .readyToInstall = $0 { return true } else { return false } }
+        XCTAssertNotNil(verifyingIndex, "a slow verify must not be left looking like a download: \(observed)")
+        XCTAssertLessThan(try XCTUnwrap(verifyingIndex), try XCTUnwrap(readyIndex))
+    }
+
+    @MainActor
+    private func waitUntil(
+        _ what: String,
+        timeout: TimeInterval = 5,
+        _ condition: () -> Bool
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if condition() { return }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail("timed out waiting until \(what)")
+    }
+}
+
+/// Collects what `downloadAndVerify` reported, from whichever thread it
+/// reported on.
+private final class ProgressRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _all: [UpdateProgress] = []
+
+    func record(_ progress: UpdateProgress) {
+        lock.lock()
+        _all.append(progress)
+        lock.unlock()
+    }
+
+    var all: [UpdateProgress] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _all
+    }
+
+    var fractions: [Double] {
+        all.compactMap { if case .downloading(let fraction) = $0 { return fraction } else { return nil } }
     }
 }
