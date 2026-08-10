@@ -167,7 +167,7 @@ class AudioRecorder: NSObject, ObservableObject {
     
     func startRecording() {
         // Everything below costs CoreAudio HAL round-trips (device queries,
-        // AudioQueue start for the notification sound) — 20-35 ms that used to
+        // AudioQueue start for the notification sound) - 20-35 ms that used to
         // block the main thread right when the indicator appear animation
         // starts, so the whole start sequence runs on the work queue.
         let playSound = AppPreferences.shared.playSoundOnRecordStart

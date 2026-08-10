@@ -100,7 +100,7 @@ class WhisperEngine: TranscriptionEngine {
         
         // VAD gate: whisper never sees non-speech audio, so silence cannot
         // produce hallucinated text and long pauses are not decoded at all.
-        // (whisper_full_with_state has no built-in VAD path — params.vad works
+        // (whisper_full_with_state has no built-in VAD path - params.vad works
         // only through whisper_full, which would share decoding state.)
         let speechSegments = try segmenter.segments(in: converted)
         if speechSegments.isEmpty {

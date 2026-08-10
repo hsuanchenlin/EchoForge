@@ -109,7 +109,7 @@ final class PCMAudioLoaderConversionTests: XCTestCase {
         let tail = result.suffix(320)
         let tailRMS = sqrt(tail.reduce(Float(0)) { $0 + $1 * $1 } / Float(tail.count))
         print("[DIAG] sequential tailRMS=\(tailRMS)")
-        XCTAssertGreaterThan(tailRMS, 0.1, "Tail of converted audio is silent — end of recording was lost")
+        XCTAssertGreaterThan(tailRMS, 0.1, "Tail of converted audio is silent - end of recording was lost")
     }
 
     // Bug: parallel segment stitching leaves zero-filled gaps / misaligned boundaries.
@@ -132,7 +132,7 @@ final class PCMAudioLoaderConversionTests: XCTestCase {
         let interior = Array(result.dropFirst(1600).dropLast(1600))
         let gap = longestNearZeroRun(in: interior)
         print("[DIAG] parallel longest near-zero run=\(gap)")
-        XCTAssertLessThan(gap, 3, "Found a silent gap of \(gap) samples inside continuous audio — segment stitching is broken")
+        XCTAssertLessThan(gap, 3, "Found a silent gap of \(gap) samples inside continuous audio - segment stitching is broken")
     }
 
     func testParallelConversionMatchesSequentialResult() async throws {
@@ -154,7 +154,7 @@ final class PCMAudioLoaderConversionTests: XCTestCase {
         XCTAssertEqual(rms, 0.3535, accuracy: 0.01, "RMS of converted audio deviates from source sine")
     }
 
-    // The recorder now writes 16-bit integer PCM at 16 kHz — the exact format
+    // The recorder now writes 16-bit integer PCM at 16 kHz - the exact format
     // produced on the hotkey critical path must convert losslessly.
     func testRecorderFormatInt16Wav16kConverts() async throws {
         let recorderSettings: [String: Any] = [
@@ -175,7 +175,7 @@ final class PCMAudioLoaderConversionTests: XCTestCase {
         )
 
         let rms = sqrt(result.reduce(Float(0)) { $0 + $1 * $1 } / Float(result.count))
-        XCTAssertEqual(rms, 0.3535, accuracy: 0.01, "RMS deviates — Int16 recording is not decoded correctly")
+        XCTAssertEqual(rms, 0.3535, accuracy: 0.01, "RMS deviates - Int16 recording is not decoded correctly")
     }
 }
 
@@ -233,7 +233,7 @@ final class WhisperStateIsolationTests: XCTestCase {
         XCTAssertTrue(first.lowercased().contains("your country"), "Unexpected transcription: \(first)")
         XCTAssertEqual(
             first, second,
-            "Transcription changed after a silent recording — decoding state leaks between calls"
+            "Transcription changed after a silent recording - decoding state leaks between calls"
         )
     }
 
@@ -1372,7 +1372,7 @@ final class FocusUtilsCaretPositionTests: XCTestCase {
         XCTAssertEqual(point, NSPoint(x: 100, y: 700))
     }
 
-    // Bug: Terminal.app reports .success with x:0 y:<screen height> w:0 h:0 —
+    // Bug: Terminal.app reports .success with x:0 y:<screen height> w:0 h:0 -
     // that point maps exactly to the bottom-left corner of the screen.
     func testZeroSizeCaretRectIsRejected() {
         let terminalRect = CGRect(x: 0, y: primaryMaxY, width: 0, height: 0)
@@ -1460,7 +1460,7 @@ final class FocusUtilsCaretPositionTests: XCTestCase {
 
 final class IndicatorWindowGeometryTests: XCTestCase {
 
-    // Bug: the panel was 200x60 for a 200x36 card — during the appear
+    // Bug: the panel was 200x60 for a 200x36 card - during the appear
     // animation the card moves 20 pt down, and everything outside the window
     // bounds is cut off, so the bottom rounded corners were visibly clipped.
     func testPanelFitsCardAtWorstAnimationPhase() {
@@ -1483,7 +1483,7 @@ final class IndicatorWindowGeometryTests: XCTestCase {
     }
 
     // Bug: the hidden transform translated +y, which in Core Animation
-    // coordinates on macOS is up — the card appeared from above sliding down
+    // coordinates on macOS is up - the card appeared from above sliding down
     // instead of rising bottom-up towards its resting position.
     @MainActor
     func testHiddenTransformPushesCardDown() {
@@ -1501,7 +1501,7 @@ final class IndicatorWindowGeometryTests: XCTestCase {
     }
 
     // Bug: NSHostingView's default sizingOptions let SwiftUI's ideal size
-    // drive the window frame — the panel shrank to the card size right after
+    // drive the window frame - the panel shrank to the card size right after
     // contentView was set and the window bounds clipped the whole animation.
     @MainActor
     func testWindowKeepsPanelSizeAfterPresent() async throws {
@@ -1722,13 +1722,13 @@ final class AudioUtilTests: XCTestCase {
 
 final class HebrewIvritSupportTests: XCTestCase {
 
-    // MARK: Task 1 — Hebrew language
+    // MARK: Task 1 - Hebrew language
     func testHebrewIsAvailableLanguage() {
         XCTAssertTrue(LanguageUtil.availableLanguages.contains("he"))
         XCTAssertEqual(LanguageUtil.languageNames["he"], "Hebrew")
     }
 
-    // MARK: Task 2 — model struct filename/preferredLanguage
+    // MARK: Task 2 - model struct filename/preferredLanguage
     func testDownloadableModelDefaultsFilenameToURLBasename() {
         let model = SettingsDownloadableModel(
             name: "X", isDownloaded: false,
@@ -1754,7 +1754,7 @@ final class HebrewIvritSupportTests: XCTestCase {
         }
     }
 
-    // MARK: Task 3 — ivrit.ai model entry
+    // MARK: Task 3 - ivrit.ai model entry
     func testIvritModelIsAvailableWithCorrectMetadata() {
         let ivrit = SettingsDownloadableModels.availableModels.first {
             $0.filename == "ggml-ivrit-large-v3-turbo.bin"
@@ -1765,7 +1765,7 @@ final class HebrewIvritSupportTests: XCTestCase {
         XCTAssertTrue(ivrit?.url.absoluteString.contains("ivrit-ai/whisper-large-v3-turbo-ggml") ?? false)
     }
 
-    // MARK: Task 4 — preferred-language lookup
+    // MARK: Task 4 - preferred-language lookup
     func testPreferredLanguageLookupForIvritModel() {
         XCTAssertEqual(
             SettingsDownloadableModels.preferredLanguage(forFilename: "ggml-ivrit-large-v3-turbo.bin"),
@@ -1780,7 +1780,7 @@ final class HebrewIvritSupportTests: XCTestCase {
         XCTAssertNil(SettingsDownloadableModels.preferredLanguage(forFilename: "does-not-exist.bin"))
     }
 
-    // MARK: Task 5 — conditional model visibility
+    // MARK: Task 5 - conditional model visibility
     private func makeLanguageModel(downloaded: Bool) -> SettingsDownloadableModel {
         SettingsDownloadableModel(
             name: "Turbo V3 Hebrew", isDownloaded: downloaded,
@@ -1817,7 +1817,7 @@ final class HebrewIvritSupportTests: XCTestCase {
         XCTAssertTrue(SettingsDownloadableModels.isVisible(model, selectedLanguage: "en", systemLanguage: "en"))
     }
 
-    // MARK: Task 6 — Hugging Face page URL
+    // MARK: Task 6 - Hugging Face page URL
     func testHuggingFacePageURLForIvritModel() {
         let ivrit = SettingsDownloadableModels.availableModels.first {
             $0.filename == "ggml-ivrit-large-v3-turbo.bin"

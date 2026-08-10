@@ -185,7 +185,7 @@ class ShortcutManager {
             if self.activeVm == nil {
                 // Start recording immediately: resolving the caret position talks to
                 // the focused app via AX IPC and can hang for seconds if that app
-                // is busy — the first words must not be lost because of it.
+                // is busy - the first words must not be lost because of it.
                 let vm = IndicatorWindowManager.shared.prepare()
                 vm.startRecording()
                 self.activeVm = vm
@@ -213,7 +213,7 @@ class ShortcutManager {
     }
 
     /// Resolves the input anchor without letting a slow focused app delay the
-    /// indicator: whichever finishes first wins — the AX resolution or the
+    /// indicator: whichever finishes first wins - the AX resolution or the
     /// deadline. On timeout the caller falls back to the mouse position; the
     /// late AX result is simply discarded.
     private static func resolveAnchorPoint(timeoutNanoseconds: UInt64) async -> NSPoint? {
