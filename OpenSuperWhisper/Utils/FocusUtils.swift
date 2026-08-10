@@ -59,7 +59,7 @@ class FocusUtils {
         
         let rangeValue = textRange as! AXValue
         
-        // Границы самого диапазона каретки (пустого) — работает в большинстве приложений
+        // Границы самого диапазона каретки (пустого) - работает в большинстве приложений
         if let rect = boundsForRange(element, rangeValue), isValidCaretRect(rect) {
             return rect
         }
@@ -71,12 +71,12 @@ class FocusUtils {
         guard AXValueGetValue(rangeValue, .cfRange, &selectedRange) else { return nil }
         
         if let rect = boundsForCharacter(element, at: selectedRange.location) {
-            // Каретка стоит перед этим символом — его левый край и есть позиция ввода.
+            // Каретка стоит перед этим символом - его левый край и есть позиция ввода.
             return CGRect(x: rect.minX, y: rect.minY, width: 0, height: rect.height)
         }
         if selectedRange.location > 0,
            let rect = boundsForCharacter(element, at: selectedRange.location - 1) {
-            // Каретка стоит после этого символа — позиция ввода у его правого края.
+            // Каретка стоит после этого символа - позиция ввода у его правого края.
             return CGRect(x: rect.maxX, y: rect.minY, width: 0, height: rect.height)
         }
         
@@ -104,7 +104,7 @@ class FocusUtils {
         return (boundsValue as! AXValue).toCGRect()
     }
     
-    /// Frame of the focused UI element (AX coordinates) — where input will go
+    /// Frame of the focused UI element (AX coordinates) - where input will go
     /// when the exact caret position is not available.
     static func getElementFrame(for element: AXUIElement) -> CGRect? {
         var positionValue: CFTypeRef?
@@ -130,7 +130,7 @@ class FocusUtils {
     
     /// Anchor point (Cocoa coordinates) for the recording indicator:
     /// the exact caret position when the app reports it, otherwise the top
-    /// center of the focused UI element — the place where input will happen.
+    /// center of the focused UI element - the place where input will happen.
     /// Returns nil when neither can be trusted.
     static func getInputAnchorPoint() -> NSPoint? {
         guard let primaryScreen = NSScreen.screens.first else { return nil }
@@ -168,12 +168,12 @@ class FocusUtils {
     
     static func validatedCaretPoint(fromAXRect rect: CGRect, primaryScreenMaxY: CGFloat, screenFrames: [CGRect]) -> NSPoint? {
         guard isValidCaretRect(rect) else {
-            print("Каретка имеет нулевые границы — позиция невалидна")
+            print("Каретка имеет нулевые границы - позиция невалидна")
             return nil
         }
         let point = convertAXPointToCocoa(rect.origin, primaryScreenMaxY: primaryScreenMaxY)
         guard frameIndex(containing: point, frames: screenFrames) != nil else {
-            print("Позиция каретки \(point) вне всех экранов — позиция невалидна")
+            print("Позиция каретки \(point) вне всех экранов - позиция невалидна")
             return nil
         }
         return point
@@ -182,7 +182,7 @@ class FocusUtils {
     /// Many apps report .success for kAXBoundsForRangeParameterizedAttribute
     /// with a degenerate rect when the real bounds are unknown: all zeros
     /// (Chrome/Electron, empty fields) or a zero-size rect pinned to a screen
-    /// edge — Terminal.app returns x:0 y:<screen height> w:0 h:0, which maps
+    /// edge - Terminal.app returns x:0 y:<screen height> w:0 h:0, which maps
     /// exactly to the bottom-left corner. A real caret always has a line
     /// height (width may be 0 for a collapsed caret), so a rect without
     /// height is garbage regardless of its position.

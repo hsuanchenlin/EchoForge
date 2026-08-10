@@ -13,12 +13,21 @@ enum UpdateState: Equatable {
     case upToDate
     case available(PublishedRelease)
     case downloading(PublishedRelease, fraction: Double)
+    /// The bytes are down and the disk image is being mounted, checked and
+    /// copied. Its own state because it is the one stretch with no fraction to
+    /// report: a bar left sitting at 100% is indistinguishable from the stalled
+    /// download the watchdog now catches, and this says which one it is.
+    case verifying(PublishedRelease)
     case readyToInstall(PublishedRelease, stagedApp: URL)
     /// The swap script has been launched and the app is on its way out. A state
     /// of its own because it is the one moment the staged bundle must *not* be
     /// discarded: it belongs to the detached script from here on.
     case installing(PublishedRelease, stagedApp: URL)
-    case failed(String)
+    /// `retryable` is the release the failure was about, when there is one to
+    /// offer again. A failed *check* has none - "Check for Updates" is already
+    /// on screen - but a failed download does, and having to reopen the pane to
+    /// get back to it is how a transient network fault reads as a dead end.
+    case failed(String, retryable: PublishedRelease?)
 }
 
 /// How the app is asked to go away so the swap script can replace its bundle.
@@ -103,6 +112,9 @@ final class UpdateViewModel: ObservableObject {
     private let installer: UpdateInstaller
     private let fileManager: FileManager
     private let terminator: AppTerminating
+    /// The in-flight download, kept only so the user can call it off. Cancelling
+    /// it cancels the `URLSession` task with it.
+    private var downloadTask: Task<Void, Never>?
 
     init(identity: AppBuildIdentity = .current(),
          checker: UpdateChecker? = nil,
@@ -118,7 +130,7 @@ final class UpdateViewModel: ObservableObject {
 
     var isBusy: Bool {
         switch state {
-        case .checking, .downloading, .installing: return true
+        case .checking, .downloading, .verifying, .installing: return true
         case .idle, .upToDate, .available, .readyToInstall, .failed: return false
         }
     }
@@ -135,7 +147,7 @@ final class UpdateViewModel: ObservableObject {
                     state = .available(release)
                 }
             } catch {
-                state = .failed(error.localizedDescription)
+                state = .failed(error.localizedDescription, retryable: nil)
             }
         }
     }
@@ -144,24 +156,62 @@ final class UpdateViewModel: ObservableObject {
     /// has been replaced, so a user who changes their mind at this point simply
     /// does not press the second button.
     ///
-    /// `session` defaults to `.shared`, matching `UpdateInstaller`'s own
-    /// default; overriding it is a test seam, not something production code has
-    /// a reason to do.
-    func download(_ release: PublishedRelease, session: URLSession = .shared) {
+    /// A failure here always names the release it was about, so the pane can
+    /// offer it again: the commonest reason to land in `.failed` is a network
+    /// that went quiet, and the answer to that is one press, not a reopened pane
+    /// and another check.
+    ///
+    /// `settings` carries the session and the stall interval and defaults to the
+    /// shipped ones; overriding it is a test seam, not something production code
+    /// has a reason to do.
+    func download(_ release: PublishedRelease, settings: UpdateDownloadSettings = UpdateDownloadSettings()) {
         guard !isBusy else { return }
         state = .downloading(release, fraction: 0)
-        Task {
+        downloadTask = Task { [weak self] in
             do {
-                let staged = try await installer.downloadAndVerify(release, session: session) { fraction in
+                guard let installer = self?.installer else { return }
+                let staged = try await installer.downloadAndVerify(release, settings: settings) { progress in
                     Task { @MainActor [weak self] in
-                        guard let self, case .downloading = self.state else { return }
-                        self.state = .downloading(release, fraction: fraction)
+                        self?.report(progress, for: release)
                     }
                 }
-                state = .readyToInstall(release, stagedApp: staged)
+                guard let self else { return }
+                // Cancelled while the last of the verification ran: the bundle
+                // was staged for a decision nobody is waiting on any more, so it
+                // is discarded here rather than left beside the app.
+                guard !Task.isCancelled else { return self.discardStagedBundle(staged) }
+                self.state = .readyToInstall(release, stagedApp: staged)
             } catch {
-                state = .failed(error.localizedDescription)
+                guard let self, !Task.isCancelled else { return }
+                self.state = .failed(error.localizedDescription, retryable: release)
             }
+        }
+    }
+
+    /// Calls off an in-flight download and puts the offer back.
+    ///
+    /// Only a download is cancellable. Once the bytes are down, verification is
+    /// a short run of `hdiutil`, `codesign` and `ditto` that has to reach its own
+    /// `defer` to unmount the image, so it is left to finish rather than torn
+    /// down half way.
+    func cancelDownload() {
+        guard case .downloading(let release, _) = state else { return }
+        downloadTask?.cancel()
+        downloadTask = nil
+        state = .available(release)
+    }
+
+    /// Moves the pane along with a download that is still the one it is showing.
+    /// A report from a cancelled or superseded download arrives on the main
+    /// actor after the state has already moved on, and must not pull it back.
+    private func report(_ progress: UpdateProgress, for release: PublishedRelease) {
+        switch (state, progress) {
+        case (.downloading, .downloading(let fraction)):
+            state = .downloading(release, fraction: fraction)
+        case (.downloading, .verifying):
+            state = .verifying(release)
+        default:
+            break
         }
     }
 
@@ -178,7 +228,7 @@ final class UpdateViewModel: ObservableObject {
         do {
             try installer.installAndRelaunch(stagedApp: stagedApp)
         } catch {
-            state = .failed(error.localizedDescription)
+            state = .failed(error.localizedDescription, retryable: release)
             return
         }
         terminator.terminate()
@@ -291,12 +341,23 @@ struct AboutSettingsView: View {
                 }
 
             case .downloading(let release, let fraction):
-                Text("Downloading \(release.version.description) — \(Int((fraction * 100).rounded()))%")
+                Text("Downloading \(release.version.description) - \(Int((fraction * 100).rounded()))%")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 ProgressView(value: fraction)
                     .progressViewStyle(LinearProgressViewStyle())
                     .frame(height: 6)
+                Button("Cancel") { viewModel.cancelDownload() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+            case .verifying(let release):
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Verifying \(release.version.description)…")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
 
             case .readyToInstall(let release, let stagedApp):
                 statusLine(
@@ -327,11 +388,18 @@ struct AboutSettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-            case .failed(let message):
+            case .failed(let message, let retryable):
                 statusLine(icon: "exclamationmark.triangle.fill", color: .orange, text: message)
-                Button("Dismiss") { viewModel.dismissMessage() }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                HStack {
+                    if let retryable {
+                        Button("Retry") { viewModel.download(retryable) }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                    }
+                    Button("Dismiss") { viewModel.dismissMessage() }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
             }
         }
         .padding()

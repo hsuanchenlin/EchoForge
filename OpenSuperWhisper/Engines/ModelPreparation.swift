@@ -83,7 +83,7 @@ struct ModelPreparation: Equatable {
     var statusLine: String {
         switch stage {
         case .downloading(let fraction):
-            return "Downloading \(modelName) — \(Int((fraction * 100).rounded()))%"
+            return "Downloading \(modelName) - \(Int((fraction * 100).rounded()))%"
         case .preparing:
             return "\(ModelPreparationStage.preparingMessage) (\(modelName))"
         }

@@ -99,7 +99,7 @@ class SettingsViewModel: ObservableObject {
 
     /// User-initiated model selection. Persists the model and, if the model declares a
     /// preferred language (e.g. the ivrit.ai Hebrew model), switches the language to it.
-    /// Do not call from init/restore — only in response to an explicit user action.
+    /// Do not call from init/restore - only in response to an explicit user action.
     func selectModel(_ url: URL) {
         selectedModelURL = url
         if let lang = SettingsDownloadableModels.preferredLanguage(forFilename: url.lastPathComponent),
@@ -1544,7 +1544,7 @@ struct SettingsView: View {
                                 .cornerRadius(8)
 
                                 permissionWarning(
-                                    message: "⚠️ This mode requires Input Monitoring permission. macOS requires this to detect single modifier key presses globally. Only modifier key events (⌘, ⌥, ⇧, ⌃, Fn) are monitored — no regular keystrokes are captured.",
+                                    message: "⚠️ This mode requires Input Monitoring permission. macOS requires this to detect single modifier key presses globally. Only modifier key events (⌘, ⌥, ⇧, ⌃, Fn) are monitored - no regular keystrokes are captured.",
                                     isGranted: permissionsManager.isInputMonitoringPermissionGranted
                                 ) {
                                     permissionsManager.requestInputMonitoringPermissionOrOpenSystemPreferences()
@@ -1569,12 +1569,12 @@ struct SettingsView: View {
                                 .background(Color(.textBackgroundColor).opacity(0.5))
                                 .cornerRadius(8)
 
-                                Text("Click to toggle recording, or hold when Hold to Record is on. The left and right buttons are reserved — pick the middle or an extra (thumb) button.")
+                                Text("Click to toggle recording, or hold when Hold to Record is on. The left and right buttons are reserved - pick the middle or an extra (thumb) button.")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
 
                                 permissionWarning(
-                                    message: "⚠️ This mode requires Accessibility permission so the button can be detected globally and used only as a recording trigger. Only the selected mouse button is intercepted — no other clicks or keystrokes are captured.",
+                                    message: "⚠️ This mode requires Accessibility permission so the button can be detected globally and used only as a recording trigger. Only the selected mouse button is intercepted - no other clicks or keystrokes are captured.",
                                     isGranted: permissionsManager.isAccessibilityPermissionGranted
                                 ) {
                                     permissionsManager.requestAccessibilityPermissionOrOpenSystemPreferences()
@@ -2169,7 +2169,7 @@ struct EngineModelSectionView: View {
             }
             // The percentage is the point of showing it at all: without one this
             // row said "Downloading 240 MB…" for four minutes and never moved.
-            return "Downloading \(formatModelSize(megabytes: download.megabytes)) — "
+            return "Downloading \(formatModelSize(megabytes: download.megabytes)) - "
                 + "\(Int((determinateFraction * 100).rounded()))%"
         }
         if isDownloaded {

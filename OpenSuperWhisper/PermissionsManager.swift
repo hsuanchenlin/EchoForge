@@ -72,7 +72,7 @@ class PermissionsManager: ObservableObject {
     }
 
     // TCC status queries (AVCaptureDevice.authorizationStatus, IOHIDCheckAccess)
-    // are synchronous XPC round-trips to tccd taking 40-100 ms — they must
+    // are synchronous XPC round-trips to tccd taking 40-100 ms - they must
     // never run on the main thread (traces showed them dropping animation
     // frames every second while the polling timer was active).
     private let checkQueue = DispatchQueue(label: "com.opensuperwhisper.permissions", qos: .utility)
@@ -134,7 +134,7 @@ class PermissionsManager: ObservableObject {
     ///    the background, at the moment of the grant.
     /// 2. The app becoming active again, which is what "returned from System
     ///    Settings" actually looks like. This is the backstop, and unlike the
-    ///    idle poll below it does not depend on any window becoming key — an app
+    ///    idle poll below it does not depend on any window becoming key - an app
     ///    reactivated into a closed, hidden or menu-bar-only state gets no
     ///    `didBecomeKey`, and used to sit on the permission screen forever.
     ///

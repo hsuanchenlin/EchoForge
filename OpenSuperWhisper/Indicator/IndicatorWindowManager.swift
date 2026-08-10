@@ -56,7 +56,7 @@ class IndicatorWindowManager: IndicatorViewDelegate {
         }
 
         // Prefer the screen containing the point, then the screen of the window
-        // with input focus (NSScreen.main is useless for a background app — it
+        // with input focus (NSScreen.main is useless for a background app - it
         // degenerates to the primary screen). A point outside every screen
         // cannot be trusted for positioning and is ignored.
         let pointScreen = point.flatMap { FocusUtils.screenContaining(point: $0) }
@@ -64,7 +64,7 @@ class IndicatorWindowManager: IndicatorViewDelegate {
         let anchorPoint = pointScreen != nil ? point : nil
         
         // Never show the window without positioning it: an unpositioned panel
-        // appears at its default origin (0,0) — the bottom-left corner.
+        // appears at its default origin (0,0) - the bottom-left corner.
         guard let screen = targetScreen else { return }
         
         // Normally prepared in prepare(); recreate only if hide() tore it down.
@@ -142,7 +142,7 @@ class IndicatorWindowManager: IndicatorViewDelegate {
     }
     
     /// Scaled down around the card center and pushed down towards the caret,
-    /// so the appear animation rises bottom-up — the same start/end state the
+    /// so the appear animation rises bottom-up - the same start/end state the
     /// SwiftUI animation used. The layer transform works in Core Animation
     /// coordinates, which on macOS have +y pointing up regardless of the
     /// view's flippedness, so "down" is a negative y translation.
@@ -251,7 +251,7 @@ class IndicatorWindowManager: IndicatorViewDelegate {
             let hostingView = NSHostingView(rootView: IndicatorWindow(viewModel: presentedViewModel))
             // Never let SwiftUI's ideal size drive the window frame: with the
             // default sizingOptions the hosting view shrinks the panel down to
-            // the card size, and the window bounds then clip the animation —
+            // the card size, and the window bounds then clip the animation -
             // the downward offset, the spring bounce overshoot and the shadow.
             hostingView.sizingOptions = []
             // The appear/hide springs animate this view's layer directly.

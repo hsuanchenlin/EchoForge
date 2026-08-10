@@ -15,15 +15,15 @@ instead of replacing it.
 
 - 🎙️ Real-time audio recording and transcription
 - 🧠 Four transcription engines: [Whisper](https://github.com/ggerganov/whisper.cpp), [Parakeet](https://github.com/AntinomyCollective/FluidAudio), [SenseVoice-Small](docs/speech-model-attribution.md#sensevoice-small), and [Paraformer-large (zh)](docs/speech-model-attribution.md#paraformer-large-zh) - download models directly from the app
-- ⌨️ Global keyboard shortcuts — key combination or single modifier key (e.g. Left ⌘, Right ⌥, Fn)
-- 🖱️ Mouse button trigger — bind the middle or an extra (thumb) mouse button to start/stop recording
-- ✊ Hold-to-record mode — hold the shortcut, modifier key or mouse button to record, release to stop
+- ⌨️ Global keyboard shortcuts - key combination or single modifier key (e.g. Left ⌘, Right ⌥, Fn)
+- 🖱️ Mouse button trigger - bind the middle or an extra (thumb) mouse button to start/stop recording
+- ✊ Hold-to-record mode - hold the shortcut, modifier key or mouse button to record, release to stop
 - 📁 Drag & drop audio files for transcription with queue processing
-- 🎤 Microphone selection — switch between built-in, external, Bluetooth and iPhone (Apple Continuity) mics from the menu bar
+- 🎤 Microphone selection - switch between built-in, external, Bluetooth and iPhone (Apple Continuity) mics from the menu bar
 - 🌍 Support for multiple languages with auto-detection
 - 🇯🇵🇨🇳🇰🇷 Asian language autocorrect ([autocorrect](https://github.com/huacnlee/autocorrect))
 - 📖 Personal terms dictionary for deterministic replacements, preferred spellings, names, and protected text
-- ✨ Optional style rewriting — turn what you dictated into formal, concise, bulleted or casual writing, or write your own prompt. Runs on device (macOS 26 with Apple Intelligence), off by default, and always keeps the original transcript ([details](docs/style-rewriting.md))
+- ✨ Optional style rewriting - turn what you dictated into formal, concise, bulleted or casual writing, or write your own prompt. Runs on device (macOS 26 with Apple Intelligence), off by default, and always keeps the original transcript ([details](docs/style-rewriting.md))
 - 🎯 Optional app-aware style - let the app you dictate into pick the rewriting style: chat apps get casual, mail gets formal, code editors get grammar polish, with per-app rules on top. Reads only the frontmost app's bundle identifier - never window titles or web addresses. Off by default ([details](docs/app-aware-style.md))
 - 💊 Optional floating capsule HUD - a pill at the top of the screen with live input level, duration and progress, shown instead of the card beside the cursor. Off by default ([details](docs/capsule-hud.md))
 - ❓ Ask panel - press ⌥A (configurable) and speak or type a question; a floating card answers it on device (macOS 26 with Apple Intelligence) and can copy the answer or insert it into the app you were using ([details](docs/ask-panel.md))
@@ -111,4 +111,4 @@ You can download Whisper model files (`.bin`) from the [Whisper.cpp Hugging Face
 
 ### Hebrew (ivrit.ai)
 
-For Hebrew transcription, download the **"Turbo V3 Hebrew"** model from Settings → Model. It is [ivrit.ai](https://www.ivrit.ai/)'s Hebrew fine-tune of `whisper-large-v3-turbo` ([whisper-large-v3-turbo-ggml](https://huggingface.co/ivrit-ai/whisper-large-v3-turbo-ggml)) — the same base model as the other "Turbo V3" entries, but tuned for Hebrew. Selecting it automatically sets the input language to Hebrew, which these models require to be set explicitly.
+For Hebrew transcription, download the **"Turbo V3 Hebrew"** model from Settings → Model. It is [ivrit.ai](https://www.ivrit.ai/)'s Hebrew fine-tune of `whisper-large-v3-turbo` ([whisper-large-v3-turbo-ggml](https://huggingface.co/ivrit-ai/whisper-large-v3-turbo-ggml)) - the same base model as the other "Turbo V3" entries, but tuned for Hebrew. Selecting it automatically sets the input language to Hebrew, which these models require to be set explicitly.

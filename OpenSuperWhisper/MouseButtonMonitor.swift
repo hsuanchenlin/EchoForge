@@ -96,7 +96,7 @@ class MouseButtonMonitor {
                 }
 
                 if monitor.handleMouseEvent(type: type, event: event) {
-                    // Matched the bound button — consume the event.
+                    // Matched the bound button - consume the event.
                     return nil
                 }
                 return Unmanaged.passUnretained(event)

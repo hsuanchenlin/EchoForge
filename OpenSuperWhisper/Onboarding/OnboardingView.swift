@@ -88,7 +88,7 @@ class OnboardingViewModel: ObservableObject {
         
         let currentHotkey = ModifierKey(rawValue: AppPreferences.shared.modifierOnlyHotkey) ?? .none
         if currentHotkey == .none && !AppPreferences.shared.hasCompletedOnboarding {
-            // Default to key combination mode — does NOT require Input Monitoring permission.
+            // Default to key combination mode - does NOT require Input Monitoring permission.
             // Users can switch to single modifier key mode later in Settings if they prefer.
             self.selectedShortcut = .keyCombination
             AppPreferences.shared.modifierOnlyHotkey = ModifierKey.none.rawValue
@@ -569,7 +569,7 @@ struct OnboardingView: View {
                         }
                         
                         if viewModel.selectedShortcut == .rightOption {
-                            Text("⚠️ Single modifier key mode requires Input Monitoring permission (macOS needs it to detect modifier keys globally). Only modifier key events are monitored — no regular keystrokes.")
+                            Text("⚠️ Single modifier key mode requires Input Monitoring permission (macOS needs it to detect modifier keys globally). Only modifier key events are monitored - no regular keystrokes.")
                                 .font(.caption2)
                                 .foregroundColor(.orange)
                         }
