@@ -199,10 +199,13 @@ is no background update check and nothing installs automatically.
 
 When an update is offered you see its release notes and download size first. If you take it,
 EchoForge downloads the DMG from this repository's GitHub releases - and only from there -
-then checks that what arrived really is EchoForge, really is the version it offered, and
-passes signature verification, before it will replace anything. Anything that does not check
-out is discarded with a reason rather than installed. Installing quits the app, swaps it, and
-opens it again.
+showing how much of it has arrived, the current speed, and the time remaining. A download
+that fails or is cancelled keeps what it got: retrying continues from where it stopped
+instead of starting over. Before anything is replaced, EchoForge checks that what arrived
+really is EchoForge, really is the version it offered, matches the checksum the release
+published (releases since v0.5.2 publish one), and passes signature verification. Anything
+that does not check out is discarded with a reason rather than installed. Installing quits
+the app, swaps it, and opens it again.
 
 These builds are signed **ad-hoc** and are not notarized (this fork has no Developer ID
 certificate), so that signature check proves the download was not modified after it was built,

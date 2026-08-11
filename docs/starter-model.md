@@ -13,8 +13,9 @@ immediately instead of waiting on a 240 MB download and a minute of Neural Engin
 before its first word.
 
 The weights are **never committed to this repository**. They are a build input: the release
-operator stages them once, and the build packages whatever is staged. A checkout without them
-builds and runs exactly as before - which is what CI does on every push.
+operator stages them once, and a build asked to bundle them (`ECHOFORGE_BUNDLE_STARTER_MODEL=1`)
+packages whatever is staged. A checkout without them builds and runs exactly as before - which
+is what CI does on every push.
 
 ## What ships
 
@@ -57,6 +58,8 @@ Set `STARTER_MODEL_DIR` to stage somewhere else, e.g. a shared release machine.
 The app target has a `Package Starter Model` run-script phase that calls
 `Scripts/package_starter_model.sh`. It:
 
+- packages only when asked: without `ECHOFORGE_BUNDLE_STARTER_MODEL=1` it prints a note,
+  removes any stale copy, and leaves the build thin;
 - copies `StarterModel/<cache folder>/` into `EchoForge.app/Contents/Resources/StarterModel/`;
 - **fails the build** if the staging directory exists but is incomplete, because a build that
   claims to ship a starter model and cannot load it is worse than one that ships none;
@@ -86,11 +89,12 @@ background. It is never *persisted* as the user's choice - see `EngineSelection`
 
 ## Releasing with it
 
-`docs/release_build.md` covers the release itself. The only extra step is staging the artifact
-before building, and verifying it landed:
+`docs/release_build.md` covers the release itself. The extra steps are staging the artifact and
+building with `ECHOFORGE_BUNDLE_STARTER_MODEL=1`, which also flips the release verifier from
+`--forbid-starter-model` to `--require-starter-model`. Check it landed:
 
 ```
 ls "EchoForge.app/Contents/Resources/StarterModel/sensevoice-small"
 ```
 
-A release built without staging is still a valid release; it just downloads on first use.
+A release built without it is the ordinary thin release; the app downloads a model on first use.
