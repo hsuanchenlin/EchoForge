@@ -129,11 +129,12 @@ enum ModelPackManifest {
         }
     }
 
-    /// The pack list this build ships, or an empty list when it ships none.
+    /// The pack list this build ships, filtered to what this build may install.
     ///
-    /// Empty is the normal state until packs are actually published: the app
-    /// then downloads weights exactly as it did before, so shipping this code
-    /// changes nothing until a release publishes the assets to go with it.
+    /// Empty is a working state, not a broken one: an engine with no pack - or a
+    /// build older than a pack's `minimumAppVersion` - downloads weights exactly
+    /// as it did before, which is why a packaging mistake below falls back
+    /// rather than failing.
     static func bundled(in bundle: Bundle = .main, appVersion: AppVersion? = AppBuildIdentity.current().version) -> [ModelPack] {
         guard let url = bundle.url(forResource: bundledResourceName, withExtension: "json"),
             let data = try? Data(contentsOf: url)

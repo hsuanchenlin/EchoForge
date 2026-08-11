@@ -33,11 +33,13 @@ enum ModelPackInstallError: LocalizedError, Equatable {
 
 /// Which pack, if any, provides an engine's weights.
 ///
-/// Answers `nil` for every engine until packs are actually published, and that
-/// is the point: an empty `ModelPacks.json` leaves the app downloading weights
-/// the way it always did, so publishing the assets is what switches an engine
-/// over and nothing else. `EngineWeightsPreparation` is the one production
-/// caller - every path that fetches weights goes through it.
+/// Answers `nil` for every engine `ModelPacks.json` does not list, and that is
+/// the point: an unlisted engine downloads weights the way it always did, so
+/// publishing the asset and naming it there is what switches an engine over and
+/// nothing else. SenseVoice is listed; every other engine is not, and Paraformer
+/// cannot be until `docs/speech-model-attribution.md` says so.
+/// `EngineWeightsPreparation` is the one production caller - every path that
+/// fetches weights goes through it.
 enum ModelPackCatalog {
     static func pack(for engine: EngineKind, in packs: [ModelPack] = ModelPackManifest.bundled()) -> ModelPack? {
         packs.first { $0.engine == engine }
