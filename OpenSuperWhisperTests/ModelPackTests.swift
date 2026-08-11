@@ -90,6 +90,26 @@ final class ModelPackManifestTests: XCTestCase {
         }
     }
 
+    /// Publishing a pack is redistribution, and
+    /// `docs/speech-model-attribution.md` grants it for exactly one model -
+    /// SenseVoiceSmall - and says no other may be published as a pack until the
+    /// same paragraph is written for it. That is a licence position, so it is a
+    /// refusal rather than something to be remembered: a Paraformer pack cannot
+    /// be listed by editing one JSON file.
+    func testRefusesAnEngineThisProjectDoesNotPublishWeightsFor() {
+        for engine in EngineKind.allCases where engine != .sensevoice {
+            XCTAssertThrowsError(try ModelPackManifest.parse(document(engine: engine.rawValue)), engine.rawValue) {
+                error in
+                XCTAssertEqual(
+                    error as? ModelPackManifestError,
+                    .engineNotClearedForRedistribution(engine.rawValue),
+                    "\(engine.rawValue) has no written redistribution position, so no pack may name it"
+                )
+            }
+        }
+        XCTAssertEqual(ModelPackManifest.enginesClearedForRedistribution, [.sensevoice])
+    }
+
     func testRefusesAnImplausibleSize() {
         XCTAssertThrowsError(try ModelPackManifest.parse(document(bytes: 0)))
         XCTAssertThrowsError(try ModelPackManifest.parse(document(bytes: 5_000_000_000)))
@@ -104,7 +124,8 @@ final class ModelPackManifestTests: XCTestCase {
     func testEveryRefusalCarriesAReadableReason() {
         let errors: [ModelPackManifestError] = [
             .malformedDocument, .unsupportedSchema(2), .incompletePack("x"), .unknownEngine("x"),
-            .unsafeEntry("x"), .untrustedHost("x"), .badChecksum("x"),
+            .engineNotClearedForRedistribution("x"), .unsafeEntry("x"), .untrustedHost("x"),
+            .badChecksum("x"),
         ]
         for error in errors {
             XCTAssertFalse(error.errorDescription?.isEmpty ?? true, "\(error)")
@@ -300,7 +321,8 @@ final class ModelPackInstallerTests: XCTestCase {
     }
 
     /// Nothing in the app depends on a pack existing, so no pack is offered
-    /// until one is published.
+    /// until one is published. `EngineWeightsPreparationTests` covers what the
+    /// production path does with the answer either way.
     func testNoPackIsOfferedUntilOneIsPublished() {
         XCTAssertNil(ModelPackCatalog.pack(for: .sensevoice, in: []))
     }

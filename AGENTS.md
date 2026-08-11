@@ -206,11 +206,20 @@ changed, 94% of the bundle identical). Weights now arrive as a **model pack**: o
 directory as a versioned, SHA-256'd `.tar.gz` published as a release asset, installed by
 `ModelPackInstaller` into the directory the engine already downloads into, so an installed pack is
 indistinguishable from a finished download. `ModelPackManifest` is its security boundary and refuses
-the same way `UpdateManifest` does; `OpenSuperWhisper/ModelPacks.json` is the shipped list and is
-**empty until packs are published**, which is what keeps the app downloading weights exactly as
-before until one is. The installer has no production caller yet: wiring
-`ModelPackCatalog.pack(for:)` into the model-preparation and onboarding download path must land
-before the first pack is published (`docs/model-packs.md`).
+the same way `UpdateManifest` does - including any engine this project has not written a
+redistribution position for, which is exactly one (`enginesClearedForRedistribution`).
+`OpenSuperWhisper/ModelPacks.json` is the shipped list and is **empty until packs are published**,
+which is what keeps the app downloading weights exactly as before until one is; adding an entry is
+the whole switch.
+
+`Engines/EngineWeightsPreparation.swift` is the one place "make this engine's weights ready" turns
+into fetched bytes, and all three paths that fetch weights go through it - background preparation,
+Settings and onboarding. None of them may call an engine's `prepareModels` itself; that bypass is
+what a published pack exists to close, and a source scan in `EngineWeightsPreparationTests` fails if
+one appears. `ModelPackSelection` is the pure decision, and refuses a pack whose cache folder or
+entries do not match what the engine loads. A failed pack falls back to the engine's own downloader
+and a cancelled one does not, and the engine's own preparation always runs afterwards because only
+it can pay the Neural Engine compile. `docs/model-packs.md` is the whole story.
 
 The bundled path still exists and is opt-in (`ECHOFORGE_BUNDLE_STARTER_MODEL=1`), for an offline
 install medium and for anyone still running a build that shipped one:

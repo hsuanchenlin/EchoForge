@@ -33,16 +33,31 @@ enum ModelPackInstallError: LocalizedError, Equatable {
 
 /// Which pack, if any, provides an engine's weights.
 ///
-/// Answers `nil` for everything until packs are actually published, and that is
-/// the point: shipping this code changes nothing on its own, and the app goes on
-/// downloading weights the way it always did. Nothing in the app consults this
-/// catalog yet either - the model-preparation download path has to, before the
-/// first pack is published; `docs/model-packs.md` names what remains.
+/// Answers `nil` for every engine until packs are actually published, and that
+/// is the point: an empty `ModelPacks.json` leaves the app downloading weights
+/// the way it always did, so publishing the assets is what switches an engine
+/// over and nothing else. `EngineWeightsPreparation` is the one production
+/// caller - every path that fetches weights goes through it.
 enum ModelPackCatalog {
     static func pack(for engine: EngineKind, in packs: [ModelPack] = ModelPackManifest.bundled()) -> ModelPack? {
         packs.first { $0.engine == engine }
     }
 }
+
+/// Installing a pack, behind a protocol.
+///
+/// It exists so `EngineWeightsPreparation` - which decides *whether* a pack is
+/// used at all, and what happens when one fails - can be driven without a
+/// network and without several hundred megabytes of anyone's bandwidth.
+/// `ModelPackInstaller` is the only production conformer.
+protocol ModelPackInstalling {
+    func install(
+        _ pack: ModelPack,
+        progress: @escaping @Sendable (DownloadProgress) -> Void
+    ) async throws -> ModelPackInstallOutcome
+}
+
+extension ModelPackInstaller: ModelPackInstalling {}
 
 /// Installs a model pack into the cache the engine already loads from.
 ///

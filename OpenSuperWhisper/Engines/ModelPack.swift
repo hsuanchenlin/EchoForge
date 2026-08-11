@@ -58,6 +58,7 @@ enum ModelPackManifestError: LocalizedError, Equatable {
     case unsupportedSchema(Int)
     case incompletePack(String)
     case unknownEngine(String)
+    case engineNotClearedForRedistribution(String)
     case unsafeEntry(String)
     case untrustedHost(String)
     case badChecksum(String)
@@ -72,6 +73,8 @@ enum ModelPackManifestError: LocalizedError, Equatable {
             return "The model pack \(id) is missing something it needs."
         case .unknownEngine(let engine):
             return "The model pack names an engine this build does not have (\(engine))."
+        case .engineNotClearedForRedistribution(let engine):
+            return "EchoForge does not publish weights for \(engine)."
         case .unsafeEntry(let entry):
             return "The model pack names a file it is not allowed to write (\(entry))."
         case .untrustedHost(let host):
@@ -165,6 +168,9 @@ enum ModelPackManifest {
         guard let engine = EngineKind(rawValue: engineName) else {
             throw ModelPackManifestError.unknownEngine(engineName)
         }
+        guard enginesClearedForRedistribution.contains(engine) else {
+            throw ModelPackManifestError.engineNotClearedForRedistribution(engineName)
+        }
         // Every name is written into a directory, so every name has to be one
         // path component and nothing clever. This is the check that stops a
         // pack from writing outside the cache it was given.
@@ -195,6 +201,23 @@ enum ModelPackManifest {
             minimumAppVersion: (document["minimumAppVersion"] as? String).flatMap(AppVersion.init)
         )
     }
+
+    /// The engines whose weights this project has actually written down a
+    /// position on redistributing.
+    ///
+    /// Publishing a pack *is* redistribution, and the CoreML conversions the app
+    /// fetches assert no licence of their own - so it is a claim that has to be
+    /// justified per model rather than taken as the default.
+    /// `docs/speech-model-attribution.md` justifies exactly one: SenseVoiceSmall,
+    /// under the FunASR Model Open Source License v1.1, and says in as many words
+    /// that no other model may be published as a pack until the same paragraph is
+    /// written for it. Paraformer in particular is still download-only.
+    ///
+    /// That sentence is a licence position, so it is a refusal here rather than
+    /// something to be remembered: a pack for any other engine fails to parse,
+    /// and the whole list with it, until the paragraph exists and this set names
+    /// the engine. `ModelPackManifestTests` pins it.
+    static let enginesClearedForRedistribution: Set<EngineKind> = [.sensevoice]
 
     /// Far above the largest model the app offers (Paraformer, ~653 MB) and far
     /// below "fill the disk".

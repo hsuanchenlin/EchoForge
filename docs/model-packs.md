@@ -30,7 +30,7 @@ So: the app is thin now, and weights arrive separately.
 |---|---|---|
 | Shipped DMG | ~222 MB | ~11 MB |
 | Weights in the bundle | always | only when `ECHOFORGE_BUNDLE_STARTER_MODEL=1` |
-| Where weights come from | the bundle, or Hugging Face with no digest | the engine's own download today; a **model pack** once the install path is wired in and one is published |
+| Where weights come from | the bundle, or Hugging Face with no digest | a **model pack** when one is published for the engine, else the engine's own download |
 | Integrity of weights | none | SHA-256, on an allow-listed host (packs) |
 
 `Scripts/package_starter_model.sh` still exists and still works; it just does nothing unless asked.
@@ -95,21 +95,48 @@ is written so a fetched document could be handed to it unchanged if that ever be
 
 **It is empty until packs are actually published, and that is the correct state.** With no entries
 `ModelPackCatalog.pack(for:)` answers `nil` and the app downloads weights exactly as it always has.
-Shipping the pack code changes nothing on its own - and publishing assets alone does not switch an
-engine over either, because nothing in the app consults the catalog yet (see below).
+Adding an entry is now the whole switch: the download path consults the catalog, so a listed pack
+is installed and a missing one is not.
 
-## Not wired into the download path yet
+## How the app uses one
 
-`ModelPackCatalog.pack(for:)` and `ModelPackInstaller.install` have **no production caller**. This
-change deliberately shipped the pack format, its security boundary, the installer and the packaging
-script and stopped there: wiring the download path safely needs a published pack to test against.
-Until that wiring lands, publishing a pack and listing it in `ModelPacks.json` changes nothing and
-the app keeps fetching weights through each engine's own downloader.
+`OpenSuperWhisper/Engines/EngineWeightsPreparation.swift` is the one place "make this engine's
+weights ready" turns into fetched bytes, and all three paths that fetch weights go through it:
+background preparation in `TranscriptionService`, the Settings download button, and onboarding.
+None of them calls an engine's `prepareModels` itself - a source scan in
+`EngineWeightsPreparationTests` fails the build if one starts to - because reaching an engine
+directly is exactly the bypass a published pack exists to close.
 
-What remains, and it must land **before the first pack is published**: the model-preparation and
-onboarding download path consults `ModelPackCatalog.pack(for:)` for the engine it is about to
-fetch, installs the pack when one is listed, and falls back to the engine's own downloader
-otherwise.
+```
+prepare(engine)
+  │
+  ├─ ModelPackSelection.of(engine, in: packs, cache: EngineModelCache.of(engine))
+  │     ├─ .install(pack, into: cache) ─→ ModelPackInstaller: allow-listed URL, resumable
+  │     │                                 download, SHA-256, atomic install into the engine's
+  │     │                                 own cache. Already installed → nothing is fetched.
+  │     └─ .downloadThroughEngine(reason) ─→ nothing to install
+  │
+  └─ the engine's own prepareModels(), always
+        With the cache populated this downloads nothing - FluidAudio checks the files exist and
+        goes straight to loading - so a pack turns "download + compile" into "verified download
+        + the same compile". Only the engine can pay the Neural Engine compile.
+```
+
+`ModelPackSelection` is a pure function, so every refusal is assertable without a network. Beyond
+what `ModelPackManifest` already refuses, it declines a pack whose `cacheFolder` is not the folder
+the engine actually loads from (the weights would land where nothing reads them and the download
+would happen anyway), and one whose entries cannot fill the cache on their own (the half-filled
+cache the installer exists to prevent). Both fall back rather than fail.
+
+A pack that fails - checksum, archive, anything - falls back to the engine's own downloader, which
+is the installer's third rule at the call site: bad bytes are discarded and never reach the cache,
+and what runs instead is the download the app would have done had no pack been listed at all. A
+**cancellation** is not a failure and never falls back; otherwise "stop this download" would mean
+"start a different, larger one".
+
+Progress is reported on the scale FluidAudio already uses - bytes fill the first half
+(`downloadShareOfOverallProgress`), the compile the second - so the three surfaces that render it
+did not have to learn a second convention.
 
 ## The rules
 
@@ -122,7 +149,13 @@ from". It refuses:
 - any `entries` name or `cacheFolder` that is not a single path component - this is what stops
   `../../../bin/sh` from being an entry;
 - any engine this build does not have, any schema version it does not understand, any implausible
-  size.
+  size;
+- any engine this project has not written a redistribution position for
+  (`enginesClearedForRedistribution`). Publishing a pack *is* redistribution, and
+  [speech-model-attribution.md](speech-model-attribution.md) grants it for exactly one model -
+  SenseVoiceSmall - and says no other may be published as a pack until the same paragraph is
+  written for it. That is a licence position, so it is a refusal rather than something to be
+  remembered: a Paraformer pack cannot be listed by editing one JSON file.
 
 A pack naming a `minimumAppVersion` newer than this build is left out rather than refused, since one
 document listing packs for several app versions is the normal case.
@@ -151,7 +184,7 @@ survive the swap, so:
 |---|---|
 | Updating user with models | Keeps them. The thin app finds them present and behaves identically. Nothing is downloaded. |
 | Updating user who deleted their cache | Lands in the same first-run model picker a fresh install sees. |
-| Fresh install | Picks a model in onboarding and downloads it through the engine's own downloader. A pack will serve this only once one is published *and* the install path is wired in (see above). |
+| Fresh install | Picks a model in onboarding. Served by a pack once one is published for that engine, otherwise by the engine's own downloader. |
 | Someone still running a bundled build | `StarterModel.installIfNeeded()` is unchanged and still installs from their bundle. It stays until no bundled build is plausibly still running. |
 
 ## See also

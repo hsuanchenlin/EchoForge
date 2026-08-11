@@ -75,7 +75,10 @@ covered by the same analysis. What that changes, and what it does not:
   downloaded and not bundled. `EngineCatalog.provenanceLine` is the single source of that sentence
   and `StarterModelProvenanceTests` asserts both forms, so a build cannot claim the wrong one.
 - **Nothing here extends to any other model.** Bundling a second model, or publishing a pack of
-  any other model, means writing this section for it first.
+  any other model, means writing this section for it first. That is enforced rather than
+  remembered: `ModelPackManifest.enginesClearedForRedistribution` names this one model, and a pack
+  listing any other engine is refused - so it cannot be added by editing `ModelPacks.json` alone.
+  Paraformer in particular remains download-only.
 
 Note also §6 of that licence: it may be revised unilaterally, with effect on publication. The
 version this project relied on is v1.1.
