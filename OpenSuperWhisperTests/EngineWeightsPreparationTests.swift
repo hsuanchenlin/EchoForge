@@ -342,6 +342,52 @@ final class EngineWeightsPreparationTests: XCTestCase {
         XCTAssertEqual(log.entries, [])
     }
 
+    /// The same rule for the other way a cancel surfaces: `URLSession` reports
+    /// a cancelled transfer as `URLError(.cancelled)`, not `CancellationError`,
+    /// and which of the two escapes the stall watchdog first is timing. Both
+    /// must mean "stop" - and callers see one cancellation type either way.
+    func testATransferCancelledThroughURLSessionDoesNotStartADownloadEither() async throws {
+        let log = Log()
+        let preparer = preparation(
+            packs: [try makePack().pack],
+            installer: { _ in URLSessionCancellingInstaller() },
+            log: log
+        )
+
+        do {
+            try await preparer.prepare(.sensevoice, progressHandler: { _ in })
+            XCTFail("a cancelled install must not be reported as success")
+        } catch is CancellationError {
+            // Expected.
+        }
+
+        XCTAssertEqual(log.entries, [])
+    }
+
+    /// And for a cancel that surfaces as neither: a transfer that dies with an
+    /// ordinary error on a task that was already cancelled. The error's type no
+    /// longer decides - the cancellation check before the fallback does.
+    func testAPackFailureOnACancelledTaskDoesNotStartADownload() async throws {
+        let log = Log()
+        let preparer = preparation(
+            packs: [try makePack().pack],
+            installer: { _ in FailingOnceCancelledInstaller() },
+            log: log
+        )
+
+        let task = Task { try await preparer.prepare(.sensevoice, progressHandler: { _ in }) }
+        task.cancel()
+
+        do {
+            try await task.value
+            XCTFail("a cancelled preparation must not be reported as success")
+        } catch is CancellationError {
+            // Expected.
+        }
+
+        XCTAssertEqual(log.entries, [], "a cancelled task must not start a download on its way out")
+    }
+
     /// Pack progress is reported on the scale FluidAudio already uses - bytes
     /// fill the first half, the compile the second - so the three surfaces that
     /// render it do not have to learn a second convention.
@@ -559,5 +605,29 @@ private struct CancellingInstaller: ModelPackInstalling {
         progress: @escaping @Sendable (DownloadProgress) -> Void
     ) async throws -> ModelPackInstallOutcome {
         throw CancellationError()
+    }
+}
+
+private struct URLSessionCancellingInstaller: ModelPackInstalling {
+    func install(
+        _ pack: ModelPack,
+        progress: @escaping @Sendable (DownloadProgress) -> Void
+    ) async throws -> ModelPackInstallOutcome {
+        throw URLError(.cancelled)
+    }
+}
+
+/// Waits until the surrounding task is cancelled, then throws the kind of
+/// ordinary error a dying transfer produces - the case where the error's type
+/// says nothing about the cancellation.
+private struct FailingOnceCancelledInstaller: ModelPackInstalling {
+    func install(
+        _ pack: ModelPack,
+        progress: @escaping @Sendable (DownloadProgress) -> Void
+    ) async throws -> ModelPackInstallOutcome {
+        while !Task.isCancelled {
+            await Task.yield()
+        }
+        throw ModelPackInstallError.archiveCouldNotBeRead("the connection died mid-transfer")
     }
 }

@@ -153,7 +153,12 @@ enum ModelPackSelection: Equatable {
 ///   fallback weakens nothing that was not already the status quo.
 /// - **A cancellation is not a failure.** The user asked for it to stop, so it
 ///   stops; falling back would turn "cancel" into "start a different, larger
-///   download".
+///   download". A cancelled transfer does not surface as one error type:
+///   `URLSession` reports its cancelled task as `URLError(.cancelled)` while
+///   the stall watchdog's poll throws `CancellationError`, and which escapes
+///   the task group first is timing. `prepare` reads both as cancellation and
+///   checks once more before any download starts, so the rule holds by
+///   construction rather than by winning that race.
 struct EngineWeightsPreparation {
     /// How an engine fetches its own weights. Injected so the decision above can
     /// be driven in a test without several hundred megabytes of anyone's
@@ -202,12 +207,15 @@ struct EngineWeightsPreparation {
                 }
             } catch is CancellationError {
                 throw CancellationError()
+            } catch let error as URLError where error.code == .cancelled {
+                throw CancellationError()
             } catch {
                 print("Model pack \(pack.id) could not be installed (\(error.localizedDescription)); "
                     + "falling back to \(engine.rawValue)'s own download.")
             }
         }
 
+        try Task.checkCancellation()
         try await download(engine, progressHandler)
     }
 
