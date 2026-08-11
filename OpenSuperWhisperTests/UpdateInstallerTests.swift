@@ -1020,6 +1020,11 @@ final class UpdateDownloadWatchdogTests: XCTestCase {
                 return XCTFail("expected .checksumUnavailable, got \(error)")
             }
         }
+
+        XCTAssertEqual(
+            partialBytes(for: release), Int64(64 * 1024),
+            "a check that could not run has not found the bytes wanting, and the retry re-verifies them"
+        )
     }
 
     private func writeTemporaryFile(_ data: Data) throws -> URL {

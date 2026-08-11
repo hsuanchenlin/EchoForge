@@ -44,6 +44,23 @@ enum UpdateInstallError: LocalizedError, Equatable {
             return "EchoForge could not be replaced. \(detail)"
         }
     }
+
+    /// Whether this failure is a verdict against the downloaded bytes
+    /// themselves. Only such a verdict is a reason to throw the partial away:
+    /// a check that could not run - a sidecar that would not fetch, a staging
+    /// copy that failed - has not found the bytes wanting, and keeping them
+    /// costs nothing because the retry re-verifies whatever it resumes onto in
+    /// full.
+    var indictsDownloadedBytes: Bool {
+        switch self {
+        case .unexpectedSize, .checksumMismatch, .diskImageCouldNotBeOpened,
+             .noApplicationInDiskImage, .wrongBundleIdentifier, .wrongVersion,
+             .signatureRejected:
+            return true
+        case .downloadFailed, .checksumUnavailable, .replacementFailed:
+            return false
+        }
+    }
 }
 
 /// What an update is doing, as one value reported out of `downloadAndVerify`.
@@ -215,6 +232,23 @@ protocol ChecksumFetching: Sendable {
     func fetchChecksumDocument(from url: URL) async throws -> String
 }
 
+/// Re-checks every redirect the sidecar fetch follows against the release-host
+/// allow-list, the same rule the asset download enforces: the boundary is where
+/// the bytes actually come from, not the URL the metadata named. Refusing hands
+/// the 3xx back as the result, which the status check then rejects.
+private final class ChecksumRedirectGuard: NSObject, URLSessionTaskDelegate {
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        guard UpdateManifest.isAllowedRedirectHost(request.url) else { return completionHandler(nil) }
+        completionHandler(request)
+    }
+}
+
 /// One small GET against the same allow-listed hosts as the asset itself.
 ///
 /// Deliberately its own short-lived session rather than the download's: this
@@ -231,7 +265,7 @@ struct GitHubChecksumFetcher: ChecksumFetching {
         configuration.timeoutIntervalForRequest = Self.timeout
         configuration.timeoutIntervalForResource = Self.timeout
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
-        let session = URLSession(configuration: configuration)
+        let session = URLSession(configuration: configuration, delegate: ChecksumRedirectGuard(), delegateQueue: nil)
         defer { session.finishTasksAndInvalidate() }
 
         let (data, response) = try await session.data(from: url)
@@ -345,12 +379,14 @@ final class UpdateInstaller {
             let staged = try await verifyAndStage(downloaded, release: release)
             partialStore.discardPartial(for: release.version)
             return staged
-        } catch is CancellationError {
-            // Cancelling is not a reason to throw away 212 MB: the same press
-            // that stopped it can start it again where it stopped.
-            throw CancellationError()
         } catch {
-            partialStore.discardPartial(for: release.version)
+            // Cancelling, or a check that could not run, is not a reason to
+            // throw away 212 MB: the same press that stopped it can start it
+            // again where it stopped. Only a verdict against the bytes
+            // themselves discards them.
+            if let refusal = error as? UpdateInstallError, refusal.indictsDownloadedBytes {
+                partialStore.discardPartial(for: release.version)
+            }
             throw error
         }
     }

@@ -35,10 +35,18 @@ struct PartialDownloadMetadata: Codable, Equatable {
 protocol ResumableFileDownloading: Sendable {
     /// The finished file, and the key it is stored under so the caller can
     /// discard it once the bytes have served their purpose.
+    ///
+    /// `familyPrefix` names the partials this download supersedes: before the
+    /// transfer starts, every partial whose key carries the prefix - other
+    /// than this download's own - is removed, so a half-fetched older version
+    /// of the same thing cannot sit under Caches forever. The caller supplies
+    /// it because only the caller owns its key convention; `nil` supersedes
+    /// nothing.
     func download(
         from url: URL,
         declaredBytes: Int64,
         key: String,
+        familyPrefix: String?,
         progress: @escaping @Sendable (DownloadProgress) -> Void
     ) async throws -> (file: URL, key: String)
 
@@ -107,9 +115,13 @@ struct PartialDownloadStore {
     }
 
     /// Bytes already on disk under this key, or 0 when there is nothing usable
-    /// to resume from.
+    /// to resume from. A partial recorded with no validator at all is not
+    /// usable: a `Range` request it cannot condition on `If-Range` is exactly
+    /// the splice this design is arranged around, so the transfer starts whole
+    /// instead.
     func resumableBytes(forKey key: String, sourceURL: URL) -> Int64 {
-        guard let metadata = metadata(forKey: key), metadata.sourceURL == sourceURL.absoluteString else {
+        guard let metadata = metadata(forKey: key), metadata.sourceURL == sourceURL.absoluteString,
+              metadata.entityTag != nil || metadata.lastModified != nil else {
             return 0
         }
         let attributes = try? fileManager.attributesOfItem(atPath: partialFile(forKey: key).path)
@@ -183,6 +195,13 @@ enum ResumeDecision: Equatable {
 
     case fail(String)
 
+    /// The answer cannot be applied to what is on disk, and what is on disk is
+    /// what provoked the answer - so the partial is discarded along with the
+    /// failure, and the next attempt asks for the whole asset instead of
+    /// repeating the same doomed resume. Distinct from `.fail`, whose partial
+    /// survives: a 503 on a resume says nothing against the bytes.
+    case unresumable(String)
+
     /// `existingBytes` is what was on disk when the request was made, and 0 when
     /// no range was asked for.
     static func decide(
@@ -207,23 +226,34 @@ enum ResumeDecision: Equatable {
             guard let parsed = ContentRange(contentRange) else {
                 return .fail("The server sent an unreadable range.")
             }
-            guard parsed.start == existingBytes else {
-                // A server that resumes from somewhere other than where the file
-                // ends would leave a hole. Nothing recoverable to do but start
-                // again.
+            if parsed.start == existingBytes {
+                let total = parsed.total ?? (existingBytes + contentLength)
+                return .append(existingBytes: existingBytes, totalBytes: total)
+            }
+            if parsed.start == 0 {
+                // From the top of the file the body is the whole asset, so
+                // what is on disk is stale but the transfer is still honest.
                 return .restart(totalBytes: parsed.total ?? declaredBytes)
             }
-            let total = parsed.total ?? (existingBytes + contentLength)
-            return .append(existingBytes: existingBytes, totalBytes: total)
+            // A body starting anywhere else is a mid-file slice. Writing it
+            // from the start would record a slice as if it were the file, and
+            // the partial that provoked it would provoke it again on every
+            // retry - so both are refused together.
+            return .unresumable("The server resumed from somewhere other than the end of the partial file.")
 
         case 416:
-            // The partial is at or past the end of the resource. If it is
-            // exactly the declared size it is simply finished; otherwise it is
-            // longer than the asset and cannot be part of it.
-            guard existingBytes == declaredBytes, declaredBytes > 0 else {
+            // The partial is at or past the end of the resource. Exactly the
+            // declared size means it is simply finished; longer means it
+            // cannot be part of the asset. Shorter means the server's copy
+            // ends before the declared asset does - a different asset - and a
+            // 416 carries no body to rebuild from.
+            if existingBytes == declaredBytes, declaredBytes > 0 {
+                return .alreadyComplete(totalBytes: declaredBytes)
+            }
+            if existingBytes > declaredBytes {
                 return .restart(totalBytes: declaredBytes)
             }
-            return .alreadyComplete(totalBytes: declaredBytes)
+            return .unresumable("The server says the file ends before the bytes already downloaded do.")
 
         default:
             return .fail("The server returned an unexpected response (\(statusCode)).")
@@ -319,9 +349,13 @@ struct ResumableFileDownloader: ResumableFileDownloading {
         from url: URL,
         declaredBytes: Int64,
         key: String,
+        familyPrefix: String?,
         progress: @escaping @Sendable (DownloadProgress) -> Void
     ) async throws -> (file: URL, key: String) {
         try store.prepareDirectory(forKey: key)
+        if let familyPrefix {
+            store.discardPartials(matching: familyPrefix, except: key)
+        }
         let destination = store.partialFile(forKey: key)
         var existingBytes = store.resumableBytes(forKey: key, sourceURL: url)
         if existingBytes > declaredBytes, declaredBytes > 0 {
@@ -565,6 +599,14 @@ final class ResumableDownload: NSObject, URLSessionDataDelegate, @unchecked Send
         case .fail(let reason):
             finish(throwing: UpdateInstallError.downloadFailed(reason))
             return completionHandler(.cancel)
+
+        case .unresumable(let reason):
+            // Removed here, in the one place that knows the partial is what
+            // keeps this exchange failing; the next attempt then asks for the
+            // whole asset with no range at all.
+            try? FileManager.default.removeItem(at: destination)
+            finish(throwing: UpdateInstallError.downloadFailed(reason))
+            return completionHandler(.cancel)
         }
 
         activity?.recordActivity()
@@ -630,7 +672,7 @@ final class ResumableDownload: NSObject, URLSessionDataDelegate, @unchecked Send
     private func decisionTotal(_ decision: ResumeDecision) -> Int64 {
         switch decision {
         case .append(_, let total), .restart(let total), .alreadyComplete(let total): return total
-        case .fail: return declaredBytes
+        case .fail, .unresumable: return declaredBytes
         }
     }
 

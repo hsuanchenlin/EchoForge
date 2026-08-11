@@ -199,8 +199,11 @@ final class ModelPackInstallerTests: XCTestCase {
 
     func testInstallsThePackIntoTheEnginesOwnCache() async throws {
         let (pack, archive) = try makePack()
+        let downloader = StubFileDownloader(file: archive)
 
-        let outcome = try await installer(serving: archive).install(pack)
+        let outcome = try await ModelPackInstaller(
+            cacheRoot: cacheRoot, downloader: downloader
+        ).install(pack)
 
         XCTAssertEqual(outcome, .installed(pack))
         for entry in pack.entries {
@@ -211,6 +214,10 @@ final class ModelPackInstallerTests: XCTestCase {
                 entry
             )
         }
+        XCTAssertEqual(
+            downloader.supersededFamilies, ["pack-\(pack.id)-"],
+            "a half-download of a version this pack supersedes must not sit under Caches forever"
+        )
     }
 
     /// The rule that makes a thinner app safe for people who already have the
@@ -370,6 +377,7 @@ private final class StubFileDownloader: ResumableFileDownloading, @unchecked Sen
     private let lock = NSLock()
     private var _downloads = 0
     private(set) var discarded: [String] = []
+    private(set) var supersededFamilies: [String] = []
 
     init(file: URL) {
         self.file = file
@@ -385,10 +393,12 @@ private final class StubFileDownloader: ResumableFileDownloading, @unchecked Sen
         from url: URL,
         declaredBytes: Int64,
         key: String,
+        familyPrefix: String?,
         progress: @escaping @Sendable (DownloadProgress) -> Void
     ) async throws -> (file: URL, key: String) {
         lock.lock()
         _downloads += 1
+        if let familyPrefix { supersededFamilies.append(familyPrefix) }
         lock.unlock()
         progress(DownloadProgress(receivedBytes: declaredBytes, totalBytes: declaredBytes))
         return (file, key)

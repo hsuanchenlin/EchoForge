@@ -208,7 +208,9 @@ directory as a versioned, SHA-256'd `.tar.gz` published as a release asset, inst
 indistinguishable from a finished download. `ModelPackManifest` is its security boundary and refuses
 the same way `UpdateManifest` does; `OpenSuperWhisper/ModelPacks.json` is the shipped list and is
 **empty until packs are published**, which is what keeps the app downloading weights exactly as
-before until one is.
+before until one is. The installer has no production caller yet: wiring
+`ModelPackCatalog.pack(for:)` into the model-preparation and onboarding download path must land
+before the first pack is published (`docs/model-packs.md`).
 
 The bundled path still exists and is opt-in (`ECHOFORGE_BUNDLE_STARTER_MODEL=1`), for an offline
 install medium and for anyone still running a build that shipped one:

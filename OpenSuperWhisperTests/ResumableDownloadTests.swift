@@ -66,11 +66,25 @@ final class ResumeDecisionTests: XCTestCase {
         )
     }
 
-    func testAPartialContentStartingSomewhereElseStartsOver() {
-        // Resuming from anywhere but the end of the file would leave a hole.
+    func testAPartialContentStartingSomewhereElseIsRefusedAndThePartialDiscarded() {
+        // A body starting anywhere but the end of the partial is a mid-file
+        // slice: written from the start it would record a slice as if it were
+        // the file, and the partial that provoked it would provoke it again on
+        // every retry.
+        guard case .unresumable = ResumeDecision.decide(
+            statusCode: 206, contentLength: 600, contentRange: "bytes 300-999/1000",
+            existingBytes: 400, declaredBytes: 1000
+        ) else {
+            return XCTFail("a mid-file body is not the file, and the partial must go with the failure")
+        }
+    }
+
+    func testAPartialContentStartingAtZeroIsAWholeBodyAndStartsOver() {
+        // From the top of the file the body genuinely is the whole asset, so
+        // writing it from the start is honest even though a range was asked.
         XCTAssertEqual(
             ResumeDecision.decide(
-                statusCode: 206, contentLength: 600, contentRange: "bytes 300-999/1000",
+                statusCode: 206, contentLength: 1000, contentRange: "bytes 0-999/1000",
                 existingBytes: 400, declaredBytes: 1000
             ),
             .restart(totalBytes: 1000)
@@ -113,6 +127,18 @@ final class ResumeDecisionTests: XCTestCase {
             ),
             .restart(totalBytes: 1000)
         )
+    }
+
+    func testAShortPartialRefusedWithA416IsDiscardedRatherThanRewritten() {
+        // 416 against a partial shorter than the declared size means the
+        // server's copy ends before the declared asset does - a different
+        // asset - and the answer carries no body to rebuild from.
+        guard case .unresumable = ResumeDecision.decide(
+            statusCode: 416, contentLength: 0, contentRange: "bytes */700",
+            existingBytes: 800, declaredBytes: 1000
+        ) else {
+            return XCTFail("a 416 has no body to restart from, and the partial must go with the failure")
+        }
     }
 
     func testAnythingElseFails() {
@@ -175,6 +201,42 @@ final class ResumeDecisionTests: XCTestCase {
         )
         XCTAssertEqual(request.value(forHTTPHeaderField: "If-Range"), "Mon, 10 Aug 2026 00:00:00 GMT")
     }
+
+    /// The delegate's half of the unresumable rule: the partial file itself is
+    /// removed, so the next attempt asks for the whole asset instead of
+    /// repeating the same doomed resume.
+    func testAnUnresumableAnswerRemovesThePartialFile() throws {
+        let destination = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try Data(repeating: 0xAB, count: 400).write(to: destination)
+        defer { try? FileManager.default.removeItem(at: destination) }
+
+        let url = URL(string: "https://example.invalid/EchoForge.dmg")!
+        let transfer = ResumableDownload(
+            sourceURL: url,
+            destination: destination,
+            declaredBytes: 1000,
+            existingBytes: 400,
+            report: { _ in }
+        )
+        let response = HTTPURLResponse(
+            url: url, statusCode: 206, httpVersion: nil,
+            headerFields: ["Content-Range": "bytes 300-999/1000"]
+        )!
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.finishTasksAndInvalidate() }
+        let task = session.dataTask(with: url)
+        defer { task.cancel() }
+        var disposition: URLSession.ResponseDisposition?
+        transfer.urlSession(session, dataTask: task, didReceive: response) {
+            disposition = $0
+        }
+
+        XCTAssertEqual(disposition, .cancel)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: destination.path),
+            "keeping the partial would make every retry repeat this exchange"
+        )
+    }
 }
 
 /// Where partials live, and what may be resumed from.
@@ -224,6 +286,20 @@ final class PartialDownloadStoreTests: XCTestCase {
         XCTAssertEqual(store.resumableBytes(for: version, sourceURL: source), 0)
     }
 
+    /// Resuming needs `If-Range`, and `If-Range` needs a validator: a `Range`
+    /// request without one would let a changed asset be spliced onto the old
+    /// prefix undetected, so the transfer starts whole instead.
+    func testDoesNotResumeAPartialRecordedWithNoValidatorAtAll() throws {
+        try Data(repeating: 0xAB, count: 400).write(to: store.partialFile(for: version))
+        store.write(
+            PartialDownloadMetadata(
+                sourceURL: source.absoluteString, totalBytes: 1000, entityTag: nil, lastModified: nil
+            ),
+            for: version
+        )
+        XCTAssertEqual(store.resumableBytes(for: version, sourceURL: source), 0)
+    }
+
     /// A half-download of a release nobody will install is hundreds of megabytes
     /// of nothing.
     func testDiscardsPartialsForOtherVersions() throws {
@@ -243,6 +319,41 @@ final class PartialDownloadStoreTests: XCTestCase {
         store.discardPartial(for: version)
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.partialFile(for: version).path))
         XCTAssertNil(store.metadata(for: version))
+    }
+}
+
+/// The shared transfer for callers that only need the bytes.
+final class ResumableFileDownloaderTests: XCTestCase {
+
+    /// Starting a download removes the half-downloads of the versions it
+    /// supersedes - and only those. Other families' partials belong to
+    /// transfers someone may still finish.
+    func testStartingADownloadDiscardsOnlyItsOwnSupersededFamily() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = PartialDownloadStore(root: root)
+        for key in ["pack-alpha-1.0.0", "pack-beta-1.0.0", "app-0.5.2"] {
+            try store.prepareDirectory(forKey: key)
+            try Data(repeating: 0x1, count: 8).write(to: store.partialFile(forKey: key))
+        }
+
+        // Nothing answers this port, so the transfer itself fails fast; the
+        // sweep happens before the request and is what is under test.
+        let downloader = ResumableFileDownloader(
+            store: store,
+            settings: UpdateDownloadSettings(stallInterval: 2)
+        )
+        _ = try? await downloader.download(
+            from: URL(string: "http://127.0.0.1:1/pack.tar.gz")!,
+            declaredBytes: 8,
+            key: "pack-alpha-1.0.1",
+            familyPrefix: "pack-alpha-",
+            progress: { _ in }
+        )
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.partialFile(forKey: "pack-alpha-1.0.0").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.partialFile(forKey: "pack-beta-1.0.0").path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.partialFile(forKey: "app-0.5.2").path))
     }
 }
 

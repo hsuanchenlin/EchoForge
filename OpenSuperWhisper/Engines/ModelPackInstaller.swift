@@ -35,8 +35,9 @@ enum ModelPackInstallError: LocalizedError, Equatable {
 ///
 /// Answers `nil` for everything until packs are actually published, and that is
 /// the point: shipping this code changes nothing on its own, and the app goes on
-/// downloading weights the way it always did. A release that publishes the
-/// assets and updates `ModelPacks.json` is what switches an engine over.
+/// downloading weights the way it always did. Nothing in the app consults this
+/// catalog yet either - the model-preparation download path has to, before the
+/// first pack is published; `docs/model-packs.md` names what remains.
 enum ModelPackCatalog {
     static func pack(for engine: EngineKind, in packs: [ModelPack] = ModelPackManifest.bundled()) -> ModelPack? {
         packs.first { $0.engine == engine }
@@ -114,6 +115,7 @@ struct ModelPackInstaller {
             from: pack.url,
             declaredBytes: pack.sizeInBytes,
             key: "pack-\(pack.id)-\(pack.version)",
+            familyPrefix: "pack-\(pack.id)-",
             progress: progress
         )
 

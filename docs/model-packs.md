@@ -30,8 +30,8 @@ So: the app is thin now, and weights arrive separately.
 |---|---|---|
 | Shipped DMG | ~222 MB | ~11 MB |
 | Weights in the bundle | always | only when `ECHOFORGE_BUNDLE_STARTER_MODEL=1` |
-| Where weights come from | the bundle, or Hugging Face with no digest | a **model pack**, or the engine's own download as before |
-| Integrity of weights | none | SHA-256, on an allow-listed host |
+| Where weights come from | the bundle, or Hugging Face with no digest | the engine's own download today; a **model pack** once the install path is wired in and one is published |
+| Integrity of weights | none | SHA-256, on an allow-listed host (packs) |
 
 `Scripts/package_starter_model.sh` still exists and still works; it just does nothing unless asked.
 That is what an offline install medium would use, and `Scripts/build_release.sh` verifies whichever
@@ -95,8 +95,21 @@ is written so a fetched document could be handed to it unchanged if that ever be
 
 **It is empty until packs are actually published, and that is the correct state.** With no entries
 `ModelPackCatalog.pack(for:)` answers `nil` and the app downloads weights exactly as it always has.
-Shipping the pack code changes nothing on its own; publishing the assets is what switches an engine
-over.
+Shipping the pack code changes nothing on its own - and publishing assets alone does not switch an
+engine over either, because nothing in the app consults the catalog yet (see below).
+
+## Not wired into the download path yet
+
+`ModelPackCatalog.pack(for:)` and `ModelPackInstaller.install` have **no production caller**. This
+change deliberately shipped the pack format, its security boundary, the installer and the packaging
+script and stopped there: wiring the download path safely needs a published pack to test against.
+Until that wiring lands, publishing a pack and listing it in `ModelPacks.json` changes nothing and
+the app keeps fetching weights through each engine's own downloader.
+
+What remains, and it must land **before the first pack is published**: the model-preparation and
+onboarding download path consults `ModelPackCatalog.pack(for:)` for the engine it is about to
+fetch, installs the pack when one is listed, and falls back to the engine's own downloader
+otherwise.
 
 ## The rules
 
@@ -138,7 +151,7 @@ survive the swap, so:
 |---|---|
 | Updating user with models | Keeps them. The thin app finds them present and behaves identically. Nothing is downloaded. |
 | Updating user who deleted their cache | Lands in the same first-run model picker a fresh install sees. |
-| Fresh install | Picks a model in onboarding and downloads it - a pack when one is published, the engine's own download otherwise. |
+| Fresh install | Picks a model in onboarding and downloads it through the engine's own downloader. A pack will serve this only once one is published *and* the install path is wired in (see above). |
 | Someone still running a bundled build | `StarterModel.installIfNeeded()` is unchanged and still installs from their bundle. It stays until no bundled build is plausibly still running. |
 
 ## See also
