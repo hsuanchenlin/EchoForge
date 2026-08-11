@@ -26,6 +26,30 @@ struct PublishedRelease: Equatable {
     /// check on what actually arrives.
     let sizeInBytes: Int
 
+    /// Where the published SHA-256 of that asset is, when the release carries
+    /// one. Optional because it has to be: releases up to and including v0.5.1
+    /// published no sidecar, and refusing to update from them would strand
+    /// exactly the users who most need the update. What it changes when it *is*
+    /// present is that the downloaded bytes are checked against a digest the
+    /// release states, rather than only against its length.
+    let checksumURL: URL?
+
+    init(
+        version: AppVersion,
+        tag: String,
+        notes: String,
+        downloadURL: URL,
+        sizeInBytes: Int,
+        checksumURL: URL? = nil
+    ) {
+        self.version = version
+        self.tag = tag
+        self.notes = notes
+        self.downloadURL = downloadURL
+        self.sizeInBytes = sizeInBytes
+        self.checksumURL = checksumURL
+    }
+
     /// The human-facing release page, for "what changed" and for anyone who
     /// would rather install it by hand.
     var releasePageURL: URL {
@@ -100,6 +124,14 @@ enum UpdateManifest {
     /// The one asset name this app will download.
     static let assetName = "EchoForge.dmg"
 
+    /// The sidecar naming the disk image's SHA-256, published beside it by
+    /// `Scripts/build_release.sh`. Same exact-name rule as the asset itself.
+    static let checksumAssetName = "\(assetName).sha256"
+
+    /// A cap on the sidecar document. It is 80 bytes in practice; this is the
+    /// bound that keeps a hostile one from being read into memory at all.
+    static let maximumChecksumBytes = 4096
+
     /// Hosts a release asset may be served from. GitHub serves release downloads
     /// from `github.com` and redirects to its object store, and nothing else is
     /// accepted.
@@ -147,10 +179,7 @@ enum UpdateManifest {
             throw UpdateManifestError.noDiskImageAsset
         }
 
-        guard let host = url.host, url.scheme?.lowercased() == "https",
-            allowedDownloadHosts.contains(host.lowercased()),
-            url.path.hasPrefix("/\(repositoryPath)/")
-        else {
+        guard isTrustedAssetURL(url) else {
             throw UpdateManifestError.untrustedDownloadHost(url.host ?? urlString)
         }
 
@@ -161,13 +190,30 @@ enum UpdateManifest {
 
         let notes = (root["body"] as? String ?? "").prefix(maximumNotesLength)
 
+        // The sidecar goes through exactly the same host and path rules as the
+        // asset. A checksum fetched from somewhere else would be a checksum an
+        // attacker could choose, which is worse than no checksum at all: it
+        // would look like verification while proving nothing.
+        let checksumURL = (assets.first { ($0["name"] as? String) == checksumAssetName })
+            .flatMap { $0["browser_download_url"] as? String }
+            .flatMap(URL.init(string:))
+            .flatMap { isTrustedAssetURL($0) ? $0 : nil }
+
         return PublishedRelease(
             version: version,
             tag: tag,
             notes: String(notes),
             downloadURL: url,
-            sizeInBytes: size
+            sizeInBytes: size,
+            checksumURL: checksumURL
         )
+    }
+
+    /// HTTPS, an allow-listed host, and under this repository's path. The rule
+    /// every URL taken from release metadata is held to.
+    static func isTrustedAssetURL(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased(), url.scheme?.lowercased() == "https" else { return false }
+        return allowedDownloadHosts.contains(host) && url.path.hasPrefix("/\(repositoryPath)/")
     }
 
     /// Whether a URL the download's `URLSession` is about to follow a redirect

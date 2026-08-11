@@ -12,7 +12,13 @@ enum UpdateState: Equatable {
     case checking
     case upToDate
     case available(PublishedRelease)
-    case downloading(PublishedRelease, fraction: Double)
+    /// The request has been made and nothing has come back yet. Its own state
+    /// because the alternative is what shipped: rendering it as "0%", which is
+    /// also what the first 1.1 MB of a 212 MB download renders as, so a user
+    /// could not tell an unanswered request from a slow one. Carries the
+    /// progress it will resume from, which is not always zero.
+    case connecting(PublishedRelease, DownloadProgress)
+    case downloading(PublishedRelease, DownloadProgress)
     /// The bytes are down and the disk image is being mounted, checked and
     /// copied. Its own state because it is the one stretch with no fraction to
     /// report: a bar left sitting at 100% is indistinguishable from the stalled
@@ -130,7 +136,7 @@ final class UpdateViewModel: ObservableObject {
 
     var isBusy: Bool {
         switch state {
-        case .checking, .downloading, .verifying, .installing: return true
+        case .checking, .connecting, .downloading, .verifying, .installing: return true
         case .idle, .upToDate, .available, .readyToInstall, .failed: return false
         }
     }
@@ -166,7 +172,7 @@ final class UpdateViewModel: ObservableObject {
     /// has a reason to do.
     func download(_ release: PublishedRelease, settings: UpdateDownloadSettings = UpdateDownloadSettings()) {
         guard !isBusy else { return }
-        state = .downloading(release, fraction: 0)
+        state = .connecting(release, DownloadProgress(receivedBytes: 0, totalBytes: Int64(release.sizeInBytes)))
         downloadTask = Task { [weak self] in
             do {
                 guard let installer = self?.installer else { return }
@@ -194,8 +200,16 @@ final class UpdateViewModel: ObservableObject {
     /// a short run of `hdiutil`, `codesign` and `ditto` that has to reach its own
     /// `defer` to unmount the image, so it is left to finish rather than torn
     /// down half way.
+    ///
+    /// What is *not* thrown away is the partial file: cancelling and starting
+    /// again is now a resume, so a user who stops a download to get on with
+    /// something else does not pay for it twice.
     func cancelDownload() {
-        guard case .downloading(let release, _) = state else { return }
+        let release: PublishedRelease
+        switch state {
+        case .connecting(let cancelled, _), .downloading(let cancelled, _): release = cancelled
+        default: return
+        }
         downloadTask?.cancel()
         downloadTask = nil
         state = .available(release)
@@ -204,11 +218,19 @@ final class UpdateViewModel: ObservableObject {
     /// Moves the pane along with a download that is still the one it is showing.
     /// A report from a cancelled or superseded download arrives on the main
     /// actor after the state has already moved on, and must not pull it back.
+    ///
+    /// The accepted transitions are written out rather than defaulted, because
+    /// the one that matters is the one that must *not* happen: a late report
+    /// from a finished download re-entering `.downloading` from `.verifying`
+    /// would put a moving bar back over work that has no fraction.
     private func report(_ progress: UpdateProgress, for release: PublishedRelease) {
         switch (state, progress) {
-        case (.downloading, .downloading(let fraction)):
-            state = .downloading(release, fraction: fraction)
-        case (.downloading, .verifying):
+        case (.connecting, .connecting(let downloadProgress)):
+            state = .connecting(release, downloadProgress)
+        case (.connecting, .downloading(let downloadProgress)),
+             (.downloading, .downloading(let downloadProgress)):
+            state = .downloading(release, downloadProgress)
+        case (.connecting, .verifying), (.downloading, .verifying):
             state = .verifying(release)
         default:
             break
@@ -340,11 +362,30 @@ struct AboutSettingsView: View {
                         .controlSize(.small)
                 }
 
-            case .downloading(let release, let fraction):
-                Text("Downloading \(release.version.description) - \(Int((fraction * 100).rounded()))%")
+            case .connecting(let release, let progress):
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(progress.receivedBytes > 0
+                        ? "Connecting… resuming \(release.version.description) from "
+                            + "\(DownloadProgressText.bytes(progress))"
+                        : "Connecting…")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Button("Cancel") { viewModel.cancelDownload() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+            case .downloading(let release, let progress):
+                // The bytes lead and the percentage follows. A percentage on its
+                // own is what let a live download and a dead one render
+                // identically; a number that visibly climbs cannot.
+                Text("Downloading \(release.version.description) - \(DownloadProgressText.summary(progress))")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                ProgressView(value: fraction)
+                    .fixedSize(horizontal: false, vertical: true)
+                ProgressView(value: progress.fraction)
                     .progressViewStyle(LinearProgressViewStyle())
                     .frame(height: 6)
                 Button("Cancel") { viewModel.cancelDownload() }

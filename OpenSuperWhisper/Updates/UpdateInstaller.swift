@@ -9,6 +9,8 @@ import AppKit
 enum UpdateInstallError: LocalizedError, Equatable {
     case downloadFailed(String)
     case unexpectedSize(expected: Int, received: Int)
+    case checksumUnavailable(String)
+    case checksumMismatch(expected: String, found: String)
     case diskImageCouldNotBeOpened(String)
     case noApplicationInDiskImage
     case wrongBundleIdentifier(found: String)
@@ -22,6 +24,12 @@ enum UpdateInstallError: LocalizedError, Equatable {
             return "The update could not be downloaded. \(detail)"
         case .unexpectedSize(let expected, let received):
             return "The download was \(received) bytes but the release says \(expected). It was discarded."
+        case .checksumUnavailable(let detail):
+            return "The published checksum for this release could not be read, so the download was not "
+                + "installed. \(detail)"
+        case .checksumMismatch(let expected, let found):
+            return "The download does not match the checksum this release publishes "
+                + "(\(found.prefix(12))… instead of \(expected.prefix(12))…). It was discarded."
         case .diskImageCouldNotBeOpened(let detail):
             return "The downloaded disk image could not be opened. \(detail)"
         case .noApplicationInDiskImage:
@@ -40,12 +48,23 @@ enum UpdateInstallError: LocalizedError, Equatable {
 
 /// What an update is doing, as one value reported out of `downloadAndVerify`.
 ///
-/// Downloading and verifying are separate cases because from outside they look
-/// identical - the app is busy with an update - and a pane still showing a
-/// download bar while `hdiutil` and `codesign` work through a 222 MB image is
-/// indistinguishable from the stall this watchdog exists to catch.
+/// Three cases rather than one bar, because from outside they look identical -
+/// the app is busy with an update - and telling them apart is the whole
+/// difference between a user who can see progress and one watching a number that
+/// will not move:
+///
+/// - `connecting` is the stretch before the first byte, which used to be
+///   rendered as "0%". On a healthy link it is half a second; on a bad one it is
+///   the part worth saying out loud, and it is not the same thing as a transfer
+///   that has started and is slow.
+/// - `downloading` carries byte counts, not a bare fraction. The percentage was
+///   the whole problem: 0% covered everything up to the first 1.1 MB of a 212 MB
+///   asset, so "downloading slowly" and "downloading nothing" looked the same.
+/// - `verifying` is the stretch where `hdiutil`, `codesign` and `ditto` work
+///   through the image with no fraction to report.
 enum UpdateProgress: Equatable, Sendable {
-    case downloading(fraction: Double)
+    case connecting(DownloadProgress)
+    case downloading(DownloadProgress)
     case verifying
 }
 
@@ -81,11 +100,14 @@ struct UpdateDownloadSettings {
 
     /// A configuration rather than a session, because each download has to own
     /// its session: progress is only ever delivered to a session's *own*
-    /// delegate (see `UpdateDownload`), and that delegate is fixed when the
+    /// delegate (see `ResumableDownload`), and that delegate is fixed when the
     /// session is created.
     ///
     /// Ephemeral because caching a disk image this size, on the way to
-    /// installing it once, has no purpose.
+    /// installing it once, has no purpose. The partial file
+    /// `ResumableDownload` writes is what a resumed transfer picks up from -
+    /// deliberately not `URLCache`, which has no notion of resuming and would
+    /// keep a second copy of the asset.
     static func makeConfiguration() -> URLSessionConfiguration {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = requestTimeout
@@ -187,6 +209,42 @@ protocol CommandRunning: Sendable {
     func launchDetached(_ executable: String, _ arguments: [String]) throws
 }
 
+/// Fetches the SHA-256 a release publishes beside its disk image. A protocol so
+/// the "the digest did not match" path can be asserted without a network.
+protocol ChecksumFetching: Sendable {
+    func fetchChecksumDocument(from url: URL) async throws -> String
+}
+
+/// One small GET against the same allow-listed hosts as the asset itself.
+///
+/// Deliberately its own short-lived session rather than the download's: this
+/// runs after the bytes are down, it is 80 bytes, and it must not inherit a
+/// half-hour resource timeout meant for a 212 MB transfer.
+struct GitHubChecksumFetcher: ChecksumFetching {
+    static let timeout: TimeInterval = 20
+
+    func fetchChecksumDocument(from url: URL) async throws -> String {
+        guard UpdateManifest.isTrustedAssetURL(url) else {
+            throw UpdateInstallError.checksumUnavailable("It is not published where EchoForge releases are.")
+        }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = Self.timeout
+        configuration.timeoutIntervalForResource = Self.timeout
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        let session = URLSession(configuration: configuration)
+        defer { session.finishTasksAndInvalidate() }
+
+        let (data, response) = try await session.data(from: url)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw UpdateInstallError.checksumUnavailable("The server returned an unexpected response.")
+        }
+        guard data.count <= UpdateManifest.maximumChecksumBytes else {
+            throw UpdateInstallError.checksumUnavailable("The document is not a checksum.")
+        }
+        return String(decoding: data, as: UTF8.self)
+    }
+}
+
 struct SystemCommandRunner: CommandRunning {
     @discardableResult
     func run(_ executable: String, _ arguments: [String]) throws -> (status: Int32, output: String) {
@@ -241,41 +299,73 @@ final class UpdateInstaller {
     private let commandRunner: CommandRunning
     private let fileManager: FileManager
     private let installedAppURL: URL
+    private let partialStore: PartialDownloadStore
+    private let checksumFetcher: ChecksumFetching
 
     init(
         commandRunner: CommandRunning = SystemCommandRunner(),
         fileManager: FileManager = .default,
-        installedAppURL: URL = Bundle.main.bundleURL
+        installedAppURL: URL = Bundle.main.bundleURL,
+        partialStore: PartialDownloadStore = PartialDownloadStore(),
+        checksumFetcher: ChecksumFetching = GitHubChecksumFetcher()
     ) {
         self.commandRunner = commandRunner
         self.fileManager = fileManager
         self.installedAppURL = installedAppURL
+        self.partialStore = partialStore
+        self.checksumFetcher = checksumFetcher
     }
 
     /// Downloads and verifies the release, returning the staged bundle that is
     /// ready to be swapped in. Does not replace anything.
+    ///
+    /// The partial download outlives a failure on purpose: a transfer that dies
+    /// at 95% of 212 MB used to be thrown away, so "Retry" meant another twelve
+    /// minutes and a flaky link could never converge. It does *not* outlive a
+    /// verification failure - bytes that fail a checksum or a signature are not
+    /// something to resume onto.
     func downloadAndVerify(
         _ release: PublishedRelease,
         settings: UpdateDownloadSettings = UpdateDownloadSettings(),
         progress: @escaping @Sendable (UpdateProgress) -> Void
     ) async throws -> URL {
         let downloaded = try await download(release, settings: settings, progress: progress)
-        defer { try? fileManager.removeItem(at: downloaded.deletingLastPathComponent()) }
 
         // Everything from here is local work on a file that has already landed:
-        // mounting, checking a signature and copying a bundle. It takes seconds,
-        // it reports no fraction, and saying so is the difference between "still
-        // working" and the stuck download this class now refuses to produce.
+        // hashing, mounting, checking a signature and copying a bundle. It takes
+        // seconds, it reports no fraction, and saying so is the difference
+        // between "still working" and the stuck download this class refuses to
+        // produce.
         progress(.verifying)
         // The user may have cancelled while the last bytes were arriving; the
         // one honest place to notice is before anything is mounted or staged.
         try Task.checkCancellation()
 
+        do {
+            let staged = try await verifyAndStage(downloaded, release: release)
+            partialStore.discardPartial(for: release.version)
+            return staged
+        } catch is CancellationError {
+            // Cancelling is not a reason to throw away 212 MB: the same press
+            // that stopped it can start it again where it stopped.
+            throw CancellationError()
+        } catch {
+            partialStore.discardPartial(for: release.version)
+            throw error
+        }
+    }
+
+    /// Checks the bytes and produces the staged bundle. Split out so the
+    /// download's own error handling does not have to reason about which
+    /// failures invalidate the partial file.
+    private func verifyAndStage(_ downloaded: URL, release: PublishedRelease) async throws -> URL {
         let attributes = try? fileManager.attributesOfItem(atPath: downloaded.path)
         let size = (attributes?[.size] as? Int) ?? 0
         guard size == release.sizeInBytes else {
             throw UpdateInstallError.unexpectedSize(expected: release.sizeInBytes, received: size)
         }
+
+        try await verifyChecksum(of: downloaded, for: release)
 
         let mountPoint = fileManager.temporaryDirectory
             .appendingPathComponent("EchoForgeUpdate-\(UUID().uuidString)", isDirectory: true)
@@ -442,53 +532,113 @@ final class UpdateInstaller {
         }
     }
 
-    /// Streams the asset to a temporary file, reporting a byte fraction as it
-    /// goes, and failing it if it goes quiet.
+    /// Checks the downloaded bytes against the digest the release publishes.
     ///
-    /// A download *task* rather than `URLSession.bytes`: the asset is tens of
-    /// megabytes and `bytes` yields one `UInt8` at a time, which turns a network
-    /// wait into a CPU one. The delegate is where the progress fraction comes
-    /// from, and it is a real byte fraction - the size is known up front from
-    /// both the release metadata and `Content-Length`. It is also what feeds the
-    /// stall watchdog: the same callback that proves the bar should move is the
-    /// proof the transfer is alive.
+    /// A release with no `.sha256` sidecar is not a failure: every release up to
+    /// v0.5.1 published none, and those users have to be able to update *to* a
+    /// build that does. What is a failure is a sidecar that exists and does not
+    /// match, and a sidecar that exists and cannot be read - because "carry on
+    /// without checking" is a downgrade anyone who can make one HTTP request
+    /// fail could choose for us. Failing costs one press now that the bytes
+    /// survive a failure and the retry resumes.
+    private func verifyChecksum(of file: URL, for release: PublishedRelease) async throws {
+        guard let checksumURL = release.checksumURL else { return }
+
+        let document = try await checksumFetcher.fetchChecksumDocument(from: checksumURL)
+        guard let expected = FileDigest.parseChecksumDocument(document, expectedFileName: UpdateManifest.assetName)
+        else {
+            throw UpdateInstallError.checksumUnavailable("It does not name \(UpdateManifest.assetName).")
+        }
+
+        let path = file.path
+        let actual = try await Task.detached(priority: .utility) {
+            try FileDigest.sha256(of: URL(fileURLWithPath: path))
+        }.value
+
+        guard actual == expected else {
+            throw UpdateInstallError.checksumMismatch(expected: expected, found: actual)
+        }
+    }
+
+    /// Streams the asset to a partial file that survives a failure, reporting
+    /// byte counts as it goes, and failing it if it goes quiet.
+    ///
+    /// Two things it does that the previous download task could not. It
+    /// **resumes**: whatever a previous attempt left on disk is what this one
+    /// appends to, conditioned on `If-Range` so a changed asset restarts instead
+    /// of being spliced. And it reports **bytes**, so the pane can say
+    /// `45.2 MB of 212 MB` rather than a percentage that spends its first
+    /// 1.1 MB reading `0%`.
+    ///
+    /// The delegate is still the session's own - progress callbacks are never
+    /// delivered to a per-task delegate, which is the platform fact the whole
+    /// shape of this is built around - and the same callback that moves the bar
+    /// is what feeds the stall watchdog, so the two cannot disagree about
+    /// whether the transfer is alive.
     private func download(
         _ release: PublishedRelease,
         settings: UpdateDownloadSettings,
         progress: @escaping @Sendable (UpdateProgress) -> Void
     ) async throws -> URL {
-        let directory = fileManager.temporaryDirectory
-            .appendingPathComponent("EchoForgeDownload-\(UUID().uuidString)", isDirectory: true)
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        let destination = directory.appendingPathComponent(UpdateManifest.assetName)
+        let version = release.version
+        let declaredBytes = Int64(release.sizeInBytes)
+        try partialStore.prepareDirectory(for: version)
+        // A half-download of a release nobody is going to install any more is
+        // hundreds of megabytes of nothing; starting a new one is the moment the
+        // app knows which version is still wanted.
+        partialStore.discardPartialsOtherThan(version)
+
+        let destination = partialStore.partialFile(for: version)
+        var existingBytes = partialStore.resumableBytes(for: version, sourceURL: release.downloadURL)
+        if existingBytes > declaredBytes {
+            // Longer than the asset it claims to be part of: not something to
+            // append to under any interpretation.
+            partialStore.discardPartial(for: version)
+            existingBytes = 0
+        }
+        let validator = existingBytes > 0 ? partialStore.metadata(for: version) : nil
+
+        // Said before the request is even made: this is the stretch that used to
+        // render as "0%", and it is a different thing from a transfer that has
+        // started and is slow.
+        progress(.connecting(DownloadProgress(receivedBytes: existingBytes, totalBytes: declaredBytes)))
 
         let activity = DownloadActivityClock()
-        let transfer = UpdateDownload(
-            expectedBytes: release.sizeInBytes,
+        let metadataURL = partialStore.metadataFile(for: version)
+        let transfer = ResumableDownload(
+            sourceURL: release.downloadURL,
             destination: destination,
-            activity: activity
-        ) { fraction in
-            progress(.downloading(fraction: fraction))
-        }
+            declaredBytes: declaredBytes,
+            existingBytes: existingBytes,
+            activity: activity,
+            onValidator: { metadata in
+                guard let data = try? JSONEncoder().encode(metadata) else { return }
+                try? data.write(to: metadataURL, options: .atomic)
+            },
+            report: { progress(.downloading($0)) }
+        )
         let session = URLSession(configuration: settings.configuration, delegate: transfer, delegateQueue: nil)
         // Sessions with a delegate hold on to it until they are invalidated, and
         // this one exists for exactly one download.
         defer { session.finishTasksAndInvalidate() }
 
-        let url = release.downloadURL
-        do {
-            let response = try await withStallWatchdog(interval: settings.stallInterval, activity: activity) {
-                try await transfer.run(session: session, url: url)
-            }
-            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-                throw UpdateInstallError.downloadFailed("The server returned an unexpected response.")
-            }
-        } catch {
-            try? fileManager.removeItem(at: directory)
-            throw error
+        let request = ResumableDownload.makeRequest(
+            url: release.downloadURL,
+            existingBytes: existingBytes,
+            validator: validator
+        )
+        // Deliberately no `catch` that deletes the partial: everything this can
+        // throw - a stall, a dropped connection, the user cancelling - is a
+        // reason to keep the bytes and resume, and the caller discards them only
+        // when *verification* fails.
+        let outcome = try await withStallWatchdog(interval: settings.stallInterval, activity: activity) {
+            try await transfer.run(session: session, request: request)
         }
 
-        progress(.downloading(fraction: 1))
+        progress(.downloading(DownloadProgress(
+            receivedBytes: outcome.totalBytes,
+            totalBytes: outcome.totalBytes
+        )))
         return destination
     }
 
@@ -550,129 +700,5 @@ final class UpdateInstaller {
                 )
             }
         }
-    }
-}
-
-/// One download: it owns the `URLSession`, turns byte counts into the fraction
-/// the About pane shows, keeps the stall watchdog's clock, moves the finished
-/// file somewhere that outlives the callback, and answers the caller.
-///
-/// It has to own the session, and that is the whole reason this type exists.
-/// `URLSession.download(from:delegate:)` accepts a `URLSessionDownloadDelegate`
-/// and compiles, but it never calls `didWriteData` on it - measured against a
-/// 4 MB transfer: zero progress callbacks to a task-supplied delegate, fourteen
-/// to a session's own. That is why the pane could only ever show 0% and then
-/// jump to done, and it is why a stalled transfer looked exactly like a healthy
-/// one that had not finished yet. Progress goes to the *session's* delegate, so
-/// the download creates the session it needs.
-final class UpdateDownload: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
-    private let expectedBytes: Int
-    private let destination: URL
-    private let activity: DownloadActivityClock?
-    private let report: @Sendable (Double) -> Void
-
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<URLResponse, Error>?
-    private var moveFailure: Error?
-    private var hasFinished = false
-
-    init(expectedBytes: Int,
-         destination: URL,
-         activity: DownloadActivityClock? = nil,
-         report: @escaping @Sendable (Double) -> Void) {
-        self.expectedBytes = expectedBytes
-        self.destination = destination
-        self.activity = activity
-        self.report = report
-    }
-
-    /// Runs the transfer, returning the response once the bytes are at
-    /// `destination`. Cancelling the surrounding task cancels the transfer,
-    /// which is how the About pane's Cancel reaches the socket.
-    func run(session: URLSession, url: URL) async throws -> URLResponse {
-        let task = session.downloadTask(with: url)
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                lock.lock()
-                self.continuation = continuation
-                lock.unlock()
-                task.resume()
-            }
-        } onCancel: {
-            task.cancel()
-        }
-    }
-
-    func urlSession(
-        _ session: URLSession,
-        downloadTask: URLSessionDownloadTask,
-        didWriteData bytesWritten: Int64,
-        totalBytesWritten: Int64,
-        totalBytesExpectedToWrite: Int64
-    ) {
-        // Stamped here rather than by whoever passes `report`: this is the one
-        // callback that means bytes actually arrived, so the watchdog's notion
-        // of "alive" cannot drift from the bar's.
-        activity?.recordActivity()
-
-        // The server's own figure is preferred when it gives one; the release
-        // metadata is the fallback, and the size is checked against the metadata
-        // again once the file has landed.
-        let total = totalBytesExpectedToWrite > 0 ? totalBytesExpectedToWrite : Int64(expectedBytes)
-        guard total > 0 else { return }
-        report(min(Double(totalBytesWritten) / Double(total), 1))
-    }
-
-    /// The file `URLSession` hands over here is deleted the moment this returns,
-    /// so it is moved now rather than remembered.
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        do {
-            try FileManager.default.moveItem(at: location, to: destination)
-        } catch {
-            lock.lock()
-            moveFailure = error
-            lock.unlock()
-        }
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        lock.lock()
-        let pending = continuation
-        continuation = nil
-        let alreadyFinished = hasFinished
-        hasFinished = true
-        let moveFailure = self.moveFailure
-        lock.unlock()
-        guard let pending, !alreadyFinished else { return }
-
-        if let error {
-            return pending.resume(throwing: error)
-        }
-        if let moveFailure {
-            return pending.resume(
-                throwing: UpdateInstallError.downloadFailed("It could not be written to disk. \(moveFailure.localizedDescription)")
-            )
-        }
-        guard let response = task.response else {
-            return pending.resume(throwing: UpdateInstallError.downloadFailed("The server returned no response."))
-        }
-        pending.resume(returning: response)
-    }
-
-    /// GitHub's API only ever hands back a `github.com` URL; the bytes
-    /// actually come from a redirect to its object store. `UpdateManifest`
-    /// documents `allowedDownloadHosts` as the only hosts this app will ever
-    /// download from, but nothing enforced that at the point a redirect is
-    /// actually followed - this is that enforcement. Declining the redirect
-    /// (by handing back `nil`) fails the download rather than silently
-    /// following it, since the response becomes the un-followed 3xx.
-    func urlSession(
-        _ session: URLSession,
-        task: URLSessionTask,
-        willPerformHTTPRedirection response: HTTPURLResponse,
-        newRequest request: URLRequest,
-        completionHandler: @escaping (URLRequest?) -> Void
-    ) {
-        completionHandler(UpdateManifest.isAllowedRedirectHost(request.url) ? request : nil)
     }
 }

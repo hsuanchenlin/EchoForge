@@ -12,6 +12,20 @@ class WhisperDownloadDelegate: NSObject, URLSessionTaskDelegate, URLSessionDownl
         super.init()
     }
     
+    /// Hugging Face serves the file itself from a redirect to its CDN, so the
+    /// host check on the URL in the catalog is enforced on a URL nothing ever
+    /// downloads from unless it is re-applied here. Same rule, and the same
+    /// reason, as `UpdateManifest.isAllowedRedirectHost`.
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        completionHandler(ModelDownloadHostPolicy.isAllowed(request.url) ? request : nil)
+    }
+
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         if let error = Self.validationError(for: downloadTask.response) {
             completionHandler?(nil, error)
@@ -129,8 +143,14 @@ class WhisperModelManager {
     
     // Download model with progress callback using delegate
     func downloadModel(url: URL, name: String, progressCallback: @escaping (Double) -> Void) async throws {
+        // Checked before anything is created, so a URL from somewhere this app
+        // does not download models from never reaches `URLSession` at all.
+        guard ModelDownloadHostPolicy.isAllowed(url) else {
+            throw ModelDownloadHostPolicy.refusal(url)
+        }
+
         let destinationURL = modelsDirectory.appendingPathComponent(name)
-        
+
         // Check if model already exists
         if FileManager.default.fileExists(atPath: destinationURL.path) {
             print("Model already exists at: \(destinationURL.path)")
