@@ -294,7 +294,7 @@ class TranscriptionService: ObservableObject {
 
         preparationTask = Task { [weak self] in
             do {
-                try await Self.prepareWeights(for: desired, onProgress: onProgress)
+                try await EngineWeightsPreparation.production.prepare(desired, progressHandler: onProgress)
                 await MainActor.run {
                     // A newer preparation may have replaced this one while it
                     // ran; whatever it did to the published state stands.
@@ -318,28 +318,6 @@ class TranscriptionService: ObservableObject {
                     self.preparationFailure = error.localizedDescription
                 }
             }
-        }
-    }
-
-    /// The one place each preparable engine says how its weights are fetched.
-    /// Switched exhaustively so a new engine has to answer.
-    private static func prepareWeights(
-        for engine: EngineKind,
-        onProgress: @escaping DownloadUtils.ProgressHandler
-    ) async throws {
-        switch engine {
-        case .sensevoice:
-            try await SenseVoiceEngine.prepareModels(progressHandler: onProgress)
-        case .paraformer:
-            try await ParaformerEngine.prepareModels(progressHandler: onProgress)
-        case .fluidaudio:
-            let stored = await MainActor.run { AppPreferences.shared.fluidAudioModelVersion }
-            let version: AsrModelVersion = stored == "v2" ? .v2 : .v3
-            _ = try await AsrModels.downloadAndLoad(version: version, progressHandler: onProgress)
-        case .whisper:
-            // Unreachable: `EngineConfiguration.isPreparable` says Whisper needs
-            // a file the app cannot choose on the user's behalf.
-            throw TranscriptionError.engineNotConfigured
         }
     }
 

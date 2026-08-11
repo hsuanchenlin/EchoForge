@@ -616,16 +616,12 @@ class SettingsViewModel: ObservableObject {
                 }
             }
 
-            switch kind {
-            case .sensevoice:
-                try await SenseVoiceEngine.prepareModels(progressHandler: onProgress)
-            case .paraformer:
-                try await ParaformerEngine.prepareModels(progressHandler: onProgress)
-            case .whisper, .fluidaudio:
-                // Unreachable: `EngineCatalog` gives these no single download,
-                // so the guard above already returned.
-                return
-            }
+            // Through the shared preparer, never straight to the engine: it is
+            // what installs a published model pack instead of fetching the same
+            // weights unverified. `.whisper` and `.fluidaudio` cannot reach it -
+            // `EngineCatalog` gives them no single download, so the guard above
+            // already returned.
+            try await EngineWeightsPreparation.production.prepare(kind, progressHandler: onProgress)
 
             try Task.checkCancellation()
 

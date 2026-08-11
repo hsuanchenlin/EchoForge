@@ -237,16 +237,12 @@ class OnboardingViewModel: ObservableObject {
                 }
             }
 
-            switch kind {
-            case .sensevoice:
-                try await SenseVoiceEngine.prepareModels(progressHandler: onProgress)
-            case .paraformer:
-                try await ParaformerEngine.prepareModels(progressHandler: onProgress)
-            case .whisper, .fluidaudio:
-                // Unreachable: these engines pick between several models, so they
-                // reach this screen as `.whisper` / `.parakeet` rows instead.
-                return
-            }
+            // Through the shared preparer, never straight to the engine: it is
+            // what installs a published model pack instead of fetching the same
+            // weights unverified. `.whisper` and `.fluidaudio` cannot reach it -
+            // those engines pick between several models, so they reach this
+            // screen as `.whisper` / `.parakeet` rows instead.
+            try await EngineWeightsPreparation.production.prepare(kind, progressHandler: onProgress)
 
             try Task.checkCancellation()
 
