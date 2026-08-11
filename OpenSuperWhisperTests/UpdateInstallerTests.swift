@@ -121,17 +121,29 @@ final class UpdateInstallerStagingTests: XCTestCase {
 
     private var workDirectory: URL!
     private var installedApp: URL!
+    private var partialStore: PartialDownloadStore!
 
     override func setUp() {
         super.setUp()
         workDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         installedApp = workDirectory.appendingPathComponent("EchoForge.app")
         try? FileManager.default.createDirectory(at: installedApp, withIntermediateDirectories: true)
+        partialStore = PartialDownloadStore(root: workDirectory.appendingPathComponent("partials", isDirectory: true))
     }
 
     override func tearDown() {
         try? FileManager.default.removeItem(at: workDirectory)
         super.tearDown()
+    }
+
+    @MainActor
+    private func makeInstaller(_ runner: MockCommandRunner = MockCommandRunner()) -> UpdateInstaller {
+        UpdateInstaller(
+            commandRunner: runner,
+            installedAppURL: installedApp,
+            partialStore: partialStore,
+            checksumFetcher: StubChecksumFetcher.unavailable
+        )
     }
 
     @MainActor
@@ -141,7 +153,7 @@ final class UpdateInstallerStagingTests: XCTestCase {
         let unrelated = workDirectory.appendingPathComponent("SomeOtherFile.txt")
         try Data().write(to: unrelated)
 
-        let installer = UpdateInstaller(commandRunner: MockCommandRunner(), installedAppURL: installedApp)
+        let installer = makeInstaller()
         installer.removeStaleStagingDirectories()
 
         XCTAssertFalse(FileManager.default.fileExists(atPath: stale.path))
@@ -169,7 +181,7 @@ final class UpdateInstallerStagingTests: XCTestCase {
         StubURLProtocol.responseData = Data(repeating: 0x1, count: 42)
         StubURLProtocol.statusCode = 200
         let runner = MockCommandRunner()
-        let installer = await UpdateInstaller(commandRunner: runner, installedAppURL: installedApp)
+        let installer = await makeInstaller(runner)
 
         let staged = try await installer.downloadAndVerify(
             release(sizeInBytes: 42),
@@ -188,7 +200,7 @@ final class UpdateInstallerStagingTests: XCTestCase {
     func testViewModelDiscardsTheStagedBundleWhenDismissed() async throws {
         StubURLProtocol.responseData = Data(repeating: 0x2, count: 10)
         StubURLProtocol.statusCode = 200
-        let installer = UpdateInstaller(commandRunner: MockCommandRunner(), installedAppURL: installedApp)
+        let installer = makeInstaller()
         let viewModel = UpdateViewModel(installer: installer)
 
         viewModel.download(release(sizeInBytes: 10), settings: UpdateDownloadSettings(configuration: StubURLProtocol.makeConfiguration()))
@@ -203,7 +215,7 @@ final class UpdateInstallerStagingTests: XCTestCase {
     func testViewModelDiscardsThePreviousStagedBundleWhenDownloadingAgain() async throws {
         StubURLProtocol.responseData = Data(repeating: 0x3, count: 10)
         StubURLProtocol.statusCode = 200
-        let installer = UpdateInstaller(commandRunner: MockCommandRunner(), installedAppURL: installedApp)
+        let installer = makeInstaller()
         let viewModel = UpdateViewModel(installer: installer)
 
         viewModel.download(release(sizeInBytes: 10), settings: UpdateDownloadSettings(configuration: StubURLProtocol.makeConfiguration()))
@@ -227,7 +239,7 @@ final class UpdateInstallerStagingTests: XCTestCase {
         StubURLProtocol.responseData = Data(repeating: 0x4, count: 10)
         StubURLProtocol.statusCode = 200
         let offered = release(sizeInBytes: 10)
-        let installer = UpdateInstaller(commandRunner: MockCommandRunner(), installedAppURL: installedApp)
+        let installer = makeInstaller()
         let terminator = SpyTerminator()
         let viewModel = UpdateViewModel(installer: installer, terminator: terminator)
 
@@ -253,7 +265,7 @@ final class UpdateInstallerStagingTests: XCTestCase {
         StubURLProtocol.statusCode = 200
         let offered = release(sizeInBytes: 10)
         let runner = MockCommandRunner()
-        let installer = UpdateInstaller(commandRunner: runner, installedAppURL: installedApp)
+        let installer = makeInstaller(runner)
         let terminator = SpyTerminator()
         let viewModel = UpdateViewModel(installer: installer, terminator: terminator)
 
@@ -373,6 +385,21 @@ private final class LoopbackDownloadServer: @unchecked Sendable {
         var chunks: Int
         var pauseBeforeEachChunk: TimeInterval
 
+        /// Whether the server honours `Range`. `false` is a real thing servers
+        /// do - and the reason a resumed download has to notice a 200 and start
+        /// again rather than appending a whole file to a partial one.
+        var honoursRange = true
+
+        /// What the server calls its copy. A resumed request carries the tag it
+        /// recorded in `If-Range`; changing this between attempts is how "the
+        /// asset was replaced under us" is simulated.
+        var entityTag = "\"loopback-v1\""
+
+        /// The byte written throughout the body. Changing it alongside
+        /// `entityTag` gives the second version different *content*, so a test
+        /// can prove which copy the bytes on disk came from.
+        var fillByte: UInt8 = 0xAB
+
         static func completing(bytes: Int, chunks: Int, pause: TimeInterval) -> Script {
             Script(announcedBytes: bytes, deliveredBytes: bytes, chunks: chunks, pauseBeforeEachChunk: pause)
         }
@@ -385,7 +412,24 @@ private final class LoopbackDownloadServer: @unchecked Sendable {
     }
 
     private let listener: NWListener
-    private let script: Script
+    private var _script: Script
+    /// Replaced in place rather than by starting a second server, because a new
+    /// server means a new port and therefore a new URL - and a resumed download
+    /// is only allowed to resume against the URL its partial came from. A test
+    /// about resuming has to be able to change the server's behaviour without
+    /// changing where the asset lives.
+    func setScript(_ script: Script) {
+        lock.lock()
+        _script = script
+        lock.unlock()
+    }
+
+    private var script: Script {
+        lock.lock()
+        defer { lock.unlock() }
+        return _script
+    }
+
     private let queue = DispatchQueue(label: "LoopbackDownloadServer")
     private let deliveryQueue = DispatchQueue(label: "LoopbackDownloadServer.delivery", attributes: .concurrent)
     private let lock = NSLock()
@@ -394,7 +438,7 @@ private final class LoopbackDownloadServer: @unchecked Sendable {
     private(set) var port: UInt16 = 0
 
     init(script: Script) throws {
-        self.script = script
+        self._script = script
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
         listener = try NWListener(using: parameters, on: .any)
@@ -442,30 +486,87 @@ private final class LoopbackDownloadServer: @unchecked Sendable {
             guard let self, error == nil, !isComplete else { return }
             var accumulated = received
             if let data { accumulated.append(data) }
-            guard String(decoding: accumulated, as: UTF8.self).contains("\r\n\r\n") else {
+            let text = String(decoding: accumulated, as: UTF8.self)
+            guard text.contains("\r\n\r\n") else {
                 return self.readRequest(on: connection, received: accumulated)
             }
-            self.respond(on: connection)
+            self.recordRequest(text)
+            self.respond(on: connection, to: text)
         }
     }
 
-    private func respond(on connection: NWConnection) {
+    /// The headers of every request served, so a test can assert that a resume
+    /// actually asked for a range rather than merely ending up with the right
+    /// number of bytes.
+    private(set) var requests: [String] = []
+
+    private func recordRequest(_ text: String) {
+        lock.lock()
+        requests.append(text)
+        lock.unlock()
+    }
+
+    /// `bytes=<n>-`, when the request asked for one.
+    private func requestedRangeStart(in request: String) -> Int? {
+        for line in request.split(separator: "\r\n") where line.lowercased().hasPrefix("range:") {
+            guard let equals = line.firstIndex(of: "="), let dash = line.lastIndex(of: "-") else { continue }
+            return Int(line[line.index(after: equals)..<dash])
+        }
+        return nil
+    }
+
+    private func respond(on connection: NWConnection, to request: String) {
         let script = self.script
+        let rangeStart = script.honoursRange ? requestedRangeStart(in: request) : nil
         deliveryQueue.async {
-            let headers = "HTTP/1.1 200 OK\r\n"
-                + "Content-Length: \(script.announcedBytes)\r\n"
-                + "Content-Type: application/octet-stream\r\n"
-                + "Connection: close\r\n\r\n"
+            let headers: String
+            let firstByte: Int
+            let bodyBytes: Int
+
+            if let rangeStart {
+                guard rangeStart < script.announcedBytes else {
+                    // Asked for a range past the end: the answer is 416, and the
+                    // client has to work out whether what it holds is the whole
+                    // asset or something that cannot be part of it.
+                    let refusal = "HTTP/1.1 416 Range Not Satisfiable\r\n"
+                        + "Content-Range: bytes */\(script.announcedBytes)\r\n"
+                        + "Content-Length: 0\r\nConnection: close\r\n\r\n"
+                    connection.send(content: Data(refusal.utf8), completion: .contentProcessed { _ in })
+                    return
+                }
+                firstByte = rangeStart
+                bodyBytes = max(0, min(script.deliveredBytes, script.announcedBytes - rangeStart))
+                headers = "HTTP/1.1 206 Partial Content\r\n"
+                    + "Content-Length: \(script.announcedBytes - rangeStart)\r\n"
+                    + "Content-Range: bytes \(rangeStart)-\(script.announcedBytes - 1)/\(script.announcedBytes)\r\n"
+                    + "ETag: \(script.entityTag)\r\n"
+                    + "Accept-Ranges: bytes\r\n"
+                    + "Content-Type: application/octet-stream\r\n"
+                    + "Connection: close\r\n\r\n"
+            } else {
+                firstByte = 0
+                bodyBytes = script.deliveredBytes
+                headers = "HTTP/1.1 200 OK\r\n"
+                    + "Content-Length: \(script.announcedBytes)\r\n"
+                    + "ETag: \(script.entityTag)\r\n"
+                    + "Accept-Ranges: bytes\r\n"
+                    + "Content-Type: application/octet-stream\r\n"
+                    + "Connection: close\r\n\r\n"
+            }
+            _ = firstByte
             connection.send(content: Data(headers.utf8), completion: .contentProcessed { _ in })
 
-            let chunkSize = max(1, script.deliveredBytes / max(1, script.chunks))
+            let chunkSize = max(1, bodyBytes / max(1, script.chunks))
             var sent = 0
-            while sent < script.deliveredBytes {
+            while sent < bodyBytes {
                 if script.pauseBeforeEachChunk > 0 {
                     Thread.sleep(forTimeInterval: script.pauseBeforeEachChunk)
                 }
-                let size = min(chunkSize, script.deliveredBytes - sent)
-                connection.send(content: Data(repeating: 0xAB, count: size), completion: .contentProcessed { _ in })
+                let size = min(chunkSize, bodyBytes - sent)
+                connection.send(
+                    content: Data(repeating: script.fillByte, count: size),
+                    completion: .contentProcessed { _ in }
+                )
                 sent += size
             }
             // Deliberately no close and no further bytes when less was sent than
@@ -488,12 +589,16 @@ final class UpdateDownloadWatchdogTests: XCTestCase {
     private var workDirectory: URL!
     private var installedApp: URL!
     private var server: LoopbackDownloadServer!
+    /// Partial downloads survive a failure, so they have to be written
+    /// somewhere - and it must not be the developer's real Caches directory.
+    private var partialStore: PartialDownloadStore!
 
     override func setUp() {
         super.setUp()
         workDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         installedApp = workDirectory.appendingPathComponent("EchoForge.app")
         try? FileManager.default.createDirectory(at: installedApp, withIntermediateDirectories: true)
+        partialStore = PartialDownloadStore(root: workDirectory.appendingPathComponent("partials", isDirectory: true))
     }
 
     override func tearDown() {
@@ -522,11 +627,40 @@ final class UpdateDownloadWatchdogTests: XCTestCase {
         UpdateDownloadSettings(stallInterval: stallInterval)
     }
 
+    @MainActor
+    private func makeInstaller(
+        _ runner: MockCommandRunner = MockCommandRunner(),
+        checksumFetcher: ChecksumFetching = StubChecksumFetcher.unavailable
+    ) -> UpdateInstaller {
+        UpdateInstaller(
+            commandRunner: runner,
+            installedAppURL: installedApp,
+            partialStore: partialStore,
+            checksumFetcher: checksumFetcher
+        )
+    }
+
+    /// The staging directories beside the installed app. The check used to be
+    /// "the work directory contains only the app", which stopped being true when
+    /// partial downloads gained somewhere to live - so it now names the thing it
+    /// was always about.
+    private func stagedBundleNames() -> [String] {
+        let entries = (try? FileManager.default.contentsOfDirectory(atPath: workDirectory.path)) ?? []
+        return entries.filter { $0.hasPrefix(".EchoForgeUpdate-") }.sorted()
+    }
+
+    /// What is on disk for a release that has not finished downloading.
+    private func partialBytes(for release: PublishedRelease) -> Int64 {
+        let path = partialStore.partialFile(for: release.version).path
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        return (attributes?[.size] as? Int64) ?? 0
+    }
+
     /// (a) The bar moves *while* bytes are arriving, and the pane is told when
     /// the download gives way to verification.
     func testReportsProgressWhileTheTransferIsRunningAndThenVerification() async throws {
         let release = try serve(.completing(bytes: 512 * 1024, chunks: 8, pause: 0.05))
-        let installer = await UpdateInstaller(commandRunner: MockCommandRunner(), installedAppURL: installedApp)
+        let installer = await makeInstaller()
 
         let reports = ProgressRecorder()
         _ = try await installer.downloadAndVerify(release, settings: settings(stallInterval: 5)) {
@@ -546,7 +680,7 @@ final class UpdateDownloadWatchdogTests: XCTestCase {
     /// says what happened.
     func testAStalledTransferFailsWithinTheWatchdogInterval() async throws {
         let release = try serve(.stalling(announcing: 512 * 1024, delivering: 4 * 1024))
-        let installer = await UpdateInstaller(commandRunner: MockCommandRunner(), installedAppURL: installedApp)
+        let installer = await makeInstaller()
 
         let stallInterval: TimeInterval = 1
         let started = Date()
@@ -568,9 +702,12 @@ final class UpdateDownloadWatchdogTests: XCTestCase {
             "the watchdog must end it, not a URLSession timeout"
         )
         XCTAssertEqual(
-            try FileManager.default.contentsOfDirectory(atPath: workDirectory.path).sorted(),
-            ["EchoForge.app"],
+            stagedBundleNames(), [],
             "a failed download stages nothing"
+        )
+        XCTAssertGreaterThan(
+            partialBytes(for: release), 0,
+            "what did arrive is kept, so the retry resumes rather than starting again"
         )
     }
 
@@ -580,7 +717,7 @@ final class UpdateDownloadWatchdogTests: XCTestCase {
     /// transfer time, would introduce for anyone on a slow link.
     func testASlowButLiveTransferIsNotTreatedAsAStall() async throws {
         let release = try serve(.completing(bytes: 512 * 1024, chunks: 10, pause: 0.15))
-        let installer = await UpdateInstaller(commandRunner: MockCommandRunner(), installedAppURL: installedApp)
+        let installer = await makeInstaller()
 
         let staged = try await installer.downloadAndVerify(release, settings: settings(stallInterval: 0.5)) { _ in }
 
@@ -591,7 +728,7 @@ final class UpdateDownloadWatchdogTests: XCTestCase {
     @MainActor
     func testCancellingADownloadRestoresTheOfferAndStagesNothing() async throws {
         let offered = try serve(.stalling(announcing: 512 * 1024, delivering: 4 * 1024))
-        let installer = UpdateInstaller(commandRunner: MockCommandRunner(), installedAppURL: installedApp)
+        let installer = makeInstaller()
         let viewModel = UpdateViewModel(installer: installer)
 
         // A long interval, so what ends this download is the press and nothing else.
@@ -606,10 +743,7 @@ final class UpdateDownloadWatchdogTests: XCTestCase {
         XCTAssertEqual(viewModel.state, .available(offered))
         try await Task.sleep(nanoseconds: 500_000_000)
         XCTAssertEqual(viewModel.state, .available(offered), "a cancelled download must not report back")
-        XCTAssertEqual(
-            try FileManager.default.contentsOfDirectory(atPath: workDirectory.path).sorted(),
-            ["EchoForge.app"]
-        )
+        XCTAssertEqual(stagedBundleNames(), [], "a cancelled download stages nothing")
     }
 
     /// The stall reaches the user as a message they can act on, with the release
@@ -617,7 +751,7 @@ final class UpdateDownloadWatchdogTests: XCTestCase {
     @MainActor
     func testAStalledDownloadFailsWithARetryableReleaseThatSucceedsOnRetry() async throws {
         let offered = try serve(.stalling(announcing: 512 * 1024, delivering: 4 * 1024))
-        let installer = UpdateInstaller(commandRunner: MockCommandRunner(), installedAppURL: installedApp)
+        let installer = makeInstaller()
         let viewModel = UpdateViewModel(installer: installer)
 
         viewModel.download(offered, settings: settings(stallInterval: 1))
@@ -649,7 +783,7 @@ final class UpdateDownloadWatchdogTests: XCTestCase {
         let offered = try serve(.completing(bytes: 64 * 1024, chunks: 2, pause: 0))
         let runner = MockCommandRunner()
         runner.attachDelay = 0.3
-        let installer = UpdateInstaller(commandRunner: runner, installedAppURL: installedApp)
+        let installer = makeInstaller(runner)
         let viewModel = UpdateViewModel(installer: installer)
 
         var observed: [UpdateState] = []
@@ -666,6 +800,237 @@ final class UpdateDownloadWatchdogTests: XCTestCase {
         let readyIndex = observed.firstIndex { if case .readyToInstall = $0 { return true } else { return false } }
         XCTAssertNotNil(verifyingIndex, "a slow verify must not be left looking like a download: \(observed)")
         XCTAssertLessThan(try XCTUnwrap(verifyingIndex), try XCTUnwrap(readyIndex))
+    }
+
+    // MARK: - Resuming
+
+    /// The bytes a failed transfer left behind are what the next one starts
+    /// from. Before this, a download that died at 95% of 212 MB was thrown away,
+    /// so "Retry" meant starting again - and on a link bad enough to have caused
+    /// the failure, it could never converge.
+    func testAFailedTransferLeavesItsBytesForTheNextAttemptToResumeFrom() async throws {
+        let total = 512 * 1024
+        let delivered = 128 * 1024
+        let release = try serve(.stalling(announcing: total, delivering: delivered))
+        let installer = await makeInstaller()
+
+        do {
+            _ = try await installer.downloadAndVerify(release, settings: settings(stallInterval: 1)) { _ in }
+            XCTFail("the stalled transfer must not succeed")
+        } catch {}
+
+        XCTAssertEqual(
+            partialBytes(for: release), Int64(delivered),
+            "what arrived before the stall has to survive it"
+        )
+
+        // The same server, now behaving. It has to be the same one: a resume is
+        // only allowed against the URL its partial came from, and a second
+        // server would be a second port.
+        server.setScript(.completing(bytes: total, chunks: 4, pause: 0))
+        let reports = ProgressRecorder()
+        _ = try await installer.downloadAndVerify(release, settings: settings(stallInterval: 5)) {
+            reports.record($0)
+        }
+
+        let ranged = server.requests.filter { $0.lowercased().contains("range: bytes=") }
+        XCTAssertEqual(ranged.count, 1, "the retry must ask for a range: \(server.requests)")
+        XCTAssertTrue(
+            ranged[0].contains("bytes=\(delivered)-"),
+            "it must ask for exactly what is missing: \(ranged[0])"
+        )
+        XCTAssertEqual(
+            reports.connectingReports.last?.receivedBytes, Int64(delivered),
+            "the pane says what it is resuming from rather than starting at zero"
+        )
+        XCTAssertTrue(
+            reports.receivedByteCounts.contains { $0 > Int64(delivered) },
+            "progress continues from the partial rather than restarting"
+        )
+    }
+
+    /// A server that ignores `Range` answers 200 with the whole asset. Appending
+    /// that to a partial would produce a file of the right length made of the
+    /// wrong bytes, which is the failure mode this whole design is arranged
+    /// around.
+    func testAServerThatIgnoresRangeStartsTheFileOverInsteadOfAppending() async throws {
+        let total = 256 * 1024
+        let delivered = 64 * 1024
+        let release = try serve(.stalling(announcing: total, delivering: delivered))
+        let installer = await makeInstaller()
+        _ = try? await installer.downloadAndVerify(release, settings: settings(stallInterval: 1)) { _ in }
+        XCTAssertEqual(partialBytes(for: release), Int64(delivered))
+
+        var script = LoopbackDownloadServer.Script.completing(bytes: total, chunks: 4, pause: 0)
+        script.honoursRange = false
+        server.setScript(script)
+
+        _ = try await installer.downloadAndVerify(release, settings: settings(stallInterval: 5)) { _ in }
+        // The size check inside `downloadAndVerify` is what would have caught an
+        // append; reaching here at all means it wrote the file from the start.
+    }
+
+    /// `If-Range` exists for this: the asset was replaced between attempts, so
+    /// the server sends the whole of the *new* one and the old prefix is
+    /// discarded rather than spliced onto it.
+    func testAReplacedAssetIsDownloadedWholeRatherThanSplicedOntoTheOldOne() async throws {
+        let total = 256 * 1024
+        var first = LoopbackDownloadServer.Script.stalling(announcing: total, delivering: 64 * 1024)
+        first.entityTag = "\"v1\""
+        first.fillByte = 0x11
+        let served = try serve(first)
+        // The digest of the *new* copy, whole. Splicing 64 KB of the old copy in
+        // front of it would produce a file of exactly the right length and the
+        // wrong contents, which only a checksum can tell apart - so this is what
+        // the assertion is made of rather than a byte count.
+        let expected = try FileDigest.sha256(of: try writeTemporaryFile(Data(repeating: 0x22, count: total)))
+        let release = PublishedRelease(
+            version: served.version, tag: served.tag, notes: served.notes,
+            downloadURL: served.downloadURL, sizeInBytes: served.sizeInBytes,
+            checksumURL: URL(string: "https://github.com/hsuanchenlin/EchoForge/releases/download/v0.3.0/EchoForge.dmg.sha256")!
+        )
+        let installer = await makeInstaller(
+            MockCommandRunner(),
+            checksumFetcher: StubChecksumFetcher(document: "\(expected)  EchoForge.dmg\n")
+        )
+        _ = try? await installer.downloadAndVerify(release, settings: settings(stallInterval: 1)) { _ in }
+        XCTAssertEqual(partialBytes(for: release), 64 * 1024, "the old copy's prefix is on disk")
+
+        // A different copy of the asset, with different content. A server
+        // implementing `If-Range` answers 200 rather than 206 when its copy has
+        // changed, which is what `honoursRange = false` stands in for here.
+        var second = LoopbackDownloadServer.Script.completing(bytes: total, chunks: 2, pause: 0)
+        second.entityTag = "\"v2\""
+        second.fillByte = 0x22
+        second.honoursRange = false
+        server.setScript(second)
+
+        let staged = try await installer.downloadAndVerify(release, settings: settings(stallInterval: 5)) { _ in }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path))
+    }
+
+    /// Cancelling is not the same as failing: the point of stopping a download
+    /// is to get on with something else, and the bytes are still good.
+    @MainActor
+    func testCancellingKeepsThePartialSoTheNextPressResumes() async throws {
+        let offered = try serve(.completing(bytes: 512 * 1024, chunks: 32, pause: 0.05))
+        let viewModel = UpdateViewModel(installer: makeInstaller())
+
+        viewModel.download(offered, settings: settings(stallInterval: 60))
+        try await waitUntil("some bytes have arrived") {
+            if case .downloading(_, let progress) = viewModel.state { return progress.receivedBytes > 0 }
+            return false
+        }
+        viewModel.cancelDownload()
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        XCTAssertGreaterThan(
+            partialBytes(for: offered), 0,
+            "a cancelled download that threw its bytes away would make the next press start over"
+        )
+    }
+
+    // MARK: - Checksums
+
+    /// A release that publishes a digest gets checked against it, and a
+    /// mismatch is refused - along with the bytes that produced it, which are
+    /// not something to resume onto.
+    func testADownloadThatDoesNotMatchThePublishedChecksumIsRefusedAndDiscarded() async throws {
+        let served = try serve(.completing(bytes: 64 * 1024, chunks: 2, pause: 0))
+        let release = PublishedRelease(
+            version: served.version, tag: served.tag, notes: served.notes,
+            downloadURL: served.downloadURL, sizeInBytes: served.sizeInBytes,
+            checksumURL: URL(string: "https://github.com/hsuanchenlin/EchoForge/releases/download/v0.3.0/EchoForge.dmg.sha256")!
+        )
+        let wrongDigest = String(repeating: "a", count: 64)
+        let fetcher = StubChecksumFetcher(document: "\(wrongDigest)  EchoForge.dmg\n")
+        let installer = await makeInstaller(MockCommandRunner(), checksumFetcher: fetcher)
+
+        do {
+            _ = try await installer.downloadAndVerify(release, settings: settings(stallInterval: 5)) { _ in }
+            XCTFail("a download that does not match the published digest must not be installed")
+        } catch let error as UpdateInstallError {
+            guard case .checksumMismatch = error else {
+                return XCTFail("expected .checksumMismatch, got \(error)")
+            }
+        }
+
+        XCTAssertEqual(fetcher.requests.count, 1)
+        XCTAssertEqual(
+            partialBytes(for: release), 0,
+            "bytes that failed a checksum are not something to resume onto"
+        )
+    }
+
+    /// The digest that matches installs, and the file it was computed over is
+    /// the one that was downloaded.
+    func testADownloadThatMatchesThePublishedChecksumIsInstalled() async throws {
+        let served = try serve(.completing(bytes: 64 * 1024, chunks: 2, pause: 0))
+        let release = PublishedRelease(
+            version: served.version, tag: served.tag, notes: served.notes,
+            downloadURL: served.downloadURL, sizeInBytes: served.sizeInBytes,
+            checksumURL: URL(string: "https://github.com/hsuanchenlin/EchoForge/releases/download/v0.3.0/EchoForge.dmg.sha256")!
+        )
+        // The loopback server fills the body with one repeated byte, so the
+        // digest is computable here without downloading anything first.
+        let expected = try FileDigest.sha256(of: try writeTemporaryFile(Data(repeating: 0xAB, count: 64 * 1024)))
+        let fetcher = StubChecksumFetcher(document: "\(expected)  EchoForge.dmg\n")
+        let installer = await makeInstaller(MockCommandRunner(), checksumFetcher: fetcher)
+
+        let staged = try await installer.downloadAndVerify(release, settings: settings(stallInterval: 5)) { _ in }
+
+        XCTAssertTrue(FileManager.default.fileExists(atPath: staged.path))
+    }
+
+    /// Releases up to v0.5.1 publish no sidecar, and those users have to be able
+    /// to update to a build that does.
+    func testAReleaseWithNoPublishedChecksumStillInstalls() async throws {
+        let release = try serve(.completing(bytes: 64 * 1024, chunks: 2, pause: 0))
+        XCTAssertNil(release.checksumURL)
+        let fetcher = StubChecksumFetcher(document: nil)
+        let installer = await makeInstaller(MockCommandRunner(), checksumFetcher: fetcher)
+
+        _ = try await installer.downloadAndVerify(release, settings: settings(stallInterval: 5)) { _ in }
+
+        XCTAssertTrue(fetcher.requests.isEmpty, "nothing is fetched when nothing is published")
+    }
+
+    /// A sidecar that exists and cannot be read fails the install rather than
+    /// quietly skipping the check - which is a downgrade anyone who can make one
+    /// HTTP request fail could choose for us. It costs one press, because the
+    /// bytes survive and the retry resumes.
+    func testAnUnreadableChecksumFailsRatherThanBeingSkipped() async throws {
+        let served = try serve(.completing(bytes: 64 * 1024, chunks: 2, pause: 0))
+        let release = PublishedRelease(
+            version: served.version, tag: served.tag, notes: served.notes,
+            downloadURL: served.downloadURL, sizeInBytes: served.sizeInBytes,
+            checksumURL: URL(string: "https://github.com/hsuanchenlin/EchoForge/releases/download/v0.3.0/EchoForge.dmg.sha256")!
+        )
+        let installer = await makeInstaller(
+            MockCommandRunner(),
+            checksumFetcher: StubChecksumFetcher(document: "this is not a checksum document")
+        )
+
+        do {
+            _ = try await installer.downloadAndVerify(release, settings: settings(stallInterval: 5)) { _ in }
+            XCTFail("an unreadable sidecar must not be treated as no sidecar")
+        } catch let error as UpdateInstallError {
+            guard case .checksumUnavailable = error else {
+                return XCTFail("expected .checksumUnavailable, got \(error)")
+            }
+        }
+
+        XCTAssertEqual(
+            partialBytes(for: release), Int64(64 * 1024),
+            "a check that could not run has not found the bytes wanting, and the retry re-verifies them"
+        )
+    }
+
+    private func writeTemporaryFile(_ data: Data) throws -> URL {
+        let url = workDirectory.appendingPathComponent(UUID().uuidString)
+        try data.write(to: url)
+        return url
     }
 
     @MainActor
@@ -702,6 +1067,18 @@ private final class ProgressRecorder: @unchecked Sendable {
     }
 
     var fractions: [Double] {
-        all.compactMap { if case .downloading(let fraction) = $0 { return fraction } else { return nil } }
+        all.compactMap { if case .downloading(let progress) = $0 { return progress.fraction } else { return nil } }
+    }
+
+    /// Every byte count the pane was told about, which is what it now renders
+    /// instead of a percentage.
+    var receivedByteCounts: [Int64] {
+        all.compactMap {
+            if case .downloading(let progress) = $0 { return progress.receivedBytes } else { return nil }
+        }
+    }
+
+    var connectingReports: [DownloadProgress] {
+        all.compactMap { if case .connecting(let progress) = $0 { return progress } else { return nil } }
     }
 }

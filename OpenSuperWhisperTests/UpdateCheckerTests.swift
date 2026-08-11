@@ -75,6 +75,77 @@ final class UpdateManifestTests: XCTestCase {
                        "https://github.com/hsuanchenlin/EchoForge/releases/tag/v0.3.0")
     }
 
+    // MARK: - The published checksum
+
+    /// A release that publishes a `.sha256` beside the disk image hands the
+    /// updater the digest to check the download against.
+    func testReadsThePublishedChecksumAsset() throws {
+        let document: [String: Any] = [
+            "tag_name": "v0.5.3",
+            "draft": false,
+            "prerelease": false,
+            "body": "",
+            "assets": [
+                [
+                    "name": "EchoForge.dmg",
+                    "browser_download_url":
+                        "https://github.com/hsuanchenlin/EchoForge/releases/download/v0.5.3/EchoForge.dmg",
+                    "size": 11_000_000,
+                ],
+                [
+                    "name": "EchoForge.dmg.sha256",
+                    "browser_download_url":
+                        "https://github.com/hsuanchenlin/EchoForge/releases/download/v0.5.3/EchoForge.dmg.sha256",
+                    "size": 80,
+                ],
+            ],
+        ]
+
+        let release = try UpdateManifest.parse(try JSONSerialization.data(withJSONObject: document))
+
+        XCTAssertEqual(
+            release.checksumURL?.absoluteString,
+            "https://github.com/hsuanchenlin/EchoForge/releases/download/v0.5.3/EchoForge.dmg.sha256"
+        )
+    }
+
+    /// Every release up to v0.5.1 published no sidecar. Those users have to be
+    /// able to update *to* a build that does, so its absence is not a refusal.
+    func testAReleaseWithNoChecksumAssetIsStillAValidRelease() throws {
+        let release = try UpdateManifest.parse(metadata())
+        XCTAssertNil(release.checksumURL)
+    }
+
+    /// A checksum fetched from somewhere an attacker could choose is worse than
+    /// no checksum: it looks like verification and proves nothing. So the
+    /// sidecar goes through the same host and path rules as the asset, and one
+    /// that fails them is dropped rather than used.
+    func testRefusesAChecksumHostedAnywhereButTheReleaseHosts() throws {
+        let document: [String: Any] = [
+            "tag_name": "v0.5.3",
+            "draft": false,
+            "prerelease": false,
+            "body": "",
+            "assets": [
+                [
+                    "name": "EchoForge.dmg",
+                    "browser_download_url":
+                        "https://github.com/hsuanchenlin/EchoForge/releases/download/v0.5.3/EchoForge.dmg",
+                    "size": 11_000_000,
+                ],
+                [
+                    "name": "EchoForge.dmg.sha256",
+                    "browser_download_url": "https://example.invalid/EchoForge.dmg.sha256",
+                    "size": 80,
+                ],
+            ],
+        ]
+
+        let release = try UpdateManifest.parse(try JSONSerialization.data(withJSONObject: document))
+
+        XCTAssertNil(release.checksumURL, "a checksum from an untrusted host must not be used")
+    }
+
     // MARK: - The repository releases actually come from
 
     /// The exact asset URL GitHub publishes for this project, accepted.

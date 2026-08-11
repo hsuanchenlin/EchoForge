@@ -89,16 +89,34 @@ The allow-list check on the initial URL is not enough by itself: GitHub's API al
 re-checks every redirect it follows against the same host allow-list
 (`UpdateManifest.isAllowedRedirectHost`) before continuing.
 
-The download is written around one measured platform fact: **`URLSession` delivers
-`didWriteData` only to a session's own delegate, never to one passed to
-`download(from:delegate:)`** - four megabytes produced zero progress callbacks that way and
-fourteen the other. That is why `UpdateDownload` owns the session it runs on instead of the
-installer holding a shared one, and it is worth re-measuring before anyone "simplifies" it
-back. The **download** must never run on `URLSession.shared`: its `timeoutIntervalForResource`
-is seven days, which is how a 0.5.0 update sat at 0% forever after a connection died silently
-mid-transfer. The *check* is a different case and deliberately stays on `.shared`
-(`GitHubReleaseMetadataFetcher`): it is one small GET whose request carries its own 20 s
-`timeoutInterval`, so it cannot wedge the same way.
+The download is written around one measured platform fact: **`URLSession` delivers progress
+callbacks only to a session's own delegate, never to one passed per task** - four megabytes
+produced zero callbacks that way and fourteen the other. That is why `ResumableDownload` owns
+the session it runs on instead of the installer holding a shared one, and it is worth
+re-measuring before anyone "simplifies" it back. The **download** must never run on
+`URLSession.shared`: its `timeoutIntervalForResource` is seven days, which is how a 0.5.0
+update sat at 0% forever after a connection died silently mid-transfer. The *check* is a
+different case and deliberately stays on `.shared` (`GitHubReleaseMetadataFetcher`): it is one
+small GET whose request carries its own 20 s `timeoutInterval`, so it cannot wedge the same way.
+
+A transfer **resumes**. The partial file and the validator it was fetched with live under
+Caches (`PartialDownloadStore`), and the next attempt asks for `bytes=<n>-` conditioned on
+`If-Range`, so a failure at 95% of a large asset costs one press rather than the whole download
+again. `ResumeDecision` is where the server's answer is read, as a pure function: appending a
+200's whole-file body onto an existing partial produces a file of exactly the right length made
+of the wrong bytes, and that is the failure the whole shape is arranged around. A partial
+survives a failed or cancelled *download* and never survives a failed *verification*.
+`ResumableFileDownloader` is the same transfer for callers that only need the bytes -
+`ModelPackInstaller` is the other one - and `StallWatchdog` is shared by both.
+
+Progress is reported as **bytes**, not a fraction: `0%` used to cover everything from an
+unanswered request to the first 1.1 MB of a 212 MB asset, so a slow download and a dead one
+looked identical. `DownloadProgress` carries the counts, `UpdateProgress.connecting` is the
+stretch before the first byte, and `DownloadProgressText` owns the wording.
+
+Releases publish a `.sha256` sidecar and the updater checks it (`UpdateManifest.checksumURL`).
+A release without one still installs - none before v0.5.2 published any - but a sidecar that
+exists and does not match, or cannot be read, fails the install rather than being skipped.
 `UpdateDownloadSettings` carries the configuration and the stall interval, and
 the watchdog it feeds measures **silence, not throughput** - a slow link is a normal way to
 take a 222 MB update and must complete, so nothing there may become a rate floor or a cap on
@@ -180,12 +198,27 @@ only for byte-download phases and an indeterminate `Preparing model…` otherwis
 why FluidAudio's own fraction cannot be used as-is. Transcription progress and model-preparation
 progress are separate published values and must stay that way; they overlap routinely.
 
-A release can ship with SenseVoice-Small already installed. The weights are a build input, never
-committed: `docs/starter-model.md` is the whole story - staging, the `Package Starter Model` build
-phase, and `StarterModel.installIfNeeded()` at launch. A checkout without the artifact builds and
-behaves exactly as before, which is what CI does. Bundling weights changed a licence position that
-`docs/speech-model-attribution.md` had stated absolutely; read that file before bundling anything
-else.
+A release is **thin**: it ships no model weights, and `docs/model-packs.md` is the whole story.
+Bundling them made the DMG 222 MB, of which 212 MB was one model - and models live in Application
+Support and survive an app replacement, so an updating user downloaded, verified, mounted and copied
+bytes their machine already had, then never read them (measured across v0.5.1 → v0.5.2: two files
+changed, 94% of the bundle identical). Weights now arrive as a **model pack**: one engine's cache
+directory as a versioned, SHA-256'd `.tar.gz` published as a release asset, installed by
+`ModelPackInstaller` into the directory the engine already downloads into, so an installed pack is
+indistinguishable from a finished download. `ModelPackManifest` is its security boundary and refuses
+the same way `UpdateManifest` does; `OpenSuperWhisper/ModelPacks.json` is the shipped list and is
+**empty until packs are published**, which is what keeps the app downloading weights exactly as
+before until one is. The installer has no production caller yet: wiring
+`ModelPackCatalog.pack(for:)` into the model-preparation and onboarding download path must land
+before the first pack is published (`docs/model-packs.md`).
+
+The bundled path still exists and is opt-in (`ECHOFORGE_BUNDLE_STARTER_MODEL=1`), for an offline
+install medium and for anyone still running a build that shipped one:
+`docs/starter-model.md` covers staging, the `Package Starter Model` build phase, and
+`StarterModel.installIfNeeded()` at launch. `Scripts/build_release.sh` verifies whichever way it
+built - `--forbid-starter-model` by default. Bundling weights changed a licence position that
+`docs/speech-model-attribution.md` had stated absolutely; read that file before bundling or
+publishing anything else.
 
 Tests must not download models. `TranscriptionService` skips both the engine load and background
 preparation under `OpenSuperWhisperApp.isRunningTests`, because a test pins `availability` to

@@ -12,7 +12,13 @@ enum UpdateState: Equatable {
     case checking
     case upToDate
     case available(PublishedRelease)
-    case downloading(PublishedRelease, fraction: Double)
+    /// The request has been made and nothing has come back yet. Its own state
+    /// because the alternative is what shipped: rendering it as "0%", which is
+    /// also what the first 1.1 MB of a 212 MB download renders as, so a user
+    /// could not tell an unanswered request from a slow one. Carries the
+    /// progress it will resume from, which is not always zero.
+    case connecting(PublishedRelease, DownloadProgress)
+    case downloading(PublishedRelease, DownloadProgress)
     /// The bytes are down and the disk image is being mounted, checked and
     /// copied. Its own state because it is the one stretch with no fraction to
     /// report: a bar left sitting at 100% is indistinguishable from the stalled
@@ -28,6 +34,17 @@ enum UpdateState: Equatable {
     /// on screen - but a failed download does, and having to reopen the pane to
     /// get back to it is how a transient network fault reads as a dead end.
     case failed(String, retryable: PublishedRelease?)
+
+    /// Whether something is in flight that a second press must not start over.
+    /// On the state rather than the view model because the card is drawn from
+    /// the state alone (`UpdateCardView`), and its buttons have to agree with
+    /// the view model about what "busy" means.
+    var isBusy: Bool {
+        switch self {
+        case .checking, .connecting, .downloading, .verifying, .installing: return true
+        case .idle, .upToDate, .available, .readyToInstall, .failed: return false
+        }
+    }
 }
 
 /// How the app is asked to go away so the swap script can replace its bundle.
@@ -128,12 +145,7 @@ final class UpdateViewModel: ObservableObject {
         self.terminator = terminator ?? RunningApplicationTerminator()
     }
 
-    var isBusy: Bool {
-        switch state {
-        case .checking, .downloading, .verifying, .installing: return true
-        case .idle, .upToDate, .available, .readyToInstall, .failed: return false
-        }
-    }
+    var isBusy: Bool { state.isBusy }
 
     func checkForUpdates() {
         guard !isBusy else { return }
@@ -166,7 +178,7 @@ final class UpdateViewModel: ObservableObject {
     /// has a reason to do.
     func download(_ release: PublishedRelease, settings: UpdateDownloadSettings = UpdateDownloadSettings()) {
         guard !isBusy else { return }
-        state = .downloading(release, fraction: 0)
+        state = .connecting(release, DownloadProgress(receivedBytes: 0, totalBytes: Int64(release.sizeInBytes)))
         downloadTask = Task { [weak self] in
             do {
                 guard let installer = self?.installer else { return }
@@ -194,8 +206,16 @@ final class UpdateViewModel: ObservableObject {
     /// a short run of `hdiutil`, `codesign` and `ditto` that has to reach its own
     /// `defer` to unmount the image, so it is left to finish rather than torn
     /// down half way.
+    ///
+    /// What is *not* thrown away is the partial file: cancelling and starting
+    /// again is now a resume, so a user who stops a download to get on with
+    /// something else does not pay for it twice.
     func cancelDownload() {
-        guard case .downloading(let release, _) = state else { return }
+        let release: PublishedRelease
+        switch state {
+        case .connecting(let cancelled, _), .downloading(let cancelled, _): release = cancelled
+        default: return
+        }
         downloadTask?.cancel()
         downloadTask = nil
         state = .available(release)
@@ -204,11 +224,19 @@ final class UpdateViewModel: ObservableObject {
     /// Moves the pane along with a download that is still the one it is showing.
     /// A report from a cancelled or superseded download arrives on the main
     /// actor after the state has already moved on, and must not pull it back.
+    ///
+    /// The accepted transitions are written out rather than defaulted, because
+    /// the one that matters is the one that must *not* happen: a late report
+    /// from a finished download re-entering `.downloading` from `.verifying`
+    /// would put a moving bar back over work that has no fraction.
     private func report(_ progress: UpdateProgress, for release: PublishedRelease) {
         switch (state, progress) {
-        case (.downloading, .downloading(let fraction)):
-            state = .downloading(release, fraction: fraction)
-        case (.downloading, .verifying):
+        case (.connecting, .connecting(let downloadProgress)):
+            state = .connecting(release, downloadProgress)
+        case (.connecting, .downloading(let downloadProgress)),
+             (.downloading, .downloading(let downloadProgress)):
+            state = .downloading(release, downloadProgress)
+        case (.connecting, .verifying), (.downloading, .verifying):
             state = .verifying(release)
         default:
             break
@@ -246,13 +274,19 @@ final class UpdateViewModel: ObservableObject {
 /// Which build this is, and the only place in the app that offers to change it.
 struct AboutSettingsView: View {
     @StateObject private var viewModel = UpdateViewModel()
-    @Environment(\.openURL) private var openURL
 
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
                 identityCard
-                updateCard
+                UpdateCardView(
+                    state: viewModel.state,
+                    checkForUpdates: { viewModel.checkForUpdates() },
+                    download: { viewModel.download($0) },
+                    cancelDownload: { viewModel.cancelDownload() },
+                    installAndRelaunch: { viewModel.installAndRelaunch($0, stagedApp: $1) },
+                    dismiss: { viewModel.dismissMessage() }
+                )
             }
             .padding()
         }
@@ -296,23 +330,79 @@ struct AboutSettingsView: View {
         }
     }
 
-    @ViewBuilder
-    private var updateCard: some View {
+}
+
+/// The Updates card, drawn from an explicit `UpdateState`.
+///
+/// Separate from `AboutSettingsView` because the card is a pure function of
+/// that state, and most of its states only exist while bytes are moving: a
+/// test cannot hold a real download at "resuming from 115 MB" long enough to
+/// look at it, but it can construct the state and render this view directly
+/// (`UpdateCardRenderTests`). The buttons remain the pane's: every action is a
+/// closure the pane points at its view model.
+struct UpdateCardView: View {
+    let state: UpdateState
+    let checkForUpdates: () -> Void
+    let download: (PublishedRelease) -> Void
+    let cancelDownload: () -> Void
+    let installAndRelaunch: (PublishedRelease, URL) -> Void
+    let dismiss: () -> Void
+
+    @Environment(\.openURL) private var openURL
+
+    /// The line that says what the pane is doing, one per state, exactly as
+    /// the body shows it. Composed here rather than inline in the body so a
+    /// test can hold the words against what each state must say without
+    /// keeping a second copy of them; the transfer wording itself belongs to
+    /// `DownloadProgressText`.
+    static func statusText(for state: UpdateState) -> String {
+        switch state {
+        case .idle:
+            return "EchoForge never checks or installs updates on its own. Checking, downloading and "
+                + "installing are three things you ask for."
+        case .checking:
+            return "Checking…"
+        case .upToDate:
+            return "You are on the latest published release."
+        case .available(let release):
+            return "EchoForge \(release.version.description) is available."
+        case .connecting(let release, let progress):
+            return progress.receivedBytes > 0
+                ? "Connecting… resuming \(release.version.description) from "
+                    + "\(DownloadProgressText.bytes(progress))"
+                : "Connecting…"
+        case .downloading(let release, let progress):
+            // The bytes lead and the percentage follows. A percentage on its
+            // own is what let a live download and a dead one render
+            // identically; a number that visibly climbs cannot.
+            return "Downloading \(release.version.description) - \(DownloadProgressText.summary(progress))"
+        case .verifying(let release):
+            return "Verifying \(release.version.description)…"
+        case .readyToInstall(let release, _):
+            return "\(release.version.description) downloaded and verified: it identifies itself as "
+                + "EchoForge, reports the version that was offered, and passes signature verification."
+        case .installing(let release, _):
+            return "Installing \(release.version.description). EchoForge will quit and open again."
+        case .failed(let message, _):
+            return message
+        }
+    }
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text("Updates")
                     .font(.headline)
                 Spacer()
-                Button("Check for Updates") { viewModel.checkForUpdates() }
+                Button("Check for Updates") { checkForUpdates() }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(viewModel.isBusy)
+                    .disabled(state.isBusy)
             }
 
-            switch viewModel.state {
+            switch state {
             case .idle:
-                Text("EchoForge never checks or installs updates on its own. Checking, downloading and "
-                    + "installing are three things you ask for.")
+                Text(Self.statusText(for: state))
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -320,19 +410,19 @@ struct AboutSettingsView: View {
             case .checking:
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Checking…")
+                    Text(Self.statusText(for: state))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
 
             case .upToDate:
                 statusLine(icon: "checkmark.circle.fill", color: .green,
-                           text: "You are on the latest published release.")
+                           text: Self.statusText(for: state))
 
             case .available(let release):
                 releaseDetails(release)
                 HStack {
-                    Button("Download \(release.version.description)") { viewModel.download(release) }
+                    Button("Download \(release.version.description)") { download(release) }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
                     Button("Release Page") { openURL(release.releasePageURL) }
@@ -340,63 +430,73 @@ struct AboutSettingsView: View {
                         .controlSize(.small)
                 }
 
-            case .downloading(let release, let fraction):
-                Text("Downloading \(release.version.description) - \(Int((fraction * 100).rounded()))%")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                ProgressView(value: fraction)
-                    .progressViewStyle(LinearProgressViewStyle())
-                    .frame(height: 6)
-                Button("Cancel") { viewModel.cancelDownload() }
+            case .connecting:
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(Self.statusText(for: state))
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Button("Cancel") { cancelDownload() }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
 
-            case .verifying(let release):
+            case .downloading(_, let progress):
+                Text(Self.statusText(for: state))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                ProgressView(value: progress.fraction)
+                    .progressViewStyle(LinearProgressViewStyle())
+                    .frame(height: 6)
+                Button("Cancel") { cancelDownload() }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+
+            case .verifying:
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Verifying \(release.version.description)…")
+                    Text(Self.statusText(for: state))
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
 
             case .readyToInstall(let release, let stagedApp):
-                statusLine(
-                    icon: "checkmark.seal",
-                    color: .green,
-                    text: "\(release.version.description) downloaded and verified: it identifies itself as "
-                        + "EchoForge, reports the version that was offered, and passes signature verification."
-                )
+                statusLine(icon: "checkmark.seal", color: .green,
+                           text: Self.statusText(for: state))
                 Text("Installing quits EchoForge, replaces it, and opens it again.")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
-                    Button("Install and Relaunch") { viewModel.installAndRelaunch(release, stagedApp: stagedApp) }
+                    Button("Install and Relaunch") { installAndRelaunch(release, stagedApp) }
                         .buttonStyle(.borderedProminent)
                         .controlSize(.small)
-                    Button("Not Now") { viewModel.dismissMessage() }
+                    Button("Not Now") { dismiss() }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                 }
 
-            case .installing(let release, _):
+            case .installing:
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Installing \(release.version.description). EchoForge will quit and open again.")
+                    Text(Self.statusText(for: state))
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-            case .failed(let message, let retryable):
-                statusLine(icon: "exclamationmark.triangle.fill", color: .orange, text: message)
+            case .failed(_, let retryable):
+                statusLine(icon: "exclamationmark.triangle.fill", color: .orange,
+                           text: Self.statusText(for: state))
                 HStack {
                     if let retryable {
-                        Button("Retry") { viewModel.download(retryable) }
+                        Button("Retry") { download(retryable) }
                             .buttonStyle(.borderedProminent)
                             .controlSize(.small)
                     }
-                    Button("Dismiss") { viewModel.dismissMessage() }
+                    Button("Dismiss") { dismiss() }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                 }

@@ -223,7 +223,18 @@ fi
 
 if [[ "$run_verify" == true ]]; then
     echo
-    "${REPO_ROOT}/Scripts/verify_release_package.sh" --expect-version "$version" "$DMG_PATH"
+    # `--forbid-starter-model` because a release is thin. The weights live in
+    # Application Support and survive an app replacement, so shipping them in
+    # the DMG made every update twenty times larger to deliver bytes the machine
+    # already had. A build asked for an offline install medium
+    # (ECHOFORGE_BUNDLE_STARTER_MODEL=1) is the exception and verifies the other
+    # way round.
+    starter_expectation="--forbid-starter-model"
+    if [[ "${ECHOFORGE_BUNDLE_STARTER_MODEL:-0}" == "1" ]]; then
+        starter_expectation="--require-starter-model"
+    fi
+    "${REPO_ROOT}/Scripts/verify_release_package.sh" \
+        --expect-version "$version" "$starter_expectation" "$DMG_PATH"
 else
     echo "⚠️  Skipped verification (--skip-verify). Do not publish this artifact."
 fi

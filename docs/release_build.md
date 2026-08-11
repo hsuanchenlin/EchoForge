@@ -1,11 +1,12 @@
 ## Release build
 
-If the release is meant to ship with the starter speech model already on board, stage it
-**before** building - see [starter-model.md](starter-model.md). A build with nothing staged is
-still a valid release; it just downloads the model on first use.
+A release is **thin**: it ships no model weights, and the verifier fails it if any are
+packaged ([model-packs.md](model-packs.md) has the measurements and how weights are published
+instead). Bundling the starter speech model is opt-in, for an offline install medium: stage it
+**before** building and set `ECHOFORGE_BUNDLE_STARTER_MODEL=1` - see
+[starter-model.md](starter-model.md).
 
 ```shell
-Scripts/package_starter_model.sh --stage-from-cache   # optional
 Scripts/build_release.sh                              # ad-hoc: what this fork ships
 ```
 
@@ -47,7 +48,9 @@ Scripts/verify_release_package.sh EchoForge.dmg      # or a .app
 Checks bundle identity and version, that every Mach-O in the bundle is validly signed with
 the app's own Team ID and options, that hardened runtime and ad-hoc signing are not
 combined, that every `@rpath` dependency resolves *inside* the bundle, the whole-bundle
-seal, the packaged starter model - and then **starts the app**.
+seal, that the starter model is packaged or absent as asked (`--require-starter-model` /
+`--forbid-starter-model`; `build_release.sh` passes whichever matches how it built) - and
+then **starts the app**.
 
 The launch check is the one that matters. v0.3.0 passed `codesign --verify --deep --strict`
 on the published DMG and could not start on any Mac; a signature says nothing about whether

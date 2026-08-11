@@ -151,6 +151,52 @@ final class ReleasePackagingTests: XCTestCase {
         )
     }
 
+    // MARK: - A release is thin
+
+    /// The release must not carry model weights.
+    ///
+    /// Every release from v0.3.0 to v0.5.2 shipped a 222 MB disk image whose
+    /// 212 MB was one bundled speech model - and models live in Application
+    /// Support and survive an app replacement, so an updating user downloaded
+    /// those megabytes, verified them, mounted them, copied them into place and
+    /// never read them. Measured across v0.5.1 to v0.5.2: two files changed, the
+    /// binary and `Info.plist`, and 94% of the bundle's bytes were identical.
+    ///
+    /// Asserted in three places because it can regress in three ways: the build
+    /// phase could start packaging again, the verifier could stop checking, and
+    /// the release script could stop asking it to.
+    func testTheBuildPackagesNoStarterModelUnlessAskedTo() throws {
+        let script = try source(of: "Scripts/package_starter_model.sh")
+
+        XCTAssertTrue(
+            script.contains("ECHOFORGE_BUNDLE_STARTER_MODEL:-0") && script.contains("!= \"1\""),
+            "Bundling weights has to be opt-in; the default is a thin app."
+        )
+    }
+
+    func testTheReleaseBuildRefusesAnArtifactCarryingWeights() throws {
+        let build = try source(of: "Scripts/build_release.sh")
+        let verifier = try source(of: "Scripts/verify_release_package.sh")
+
+        XCTAssertTrue(
+            build.contains("--forbid-starter-model"),
+            "A release has to be verified as thin, not merely built thin."
+        )
+        XCTAssertTrue(
+            verifier.contains("forbid_starter_model"),
+            "The verifier is what decides whether an artifact is publishable."
+        )
+    }
+
+    /// The other half: an offline install medium is still buildable, and
+    /// verifies the opposite way.
+    func testAnOfflineMediumCanStillBeBuiltAndIsVerifiedAsCarryingWeights() throws {
+        let build = try source(of: "Scripts/build_release.sh")
+
+        XCTAssertTrue(build.contains("--require-starter-model"), build)
+        XCTAssertTrue(build.contains("ECHOFORGE_BUNDLE_STARTER_MODEL"), build)
+    }
+
     func testMakeReleaseGoesThroughTheOneBuildPath() throws {
         let makeRelease = try source(of: "make_release.sh")
         let notarize = try source(of: "notarize_app.sh")

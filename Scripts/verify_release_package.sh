@@ -19,6 +19,11 @@
 #   --expect-bundle-id ID     default com.hsuanchenlin.EchoForge
 #   --expect-version V        marketing version the bundle must report
 #   --require-starter-model   fail unless the SenseVoice starter weights are packaged
+#   --forbid-starter-model    fail *if* they are packaged, which is what an
+#                             ordinary release wants: the weights live in
+#                             Application Support and survive an app
+#                             replacement, so shipping them makes every update
+#                             twenty times bigger for nothing
 #   --no-launch               skip the launch check (static checks only)
 #
 # The release scripts run it automatically; run it by hand on any downloaded
@@ -39,6 +44,7 @@ readonly STARTER_MODEL_RELATIVE_PATH="Contents/Resources/StarterModel/sensevoice
 expect_bundle_id="com.hsuanchenlin.EchoForge"
 expect_version=""
 require_starter_model=false
+forbid_starter_model=false
 run_launch_check=true
 artifact=""
 
@@ -60,6 +66,7 @@ while [[ $# -gt 0 ]]; do
         --expect-bundle-id) expect_bundle_id="$2"; shift 2 ;;
         --expect-version) expect_version="$2"; shift 2 ;;
         --require-starter-model) require_starter_model=true; shift ;;
+        --forbid-starter-model) forbid_starter_model=true; shift ;;
         --no-launch) run_launch_check=false; shift ;;
         -h|--help) usage 0 ;;
         -*) echo "unknown option: $1" >&2; usage 2 ;;
@@ -322,7 +329,9 @@ if [[ -d "${app}/${STARTER_MODEL_RELATIVE_PATH}" ]]; then
     for entry in SenseVoicePreprocessor.mlmodelc SenseVoiceSmall_int8.mlmodelc vocab.json; do
         [[ -e "${app}/${STARTER_MODEL_RELATIVE_PATH}/${entry}" ]] || missing+=("$entry")
     done
-    if [[ ${#missing[@]} -eq 0 ]]; then
+    if [[ "$forbid_starter_model" == true ]]; then
+        fail "packaged, and --forbid-starter-model was given ($(du -sh "${app}/${STARTER_MODEL_RELATIVE_PATH}" | cut -f1 | tr -d ' '))"
+    elif [[ ${#missing[@]} -eq 0 ]]; then
         pass "packaged ($(du -sh "${app}/${STARTER_MODEL_RELATIVE_PATH}" | cut -f1 | tr -d ' '))"
     else
         fail "packaged but incomplete; missing: ${missing[*]}"
@@ -330,7 +339,7 @@ if [[ -d "${app}/${STARTER_MODEL_RELATIVE_PATH}" ]]; then
 elif [[ "$require_starter_model" == true ]]; then
     fail "not packaged, and --require-starter-model was given"
 else
-    pass "not packaged - the app will download a model on first use"
+    pass "not packaged - the app installs a model pack or downloads one on first run"
 fi
 
 # --- 7. Launch ----------------------------------------------------------------
