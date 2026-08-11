@@ -94,7 +94,7 @@ would ask for an update and be told, correctly and uselessly, that there is none
 first pack therefore verified the pointer afterwards rather than assuming it:
 
 ```
-$ gh-axi release create 'models/sensevoice-small/1.0.0' --latest=false ... 
+$ gh-axi release create 'models/sensevoice-small/1.0.0' --latest=false ...
 $ gh-axi api repos/hsuanchenlin/EchoForge/releases/latest   # → v0.5.2, unchanged
 ```
 

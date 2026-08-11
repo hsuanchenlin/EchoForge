@@ -35,8 +35,8 @@ final class ModelPackSelectionTests: XCTestCase {
         )
     }
 
-    /// The state every build is in until packs are actually published, and the
-    /// one that keeps shipping the pack code inert.
+    /// The state of every engine the shipped list does not name: its download
+    /// is exactly what it always was.
     func testWithNoPackPublishedTheEngineDownloadsAsItAlwaysHas() {
         XCTAssertEqual(
             ModelPackSelection.of(.sensevoice, in: [], cache: senseVoiceCache),
