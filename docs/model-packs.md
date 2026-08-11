@@ -86,6 +86,40 @@ Scripts/package_model_pack.sh --id sensevoice-small --version 1.0.0
 The pack's version is its own and moves independently of the app's: two app releases can want the
 same weights, and re-cutting the weights must not mean re-cutting the app.
 
+Step 2 has one flag that is not optional: **`--latest=false`**. A model pack is a release in
+GitHub's sense, and a newly published release becomes the repository's *latest* one by default -
+which is the exact document `GitHubReleaseMetadataFetcher` reads to answer "is there an update?".
+A pack left as latest is a release with no `EchoForge.dmg` in it, so every running copy of the app
+would ask for an update and be told, correctly and uselessly, that there is none. Publishing the
+first pack therefore verified the pointer afterwards rather than assuming it:
+
+```
+$ gh-axi release create 'models/sensevoice-small/1.0.0' --latest=false ...
+$ gh-axi api repos/hsuanchenlin/EchoForge/releases/latest   # → v0.5.2, unchanged
+```
+
+### What is published today
+
+| | |
+|---|---|
+| Tag | `models/sensevoice-small/1.0.0` |
+| Asset | `echoforge-model-sensevoice-small-1.0.0.tar.gz`, 208,353,071 bytes |
+| SHA-256 | `ad0490fa54fba3c96894f2eb3e605b6802d0fef68a43d90d8cad72bcdc17989e` |
+| `minimumAppVersion` | 0.6.0 |
+
+The minimum is the version that first *ships* the installer: no released app up to and including
+v0.5.2 has any pack code, so a pack offered to one could only be ignored. Until `MARKETING_VERSION`
+reaches 0.6.0 the entry is therefore deliberately inert - `ModelPackManifest.installable` filters it
+out and the app downloads SenseVoice's weights the way it always has - and it turns on with the
+version bump, with no second change needed anywhere.
+
+The published URL percent-encodes the tag's slashes
+(`.../download/models%2Fsensevoice-small%2F1.0.0/...`), which is what
+`Scripts/package_model_pack.sh` emits. Both that form and the unencoded one were fetched before the
+entry was written: each answers `206` with `Content-Range: bytes 0-1023/208353071` and redirects to
+`release-assets.githubusercontent.com`, which is already in `UpdateManifest.allowedDownloadHosts`,
+so the redirect re-check the download performs accepts it.
+
 ## The list, and why it ships inside the app
 
 `OpenSuperWhisper/ModelPacks.json` is the manifest. It is **bundled rather than fetched**, which is
@@ -93,10 +127,11 @@ a deliberate difference from the release manifest: it costs a few hundred bytes,
 machine that has never been online, and it adds no second network trust boundary. `ModelPackManifest.parse`
 is written so a fetched document could be handed to it unchanged if that ever becomes worth doing.
 
-**It is empty until packs are actually published, and that is the correct state.** With no entries
-`ModelPackCatalog.pack(for:)` answers `nil` and the app downloads weights exactly as it always has.
-Adding an entry is now the whole switch: the download path consults the catalog, so a listed pack
-is installed and a missing one is not.
+**An entry is the whole switch**, per engine: the download path consults the catalog, so a listed
+pack is installed and a missing one is not. With no entry for an engine `ModelPackCatalog.pack(for:)`
+answers `nil` and the app downloads that engine's weights exactly as it always has - which is still
+every engine except SenseVoice, and remains the only thing a licence position permits
+(see [the rules](#the-rules) below).
 
 ## How the app uses one
 

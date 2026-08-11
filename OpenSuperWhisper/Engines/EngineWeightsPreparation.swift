@@ -73,8 +73,9 @@ enum ModelPackSelection: Equatable {
     case downloadThroughEngine(reason: Reason)
 
     enum Reason: Equatable {
-        /// The normal state until packs are published, and the state that keeps
-        /// shipping the pack code inert.
+        /// No pack this build may install is listed for the engine - it is
+        /// unlisted, or its pack needs a newer app - so its download is exactly
+        /// what it always was.
         case noPackIsPublished
 
         /// Whisper and Parakeet: no single cache directory a pack could fill.
@@ -126,8 +127,8 @@ enum ModelPackSelection: Equatable {
 /// size bound, a resumable transfer and an atomic install into the directory the
 /// engine already loads from. The engine's own downloader is the unchecked one
 /// this app inherited - Hugging Face, no digest, no host rule, no version of its
-/// own - and it stays, because it is what works when no pack is published, which
-/// is every engine until one is.
+/// own - and it stays, because it is what works when no pack is published for
+/// the engine, which is still every engine but SenseVoice.
 ///
 /// So the rule this type exists to keep: **when a usable pack is listed for an
 /// engine, the pack installer is what runs.** No caller may reach an engine's
@@ -170,7 +171,8 @@ struct EngineWeightsPreparation {
     /// developer's real Application Support.
     typealias Installing = @Sendable (EngineModelCache) -> ModelPackInstalling
 
-    /// The packs this build knows about. Empty until some are published.
+    /// The packs this build may install. Empty is a working state - see
+    /// `ModelPackManifest.bundled`.
     let packs: [ModelPack]
 
     /// Where each engine keeps its weights. Injected together with the installer

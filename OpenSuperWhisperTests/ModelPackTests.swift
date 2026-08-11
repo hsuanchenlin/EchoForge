@@ -144,15 +144,63 @@ final class ModelPackManifestTests: XCTestCase {
 
     /// The list that ships inside the app has to be readable by the app that
     /// ships it - a malformed one would silently turn every pack off.
+    ///
+    /// It now lists one pack, and every field in it names bytes that are already
+    /// published: changing any of them here without re-publishing the asset is a
+    /// pack that fails its checksum on every machine, which the app survives
+    /// (it falls back to the engine's own download) but nobody would see.
     func testTheShippedListParses() throws {
-        let url = URL(fileURLWithPath: #filePath)
+        let packs = try ModelPackManifest.parse(try Data(contentsOf: shippedList))
+
+        XCTAssertEqual(packs.count, 1, "the shipped list is one SenseVoiceSmall pack")
+        let pack = try XCTUnwrap(packs.first)
+        XCTAssertEqual(pack.id, "sensevoice-small")
+        XCTAssertEqual(pack.version, "1.0.0")
+        XCTAssertEqual(pack.engine, .sensevoice)
+        XCTAssertEqual(pack.sizeInBytes, 208_353_071)
+        XCTAssertEqual(pack.sha256, "ad0490fa54fba3c96894f2eb3e605b6802d0fef68a43d90d8cad72bcdc17989e")
+        XCTAssertEqual(
+            pack.url.absoluteString,
+            "https://github.com/hsuanchenlin/EchoForge/releases/download/"
+                + "models%2Fsensevoice-small%2F1.0.0/echoforge-model-sensevoice-small-1.0.0.tar.gz"
+        )
+    }
+
+    /// The mistake a listed pack can make that nothing else would report: weights
+    /// that install into a directory the engine never reads, or a list that
+    /// cannot fill the cache on its own. Both fall back to the engine's own
+    /// download, so the app keeps working and the pack is simply never used -
+    /// which is exactly why it has to be asserted rather than noticed.
+    func testTheShippedPackFillsTheCacheTheEngineActuallyLoadsFrom() throws {
+        let packs = try ModelPackManifest.parse(try Data(contentsOf: shippedList))
+        let cache = try XCTUnwrap(EngineModelCache.of(.sensevoice))
+
+        XCTAssertEqual(
+            ModelPackSelection.of(.sensevoice, in: packs, cache: cache),
+            .install(try XCTUnwrap(packs.first), into: cache)
+        )
+        for entry in SenseVoiceEngine.requiredCacheEntries {
+            XCTAssertTrue(packs[0].entries.contains(entry), "the pack has to carry \(entry)")
+        }
+    }
+
+    /// The pack is published for the app that ships the installer, not for the
+    /// releases that came before it: 0.5.2 and earlier have no pack code at all,
+    /// and a build older than the minimum leaves the pack out rather than
+    /// installing weights it cannot load.
+    func testTheShippedPackIsOfferedToTheAppThatShipsTheInstaller() throws {
+        let packs = try ModelPackManifest.parse(try Data(contentsOf: shippedList))
+
+        XCTAssertEqual(packs[0].minimumAppVersion, AppVersion("0.6.0"))
+        XCTAssertEqual(ModelPackManifest.installable(packs, appVersion: AppVersion("0.5.2")).count, 0)
+        XCTAssertEqual(ModelPackManifest.installable(packs, appVersion: AppVersion("0.6.0")).count, 1)
+        XCTAssertEqual(ModelPackManifest.installable(packs, appVersion: AppVersion("1.0.0")).count, 1)
+    }
+
+    private var shippedList: URL {
+        URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("OpenSuperWhisper/ModelPacks.json")
-        let packs = try ModelPackManifest.parse(try Data(contentsOf: url))
-
-        // Empty until packs are published, which is what keeps this change
-        // inert: with no entries the app downloads weights exactly as before.
-        XCTAssertTrue(packs.isEmpty, "publishing a pack means updating this test's expectation too")
     }
 }
 

@@ -208,9 +208,14 @@ directory as a versioned, SHA-256'd `.tar.gz` published as a release asset, inst
 indistinguishable from a finished download. `ModelPackManifest` is its security boundary and refuses
 the same way `UpdateManifest` does - including any engine this project has not written a
 redistribution position for, which is exactly one (`enginesClearedForRedistribution`).
-`OpenSuperWhisper/ModelPacks.json` is the shipped list and is **empty until packs are published**,
-which is what keeps the app downloading weights exactly as before until one is; adding an entry is
-the whole switch.
+`OpenSuperWhisper/ModelPacks.json` is the shipped list, and an entry in it is the whole switch: an
+engine with one gets the verified pack, an engine without one downloads weights exactly as before.
+It lists one pack today - SenseVoiceSmall 1.0.0, published under the `models/<id>/<version>` tag
+namespace with `minimumAppVersion` 0.6.0, since no released app before that carries the installer.
+Every field there names bytes that are already published, so editing one without re-publishing the
+asset gives every machine a pack that fails its checksum and silently falls back;
+`ModelPackManifestTests` pins the digest, the size, the URL and that the pack fills the cache
+SenseVoice actually loads from.
 
 `Engines/EngineWeightsPreparation.swift` is the one place "make this engine's weights ready" turns
 into fetched bytes, and all three paths that fetch weights go through it - background preparation,

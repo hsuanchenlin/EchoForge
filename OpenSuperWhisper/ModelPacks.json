@@ -2,17 +2,38 @@
   "_comment": [
     "Model packs this build knows how to install. See docs/model-packs.md.",
     "",
-    "Empty is the correct state until packs are actually published: with no",
-    "entries the app downloads model weights exactly as it always has, so",
-    "shipping the pack code changes nothing on its own. Publishing a pack is",
-    "two steps - Scripts/package_model_pack.sh to build and checksum it, then",
-    "an entry here naming the release asset it was uploaded as.",
+    "Publishing a pack is two steps - Scripts/package_model_pack.sh to build and",
+    "checksum it, then an entry here naming the release asset it was uploaded as.",
+    "An entry is the whole switch: with one, EngineWeightsPreparation installs the",
+    "verified pack instead of letting the engine fetch its own weights; without",
+    "one, the app downloads them exactly as it always has.",
     "",
     "Every field is checked by ModelPackManifest.parse before anything is",
     "downloaded: the URL must be HTTPS on a GitHub release host under this",
     "repository, the sha256 must be 64 hex characters, and cacheFolder and each",
-    "entry must be a single path component."
+    "entry must be a single path component.",
+    "",
+    "Only engines named in ModelPackManifest.enginesClearedForRedistribution may",
+    "appear, which is exactly one - SenseVoiceSmall, under the FunASR Model Open",
+    "Source License v1.1. docs/speech-model-attribution.md is what grants that,",
+    "and no other model may be listed until the same paragraph is written for it."
   ],
   "schemaVersion": 1,
-  "packs": []
+  "packs": [
+    {
+      "id": "sensevoice-small",
+      "version": "1.0.0",
+      "engine": "sensevoice",
+      "cacheFolder": "sensevoice-small",
+      "entries": [
+        "SenseVoicePreprocessor.mlmodelc",
+        "SenseVoiceSmall_int8.mlmodelc",
+        "vocab.json"
+      ],
+      "bytes": 208353071,
+      "sha256": "ad0490fa54fba3c96894f2eb3e605b6802d0fef68a43d90d8cad72bcdc17989e",
+      "url": "https://github.com/hsuanchenlin/EchoForge/releases/download/models%2Fsensevoice-small%2F1.0.0/echoforge-model-sensevoice-small-1.0.0.tar.gz",
+      "minimumAppVersion": "0.6.0"
+    }
+  ]
 }

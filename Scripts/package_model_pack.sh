@@ -16,6 +16,11 @@
 # through tar byte for byte and CoreML loads the extracted copy. See
 # docs/model-packs.md for the measurement.
 #
+# Publishing must pass `--latest=false`: a pack is a GitHub release, and a new
+# release becomes the repository's *latest* by default - the exact document the
+# app's update check reads. A pack left as latest carries no EchoForge.dmg, so
+# every running app's update check would fail. See docs/model-packs.md.
+#
 # Usage:
 #   Scripts/package_model_pack.sh --id sensevoice-small --version 1.0.0
 #       Packs this Mac's own cache for that model, and prints the JSON to paste
@@ -125,4 +130,4 @@ print(json.dumps({
 PY
 echo
 echo "Upload with:"
-echo "  gh release create '${tag}' '${ARCHIVE}' '${ARCHIVE}.sha256' --title '${id} ${version}' --notes 'Model pack.'"
+echo "  gh release create '${tag}' '${ARCHIVE}' '${ARCHIVE}.sha256' --latest=false --title '${id} ${version}' --notes 'Model pack.'"
