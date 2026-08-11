@@ -25,6 +25,26 @@ struct PartialDownloadMetadata: Codable, Equatable {
     let lastModified: String?
 }
 
+/// A transfer that can be resumed, addressed by a key rather than by what it is
+/// for.
+///
+/// A protocol because two very different callers need the same thing - the
+/// updater fetching a 212 MB disk image and `ModelPackInstaller` fetching a
+/// 240 MB archive of weights - and because a test needs to hand either of them
+/// bytes without a network.
+protocol ResumableFileDownloading: Sendable {
+    /// The finished file, and the key it is stored under so the caller can
+    /// discard it once the bytes have served their purpose.
+    func download(
+        from url: URL,
+        declaredBytes: Int64,
+        key: String,
+        progress: @escaping @Sendable (DownloadProgress) -> Void
+    ) async throws -> (file: URL, key: String)
+
+    func discard(key: String)
+}
+
 /// Where partial downloads live between attempts, and the rules about what may
 /// be resumed.
 ///
@@ -53,56 +73,92 @@ struct PartialDownloadStore {
         }
     }
 
-    func directory(for version: AppVersion) -> URL {
-        root.appendingPathComponent(version.description, isDirectory: true)
+    /// Partials are addressed by an opaque key rather than by what they are
+    /// for, because two unrelated things resume the same way: an app update and
+    /// a model pack. The key is a directory name, so it has to be one.
+    static func isSafeKey(_ key: String) -> Bool {
+        !key.isEmpty && !key.hasPrefix(".") && !key.contains("/") && !key.contains("\\") && key.count <= 200
     }
 
-    func partialFile(for version: AppVersion) -> URL {
-        directory(for: version).appendingPathComponent("\(UpdateManifest.assetName).partial")
+    func directory(forKey key: String) -> URL {
+        root.appendingPathComponent(PartialDownloadStore.isSafeKey(key) ? key : "invalid", isDirectory: true)
     }
 
-    func metadataFile(for version: AppVersion) -> URL {
-        directory(for: version).appendingPathComponent("\(UpdateManifest.assetName).partial.json")
+    func partialFile(forKey key: String) -> URL {
+        directory(forKey: key).appendingPathComponent("download.partial")
     }
 
-    func prepareDirectory(for version: AppVersion) throws {
-        try fileManager.createDirectory(at: directory(for: version), withIntermediateDirectories: true)
+    func metadataFile(forKey key: String) -> URL {
+        directory(forKey: key).appendingPathComponent("download.partial.json")
     }
 
-    func metadata(for version: AppVersion) -> PartialDownloadMetadata? {
-        guard let data = try? Data(contentsOf: metadataFile(for: version)) else { return nil }
+    func prepareDirectory(forKey key: String) throws {
+        try fileManager.createDirectory(at: directory(forKey: key), withIntermediateDirectories: true)
+    }
+
+    func metadata(forKey key: String) -> PartialDownloadMetadata? {
+        guard let data = try? Data(contentsOf: metadataFile(forKey: key)) else { return nil }
         return try? JSONDecoder().decode(PartialDownloadMetadata.self, from: data)
     }
 
-    func write(_ metadata: PartialDownloadMetadata, for version: AppVersion) {
+    func write(_ metadata: PartialDownloadMetadata, forKey key: String) {
         guard let data = try? JSONEncoder().encode(metadata) else { return }
-        try? data.write(to: metadataFile(for: version), options: .atomic)
+        try? data.write(to: metadataFile(forKey: key), options: .atomic)
     }
 
-    /// Bytes already on disk for this version, or 0 when there is nothing usable
+    /// Bytes already on disk under this key, or 0 when there is nothing usable
     /// to resume from.
-    func resumableBytes(for version: AppVersion, sourceURL: URL) -> Int64 {
-        guard let metadata = metadata(for: version), metadata.sourceURL == sourceURL.absoluteString else {
+    func resumableBytes(forKey key: String, sourceURL: URL) -> Int64 {
+        guard let metadata = metadata(forKey: key), metadata.sourceURL == sourceURL.absoluteString else {
             return 0
         }
-        let attributes = try? fileManager.attributesOfItem(atPath: partialFile(for: version).path)
+        let attributes = try? fileManager.attributesOfItem(atPath: partialFile(forKey: key).path)
         return (attributes?[.size] as? Int64) ?? 0
     }
 
-    func discardPartial(for version: AppVersion) {
-        try? fileManager.removeItem(at: partialFile(for: version))
-        try? fileManager.removeItem(at: metadataFile(for: version))
+    func discardPartial(forKey key: String) {
+        try? fileManager.removeItem(at: directory(forKey: key))
     }
 
-    /// Removes every partial that is not for `version`. Called when a download
-    /// starts, which is the one moment the app knows which one is still wanted.
-    func discardPartialsOtherThan(_ version: AppVersion) {
+    /// Removes superseded partials within one family - every `app-*` when a new
+    /// app version starts downloading, every version of one pack when that pack
+    /// does. Scoped by prefix rather than "everything else" because the families
+    /// are independent: downloading an update must not throw away the half of a
+    /// model pack a user is also fetching.
+    func discardPartials(matching prefix: String, except key: String) {
         guard let entries = try? fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else {
             return
         }
-        for entry in entries where entry.lastPathComponent != version.description {
+        for entry in entries
+        where entry.lastPathComponent.hasPrefix(prefix) && entry.lastPathComponent != key {
             try? fileManager.removeItem(at: entry)
         }
+    }
+}
+
+/// The app update's own keys, so the one caller that thinks in versions does not
+/// have to spell the convention out at every call site.
+extension PartialDownloadStore {
+    static func key(for version: AppVersion) -> String { "app-\(version.description)" }
+    static let appKeyPrefix = "app-"
+
+    func partialFile(for version: AppVersion) -> URL { partialFile(forKey: Self.key(for: version)) }
+    func metadataFile(for version: AppVersion) -> URL { metadataFile(forKey: Self.key(for: version)) }
+    func prepareDirectory(for version: AppVersion) throws { try prepareDirectory(forKey: Self.key(for: version)) }
+    func metadata(for version: AppVersion) -> PartialDownloadMetadata? { metadata(forKey: Self.key(for: version)) }
+
+    func write(_ metadata: PartialDownloadMetadata, for version: AppVersion) {
+        write(metadata, forKey: Self.key(for: version))
+    }
+
+    func resumableBytes(for version: AppVersion, sourceURL: URL) -> Int64 {
+        resumableBytes(forKey: Self.key(for: version), sourceURL: sourceURL)
+    }
+
+    func discardPartial(for version: AppVersion) { discardPartial(forKey: Self.key(for: version)) }
+
+    func discardPartialsOtherThan(_ version: AppVersion) {
+        discardPartials(matching: Self.appKeyPrefix, except: Self.key(for: version))
     }
 }
 
@@ -239,6 +295,126 @@ enum FileDigest {
             return digest
         }
         return nil
+    }
+}
+
+/// The shared implementation: a resumable transfer, under the same stall
+/// watchdog as the updater's, writing to `PartialDownloadStore`.
+///
+/// The updater keeps its own copy of this logic because it has more to do around
+/// it - a declared size, a published checksum, a disk image to mount. This is
+/// the same transfer for callers that only need the bytes, and `ModelPackInstaller`
+/// is the first of them.
+struct ResumableFileDownloader: ResumableFileDownloading {
+    let store: PartialDownloadStore
+    let settings: UpdateDownloadSettings
+
+    init(store: PartialDownloadStore = PartialDownloadStore(),
+         settings: UpdateDownloadSettings = UpdateDownloadSettings()) {
+        self.store = store
+        self.settings = settings
+    }
+
+    func download(
+        from url: URL,
+        declaredBytes: Int64,
+        key: String,
+        progress: @escaping @Sendable (DownloadProgress) -> Void
+    ) async throws -> (file: URL, key: String) {
+        try store.prepareDirectory(forKey: key)
+        let destination = store.partialFile(forKey: key)
+        var existingBytes = store.resumableBytes(forKey: key, sourceURL: url)
+        if existingBytes > declaredBytes, declaredBytes > 0 {
+            store.discardPartial(forKey: key)
+            try store.prepareDirectory(forKey: key)
+            existingBytes = 0
+        }
+        let validator = existingBytes > 0 ? store.metadata(forKey: key) : nil
+
+        let activity = DownloadActivityClock()
+        let metadataURL = store.metadataFile(forKey: key)
+        let transfer = ResumableDownload(
+            sourceURL: url,
+            destination: destination,
+            declaredBytes: declaredBytes,
+            existingBytes: existingBytes,
+            activity: activity,
+            onValidator: { metadata in
+                guard let data = try? JSONEncoder().encode(metadata) else { return }
+                try? data.write(to: metadataURL, options: .atomic)
+            },
+            report: progress
+        )
+        let session = URLSession(configuration: settings.configuration, delegate: transfer, delegateQueue: nil)
+        defer { session.finishTasksAndInvalidate() }
+
+        let request = ResumableDownload.makeRequest(url: url, existingBytes: existingBytes, validator: validator)
+        _ = try await StallWatchdog.run(interval: settings.stallInterval, activity: activity) {
+            try await transfer.run(session: session, request: request)
+        }
+        return (destination, key)
+    }
+
+    func discard(key: String) {
+        store.discardPartial(forKey: key)
+    }
+}
+
+/// Fails a transfer that has delivered nothing for an interval.
+///
+/// Lifted out of `UpdateInstaller` when a second caller needed it, unchanged:
+/// no `URLSession` timeout expresses this. `timeoutIntervalForRequest` is reset
+/// by every byte and so never fires mid-transfer, and `timeoutIntervalForResource`
+/// is a ceiling on the whole download that cannot tell a big slow file from a
+/// dead one.
+///
+/// It measures **silence, not throughput**. A rate floor would be wrong: these
+/// assets are hundreds of megabytes, a slow link is a normal way to fetch one,
+/// and a transfer that is merely slow must complete.
+enum StallWatchdog {
+    private enum Race<Value: Sendable>: Sendable {
+        case completed(Value)
+        case stalled
+    }
+
+    static func run<Value: Sendable>(
+        interval: TimeInterval,
+        activity: DownloadActivityClock,
+        work: @escaping @Sendable () async throws -> Value
+    ) async throws -> Value {
+        guard interval > 0 else { return try await work() }
+
+        return try await withThrowingTaskGroup(of: Race<Value>.self) { group in
+            group.addTask { .completed(try await work()) }
+            group.addTask {
+                // Polled rather than scheduled off each byte: bytes arrive
+                // thousands of times a second on a healthy transfer, and a
+                // rescheduled timer per callback would cost more than the check.
+                let poll = max(0.05, min(interval / 4, 1))
+                while true {
+                    try await Task.sleep(nanoseconds: UInt64(poll * 1_000_000_000))
+                    if activity.secondsSinceActivity >= interval { return .stalled }
+                }
+            }
+
+            guard let first = try await group.next() else {
+                throw UpdateInstallError.downloadFailed("The download ended without a result.")
+            }
+            group.cancelAll()
+
+            switch first {
+            case .completed(let value):
+                return value
+            case .stalled:
+                // Rounded up, never to zero: a test injects a sub-second
+                // interval, and "stopped receiving data for 0 seconds" is not a
+                // sentence to ship.
+                let seconds = max(1, Int(interval.rounded(.up)))
+                throw UpdateInstallError.downloadFailed(
+                    "It stopped receiving data for \(seconds) seconds. Check your connection and try again."
+                )
+            }
+        }
     }
 }
 

@@ -86,6 +86,24 @@ fi
 
 readonly DESTINATION="${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources/StarterModel/${CACHE_FOLDER}"
 
+# Bundling is opt-in, and the default is a thin app.
+#
+# It used to be automatic: stage the weights and every build carried them. That
+# made the shipped DMG 222 MB, of which 212 MB was one model - and since models
+# live in Application Support and survive an app replacement, an updating user
+# downloaded those 212 MB, verified them, mounted them, copied them into place
+# and then never read them. Two files change between a typical pair of releases.
+#
+# So a build packages the starter model only when it is asked to, which is what
+# an offline install medium would want and what an ordinary release does not.
+# Models are otherwise installed as model packs or downloaded on first run; see
+# docs/model-packs.md.
+if [[ "${ECHOFORGE_BUNDLE_STARTER_MODEL:-0}" != "1" ]]; then
+    echo "note: building a thin app; set ECHOFORGE_BUNDLE_STARTER_MODEL=1 to bundle the starter model."
+    rm -rf "${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources/StarterModel"
+    exit 0
+fi
+
 if [[ ! -d "$STAGING_DIR" ]]; then
     echo "note: no starter model staged at ${STAGING_DIR}; building without one."
     rm -rf "${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Resources/StarterModel"

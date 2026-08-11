@@ -1,5 +1,13 @@
 # The starter speech model
 
+> **Ordinary releases no longer bundle it.** Packaging is opt-in
+> (`ECHOFORGE_BUNDLE_STARTER_MODEL=1`) and the default is a thin ~11 MB app, because the weights
+> live in Application Support and survive an app replacement - so shipping them made every update
+> twenty times larger to deliver bytes the machine already had.
+> See [model-packs.md](model-packs.md) for the measurements and for how weights are published now.
+> Everything below still describes the bundled path, which is what an offline install medium wants
+> and what `StarterModel.installIfNeeded()` still does for anyone running a build that shipped one.
+
 EchoForge can ship with a speech model already on board, so a fresh install can dictate
 immediately instead of waiting on a 240 MB download and a minute of Neural Engine compilation
 before its first word.

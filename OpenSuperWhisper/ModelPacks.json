@@ -1,0 +1,18 @@
+{
+  "_comment": [
+    "Model packs this build knows how to install. See docs/model-packs.md.",
+    "",
+    "Empty is the correct state until packs are actually published: with no",
+    "entries the app downloads model weights exactly as it always has, so",
+    "shipping the pack code changes nothing on its own. Publishing a pack is",
+    "two steps - Scripts/package_model_pack.sh to build and checksum it, then",
+    "an entry here naming the release asset it was uploaded as.",
+    "",
+    "Every field is checked by ModelPackManifest.parse before anything is",
+    "downloaded: the URL must be HTTPS on a GitHub release host under this",
+    "repository, the sha256 must be 64 hex characters, and cacheFolder and each",
+    "entry must be a single path component."
+  ],
+  "schemaVersion": 1,
+  "packs": []
+}

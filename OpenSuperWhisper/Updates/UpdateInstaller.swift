@@ -631,7 +631,7 @@ final class UpdateInstaller {
         // throw - a stall, a dropped connection, the user cancelling - is a
         // reason to keep the bytes and resume, and the caller discards them only
         // when *verification* fails.
-        let outcome = try await withStallWatchdog(interval: settings.stallInterval, activity: activity) {
+        let outcome = try await StallWatchdog.run(interval: settings.stallInterval, activity: activity) {
             try await transfer.run(session: session, request: request)
         }
 
@@ -642,63 +642,4 @@ final class UpdateInstaller {
         return destination
     }
 
-    /// Which half of the race finished first.
-    private enum StallRace<Value: Sendable>: Sendable {
-        case completed(Value)
-        case stalled
-    }
-
-    /// Runs `work` against a watchdog that fails it once `activity` has reported
-    /// nothing for `interval`.
-    ///
-    /// A race rather than a `URLSession` timeout because no `URLSession` timeout
-    /// expresses this: `timeoutIntervalForRequest` is reset by every byte and so
-    /// never fires mid-transfer, and `timeoutIntervalForResource` is a ceiling on
-    /// the whole download that cannot tell a big slow file from a dead one. The
-    /// losing side is cancelled on the way out of the group - which for the
-    /// download means `URLSession` cancels the task and discards its partial
-    /// file - and its error is discarded with it.
-    ///
-    /// User cancellation is *not* a stall: cancelling the surrounding task
-    /// cancels both children, and the error that surfaces is the download's own
-    /// cancellation, which callers re-read as cancellation rather than failure.
-    private func withStallWatchdog<Value: Sendable>(
-        interval: TimeInterval,
-        activity: DownloadActivityClock,
-        work: @escaping @Sendable () async throws -> Value
-    ) async throws -> Value {
-        guard interval > 0 else { return try await work() }
-
-        return try await withThrowingTaskGroup(of: StallRace<Value>.self) { group in
-            group.addTask { .completed(try await work()) }
-            group.addTask {
-                // Polled rather than scheduled off each byte: bytes arrive
-                // thousands of times a second on a healthy transfer, and a
-                // rescheduled timer per callback would cost more than the check.
-                let poll = max(0.05, min(interval / 4, 1))
-                while true {
-                    try await Task.sleep(nanoseconds: UInt64(poll * 1_000_000_000))
-                    if activity.secondsSinceActivity >= interval { return .stalled }
-                }
-            }
-
-            guard let first = try await group.next() else {
-                throw UpdateInstallError.downloadFailed("The download ended without a result.")
-            }
-            group.cancelAll()
-
-            switch first {
-            case .completed(let value):
-                return value
-            case .stalled:
-                // Rounded up, never to zero: a test injects a sub-second
-                // interval, and "stopped receiving data for 0 seconds" is not a
-                // sentence to ship.
-                let seconds = max(1, Int(interval.rounded(.up)))
-                throw UpdateInstallError.downloadFailed(
-                    "It stopped receiving data for \(seconds) seconds. Check your connection and try again."
-                )
-            }
-        }
-    }
 }
