@@ -56,7 +56,12 @@ neither has a reachable path to a provider. `CloudPrivacyTests` pins it.
    Mac's **Keychain**. It is never written to EchoForge's settings file, never
    bundled with the app, and never sent anywhere but the base URL above.
 3. **Speech model** / **Text model** - free-text, because every provider names
-   its models differently. `whisper-1` and `gpt-4o-mini` are the defaults.
+   its models differently. `whisper-1` and `gpt-4o-mini` are the defaults. On
+   OpenAI, `gpt-4o-transcribe` is the more accurate speech model and costs more
+   per minute than `whisper-1`; it is a drop-in replacement in that field, since
+   it is served by the same `POST /v1/audio/transcriptions` endpoint. Neither
+   field is a menu of blessed names - that is what lets a local server naming
+   its models its own way work here at all.
 4. Switch **Speech transcription** or **Translation** from "On my Mac" to
    "Cloud". The first time you do, a sheet says what will be uploaded and where.
    Accepting it is the consent; it is recorded, and the feature does not switch
