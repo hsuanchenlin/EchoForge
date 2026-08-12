@@ -13,6 +13,13 @@ Scripts/build_release.sh                              # ad-hoc: what this fork s
 That builds whisper.cpp and the autocorrect dylib, signs, packages `EchoForge.dmg` with its
 `.sha256`, and then verifies the artifact. It refuses to hand back a package that does not pass.
 
+**The build is not reproducible, so publish the pair.** Two runs over the same tree produce
+different disk images - measured at 10,726,671 and 10,729,198 bytes for v0.6.0, with different
+digests - so `EchoForge.dmg` and the `EchoForge.dmg.sha256` written beside it are one artifact.
+Upload both from the same run, and never re-run the build between hashing and uploading: the
+updater fails an install whose sidecar does not match (`UpdateManifest.checksumURL`), so a
+mismatched pair is a release nobody can install.
+
 With a Developer ID certificate and a `notarytool` keychain profile:
 
 ```shell
