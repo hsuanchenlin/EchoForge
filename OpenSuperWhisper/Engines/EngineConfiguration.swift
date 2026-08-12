@@ -17,9 +17,19 @@ struct EngineAvailability: Equatable {
     /// points at a file the user has since deleted.
     let whisperModelPaths: [String]
 
-    init(usableEngines: Set<EngineKind>, whisperModelPaths: [String]) {
+    /// Why `CloudAccess` refused transcription, when it did - `nil` when the
+    /// cloud engine is usable or when the snapshot never asked. Carried because
+    /// the decisions below need to tell two unusable-cloud states apart: a
+    /// selection the user half-configured, which must stay selected and fail
+    /// out loud, and a build with no cloud path, which recovery may repair.
+    let cloudTranscriptionRefusal: CloudAccessRefusal?
+
+    init(usableEngines: Set<EngineKind>,
+         whisperModelPaths: [String],
+         cloudTranscriptionRefusal: CloudAccessRefusal? = nil) {
         self.usableEngines = usableEngines
         self.whisperModelPaths = whisperModelPaths
+        self.cloudTranscriptionRefusal = cloudTranscriptionRefusal
     }
 
     func isUsable(_ kind: EngineKind) -> Bool { usableEngines.contains(kind) }
@@ -30,6 +40,13 @@ struct EngineAvailability: Equatable {
     /// user can delete any of these caches from the folder Settings offers to
     /// open, and a preference claiming "downloaded" afterwards is exactly the
     /// lie this whole type exists to stop believing.
+    ///
+    /// The cloud engine has no cache, so what stands in for "downloaded" is
+    /// `CloudAccess`: the feature selected, its consent given, a usable base URL
+    /// and a key present. Reading it here rather than at each call site is what
+    /// keeps every decision below a pure function of this snapshot - and the gate
+    /// stops before the Keychain unless the user has actually chosen the cloud,
+    /// so the default install pays nothing for the question.
     static func current(fluidAudioModelVersion: String = AppPreferences.shared.fluidAudioModelVersion)
         -> EngineAvailability {
         let whisperModelPaths = WhisperModelManager.shared.getAvailableModels().map(\.path)
@@ -40,8 +57,17 @@ struct EngineAvailability: Equatable {
         for kind in EngineKind.allCases where kind.isSingleModelDownloaded == true {
             usable.insert(kind)
         }
+        var cloudRefusal: CloudAccessRefusal?
+        switch CloudAccess.resolve(.transcription) {
+        case .success: usable.insert(.cloud)
+        case .failure(let refusal): cloudRefusal = refusal
+        }
 
-        return EngineAvailability(usableEngines: usable, whisperModelPaths: whisperModelPaths)
+        return EngineAvailability(
+            usableEngines: usable,
+            whisperModelPaths: whisperModelPaths,
+            cloudTranscriptionRefusal: cloudRefusal
+        )
     }
 
     static func isFluidAudioDownloaded(version: String) -> Bool {
@@ -70,6 +96,14 @@ enum EngineConfigurationOutcome: Equatable {
     /// undid the selection that started it. The download is resumed instead, and
     /// `EngineSelector` keeps dictation running on something else meanwhile.
     case preparing(EngineKind)
+
+    /// The stored choice is the cloud engine and `CloudAccess` refuses it for a
+    /// reason the user can fix - no key, no model, an unusable base URL, a
+    /// consent another build never recorded. Nothing is written: that selection
+    /// was made deliberately in the Cloud pane, so it stays exactly as made and
+    /// the refusal surfaces on each dictation instead
+    /// (`CloudRequestError.notPermitted`), naming the field to fix.
+    case cloudMisconfigured(CloudAccessRefusal)
 
     /// Nothing on this Mac can transcribe. The app has to say so rather than
     /// accept dictation it will silently throw away.
@@ -116,6 +150,10 @@ enum EngineConfiguration {
             return availability.whisperModelPaths.contains(whisperModelPath)
         case .fluidaudio, .sensevoice, .paraformer:
             return availability.isUsable(engine)
+        case .cloud:
+            // Same question, different answer to what "downloaded" means: the
+            // snapshot carries whether `CloudAccess` would permit a call.
+            return availability.isUsable(engine)
         }
     }
 
@@ -135,6 +173,11 @@ enum EngineConfiguration {
         switch engine {
         case .whisper:
             return false
+        case .cloud:
+            // Nothing to fetch: it has no weights. What it is missing when it
+            // cannot transcribe is consent, a key or a base URL, none of which
+            // the app can supply on the user's behalf.
+            return false
         case .fluidaudio, .sensevoice, .paraformer:
             return true
         }
@@ -147,6 +190,13 @@ enum EngineConfiguration {
     /// the app holds an opinion about, and `EngineKind.defaultChineseDictation`
     /// is where that opinion lives, so a Chinese user meets the two Chinese
     /// engines first instead - the same order onboarding offers them in.
+    ///
+    /// `EngineKind.cloud` is not in either list and must not be added to one.
+    /// Recovery repairs a broken configuration silently, at launch, without
+    /// asking; recovering *onto* an engine that uploads the user's audio would
+    /// make that the one change this app makes behind someone's back. The same
+    /// rule holds in `EngineSelector`'s interim tiers, and `usesCloudProvider` is
+    /// where it is stated once.
     static func recoveryOrder(for language: String) -> [EngineKind] {
         let general: [EngineKind] = [EngineKind.fallback, .fluidaudio]
         let chinese: [EngineKind] = [EngineKind.defaultChineseDictation, EngineKind.chineseAccuracyAlternative]
@@ -182,6 +232,12 @@ enum EngineConfiguration {
                         pendingEngine: EngineKind? = nil) -> EngineConfigurationOutcome {
         if isConfigured(engine: selectedEngine, whisperModelPath: whisperModelPath, availability: availability) {
             return .usable(selectedEngine)
+        }
+
+        if selectedEngine.usesCloudProvider,
+           let refusal = availability.cloudTranscriptionRefusal,
+           refusal.isMisconfiguration {
+            return .cloudMisconfigured(refusal)
         }
 
         if pendingEngine == selectedEngine, let pendingEngine {

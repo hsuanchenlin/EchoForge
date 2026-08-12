@@ -190,6 +190,23 @@ Two things are worth knowing before you rely on it:
   it declines - you get your transcript exactly as it was transcribed. **Try it** in the
   Style pane shows you the result and, when one is refused, the reason.
 
+## Using a cloud provider instead (optional)
+
+Everything above happens on your Mac. If you would rather have your speech transcribed by
+a provider - or the spoken "Translate to Spanish" command answered by one - **Settings →
+Cloud** is where you say so, using your own API key from OpenAI or any OpenAI-compatible
+provider.
+
+It is off. Switching either feature from **On my Mac** to **Cloud** shows a sheet naming
+exactly what will be uploaded and where, and nothing changes until you accept it. Your key
+goes into your Mac's Keychain, never into EchoForge's settings file. If a cloud dictation
+fails - no connection, a refused key, the provider having a bad day - your recording is
+kept with the reason on it, so nothing you said is lost.
+
+Style rewriting, the Ask panel and screen questions are never offered a cloud option and
+always run on your Mac. [docs/cloud-api.md](cloud-api.md) lists exactly what leaves the
+device, when, and where it goes.
+
 ## Which version am I running, and updating
 
 **Settings → About** shows the version and build number this copy reports, and its bundle

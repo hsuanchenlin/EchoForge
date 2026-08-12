@@ -35,6 +35,10 @@ class SettingsViewModel: ObservableObject {
             initializeFluidAudioModels()
         case .sensevoice, .paraformer:
             refreshDownloadedEngineModels()
+        case .cloud:
+            // No model list of any kind: the weights are the provider's. What
+            // stands in for this pane is Settings → Cloud.
+            break
         }
     }
 
@@ -888,6 +892,17 @@ struct SettingsView: View {
                 }
                 .tag(5)
 
+            // The one pane that can point anything at a provider. Absent
+            // entirely from an offline-only build, which is what makes that
+            // build's promise checkable rather than a claim about defaults.
+            if CloudBuild.isCompiledIn {
+                CloudSettingsView()
+                    .tabItem {
+                        Label("Cloud", systemImage: "cloud")
+                    }
+                    .tag(7)
+            }
+
             // Which build this is, and the only place that offers to change it.
             AboutSettingsView()
                 .tabItem {
@@ -975,7 +990,27 @@ struct SettingsView: View {
                 Text("Speech Recognition Engine")
                     .font(.headline)
                     .foregroundColor(.primary)
-                
+
+                // While the cloud engine is in use none of the rows below is the
+                // selected one, and a picker with nothing selected is a bug
+                // unless it says why. Tapping a row still switches back to that
+                // local engine, which is the safe direction and needs no consent.
+                if viewModel.selectedEngine == .cloud {
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "cloud")
+                            .foregroundColor(.accentColor)
+                        Text("Speech is being transcribed by a cloud provider, set up in the Cloud tab. "
+                            + "Choose one of these to go back to transcribing on this Mac.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.accentColor.opacity(0.1))
+                    .cornerRadius(8)
+                }
+
                 // A list rather than the segmented control this used to be: four
                 // engines do not fit legibly across 550 pt, and the two Chinese
                 // ones cannot be chosen from a name alone - "no punctuation" and
@@ -993,6 +1028,13 @@ struct SettingsView: View {
                         entry: entry,
                         viewModel: viewModel
                     )
+                } else if viewModel.selectedEngine == .cloud {
+                    // Nothing to download and no models directory: the model is
+                    // the provider's and is named in the Cloud tab. Falling
+                    // through to the Parakeet list below - which is what an
+                    // `else` would do - would offer downloads for an engine the
+                    // user is not using.
+                    EmptyView()
                 } else if viewModel.selectedEngine == .whisper {
                     VStack(alignment: .leading, spacing: 16) {
                         Text("Whisper Model")

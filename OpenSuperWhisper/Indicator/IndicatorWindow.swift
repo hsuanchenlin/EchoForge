@@ -18,6 +18,18 @@ enum RecordingState: Equatable {
     /// it in the fewest words that fit; the sentence the user can act on is in
     /// the main window's banner and on the kept recording.
     case noEngine
+
+    /// A cloud transcription that never produced a transcript: no network, a
+    /// refused key, a rate limit, a provider outage.
+    ///
+    /// Its own case rather than `noEngine` because they need different words. An
+    /// engine that is not set up is a settings problem the user fixes once; a
+    /// provider that timed out is usually nothing they did, and telling them "no
+    /// engine set up" would send them to a pane where everything is correct. The
+    /// short reason is carried because there are seven of them
+    /// (`CloudRequestError.shortMessage`) and the full sentence is on the
+    /// recording that was kept.
+    case cloudFailed(String)
 }
 
 /// What became of a dictation that arrived while the engine was busy.
@@ -48,8 +60,21 @@ enum DictationFailureOutcome: Equatable {
     case keep(reason: String, indicatorState: RecordingState)
 
     static func forError(_ error: Error) -> DictationFailureOutcome {
-        guard EngineConfiguration.isNotConfigured(error) else { return .discard }
-        return .keep(reason: EngineConfiguration.unavailableMessage, indicatorState: .noEngine)
+        if EngineConfiguration.isNotConfigured(error) {
+            return .keep(reason: EngineConfiguration.unavailableMessage, indicatorState: .noEngine)
+        }
+        // Every way a cloud request can fail is either transient or something
+        // the user can fix, and the audio transcribes perfectly well afterwards -
+        // on the provider once the key is right, or on a local engine. Deleting
+        // it because a network call failed would be the app throwing away work it
+        // never even attempted.
+        if let cloud = error as? CloudRequestError, cloud.keepsTheRecording {
+            return .keep(
+                reason: cloud.errorDescription ?? cloud.shortMessage,
+                indicatorState: .cloudFailed(cloud.shortMessage)
+            )
+        }
+        return .discard
     }
 }
 
@@ -578,6 +603,21 @@ struct IndicatorWindow: View {
                     // 200 pt card holds on one line at this weight, and the
                     // recording it just kept carries the full sentence.
                     Text("No engine set up")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.orange)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            case .cloudFailed(let reason):
+                HStack(spacing: 8) {
+                    Image(systemName: "cloud.slash")
+                        .foregroundColor(.orange)
+                        .frame(width: 24)
+
+                    // Kept to the same one line as the case above; the sentence
+                    // naming the fix is on the recording that was just kept.
+                    Text(reason)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.orange)
                         .lineLimit(1)

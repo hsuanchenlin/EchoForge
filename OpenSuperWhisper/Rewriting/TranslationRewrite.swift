@@ -1,7 +1,14 @@
 import Foundation
 
 /// The spoken `Translate to …` command, run on the same on-device model the
-/// style rewriting stage uses.
+/// style rewriting stage uses - or, if the user has asked for it, on an
+/// OpenAI-compatible provider with their own key.
+///
+/// It is the **only** stage with that second option, and the choice changes the
+/// backend and nothing else: the prompts, the hard budget and `StyleRewriteGuard`
+/// are identical either way, because a translation that leaves the Mac still has
+/// to survive the same checks before it replaces what the user said. Local is the
+/// default and `docs/cloud-api.md` is the whole story.
 ///
 /// It is a sibling of `StyleRewriteService` rather than a style inside it, and
 /// the reason is the prompt. Every rule that stage sends says *stay in the
@@ -150,12 +157,16 @@ enum TranslationRewrite {
         // capsule's "Polishing…" is about the model working, and a translation
         // is the model working.
         await MainActor.run { StyleRewriteActivity.shared.begin() }
+        // Asked *for translation* rather than in general, which is the one line
+        // that makes this stage's backend the user's choice: with the Cloud pane
+        // set to Local - the default - both calls answer exactly as they did
+        // before this existed. See `StyleRewriterFactory.availability(for:)`.
         let result = await apply(
             to: processed,
             body: body,
             target: target,
-            availability: StyleRewriterFactory.availability(),
-            rewriter: StyleRewriterFactory.makeRewriter()
+            availability: StyleRewriterFactory.availability(for: .translation),
+            rewriter: StyleRewriterFactory.makeRewriter(for: .translation)
         )
         await MainActor.run { StyleRewriteActivity.shared.end() }
         if let explanation = result.status.explanation(for: .translation), !result.status.didRewrite {

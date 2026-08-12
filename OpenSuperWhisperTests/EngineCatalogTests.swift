@@ -18,11 +18,20 @@ final class EngineCatalogTests: XCTestCase {
         }
     }
 
-    /// The picker offers every engine exactly once. A missing entry here is an
-    /// engine the user cannot reach at all.
-    func testPickerOffersEveryEngineOnce() {
-        XCTAssertEqual(Set(EngineCatalog.pickerOrder), Set(EngineKind.allCases))
-        XCTAssertEqual(EngineCatalog.pickerOrder.count, EngineKind.allCases.count)
+    /// The picker offers every engine that runs on this Mac, exactly once. A
+    /// missing entry here is an engine the user cannot reach at all.
+    ///
+    /// The one exception is `EngineKind.usesCloudProvider`, and it is an
+    /// exception on purpose: every row in this picker is one tap from being
+    /// selected, and one tap must not be all it takes to start sending dictation
+    /// to a company. The cloud engine is chosen in the Cloud pane, where the
+    /// consent sheet is (`CloudConsent`), and the picker shows a banner saying so
+    /// while it is in use.
+    func testPickerOffersEveryLocalEngineOnceAndNoCloudOne() {
+        let local = EngineKind.allCases.filter { !$0.usesCloudProvider }
+
+        XCTAssertEqual(Set(EngineCatalog.pickerOrder), Set(local))
+        XCTAssertEqual(EngineCatalog.pickerOrder.count, local.count)
     }
 
     /// The Chinese default is offered before the alternative it is the default

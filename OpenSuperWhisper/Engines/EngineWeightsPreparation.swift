@@ -53,6 +53,10 @@ struct EngineModelCache: Equatable {
             // model file the user chooses, and Parakeet picks between model
             // versions with a cache each.
             return nil
+        case .cloud:
+            // No weights at all - the model is the provider's. Nothing to pack,
+            // nothing to install, nothing to check.
+            return nil
         }
     }
 }
@@ -251,11 +255,13 @@ struct EngineWeightsPreparation {
             let stored = await MainActor.run { AppPreferences.shared.fluidAudioModelVersion }
             let version: AsrModelVersion = stored == "v2" ? .v2 : .v3
             _ = try await AsrModels.downloadAndLoad(version: version, progressHandler: progressHandler)
-        case .whisper:
+        case .whisper, .cloud:
             // Unreachable from every caller: `EngineConfiguration.isPreparable`
-            // says Whisper needs a model file the app cannot choose on the
-            // user's behalf, and Settings and onboarding both guard on the
-            // engine having a single download before they get here.
+            // says false for both. Whisper needs a model file the app cannot
+            // choose on the user's behalf, and the cloud engine has no weights
+            // to fetch - what it is missing is consent, a key or a base URL.
+            // Settings and onboarding both guard on the engine having a single
+            // download before they get here.
             throw TranscriptionError.engineNotConfigured
         }
     }

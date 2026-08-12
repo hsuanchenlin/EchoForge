@@ -358,6 +358,11 @@ final class CapsuleHUDViewModel: ObservableObject {
             fail("No microphone")
         case .noEngine:
             fail(CapsuleHUDViewModel.noEngineMessage)
+        // Already short by construction - `CloudRequestError.shortMessage` is
+        // written for these two overlays - so it is shown as it stands rather
+        // than replaced with a generic line that says less.
+        case .cloudFailed(let reason):
+            fail(reason)
         }
     }
 

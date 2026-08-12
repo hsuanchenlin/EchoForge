@@ -25,6 +25,16 @@ enum EngineKind: String, CaseIterable {
     /// `defaultChineseDictation` names.
     case sensevoice
 
+    /// An OpenAI-compatible speech API, with the user's own key.
+    ///
+    /// The one engine that is not on this Mac, and the only one that can only be
+    /// selected from the Cloud pane - the engine picker offers the four local
+    /// ones (`EngineCatalog.pickerOrder`), because choosing this one is a consent
+    /// decision rather than a model preference. Everything downstream treats it
+    /// as an engine like any other; what differs is stated in
+    /// `usesCloudProvider` and in `CloudTranscriptionEngine`.
+    case cloud
+
     /// Used when nothing is stored yet and when the stored value is not one we
     /// know, which is what a downgrade after trying a newer engine looks like.
     static let fallback: EngineKind = .whisper
@@ -75,7 +85,10 @@ enum EngineKind: String, CaseIterable {
         switch self {
         case .whisper:
             return true
-        case .fluidaudio, .paraformer, .sensevoice:
+        case .fluidaudio, .paraformer, .sensevoice, .cloud:
+            // The cloud endpoint takes a decoding prompt and a language and
+            // nothing else; beam size and the no-speech threshold are
+            // whisper.cpp parameters with nowhere to go in an HTTP request.
             return false
         }
     }
@@ -84,7 +97,30 @@ enum EngineKind: String, CaseIterable {
         switch self {
         case .sensevoice: return SenseVoiceEngine.isModelDownloaded
         case .paraformer: return ParaformerEngine.isModelDownloaded
-        case .whisper, .fluidaudio: return nil
+        case .whisper, .fluidaudio, .cloud: return nil
+        }
+    }
+
+    /// Whether transcribing with this engine sends the audio off the Mac.
+    ///
+    /// Switched exhaustively so a future engine has to answer it, because three
+    /// separate rules read it and all three are about consent rather than
+    /// capability:
+    ///
+    /// - `EngineSelector` refuses to use it as an interim engine. A dictation
+    ///   must never leave the Mac because some *other* engine's download had not
+    ///   finished.
+    /// - `EngineConfiguration.recoveryOrder` never recovers onto it, for the same
+    ///   reason - recovery repairs a broken configuration without asking, and
+    ///   this is not a change to make without asking.
+    /// - `CloudTranscriptionSelection` will not restore it as "the local engine
+    ///   I was using before".
+    var usesCloudProvider: Bool {
+        switch self {
+        case .cloud:
+            return true
+        case .whisper, .fluidaudio, .paraformer, .sensevoice:
+            return false
         }
     }
 
@@ -100,6 +136,8 @@ enum EngineKind: String, CaseIterable {
             return await ParaformerEngine()
         case .sensevoice:
             return await SenseVoiceEngine()
+        case .cloud:
+            return CloudTranscriptionEngine()
         }
     }
 }

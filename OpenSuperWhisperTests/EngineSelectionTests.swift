@@ -11,8 +11,16 @@ import XCTest
 /// error any more - and that none of them writes to the user's selection either.
 final class EngineSelectionTests: XCTestCase {
 
-    private func availability(_ engines: Set<EngineKind>, whisperModels: [String] = []) -> EngineAvailability {
-        EngineAvailability(usableEngines: engines, whisperModelPaths: whisperModels)
+    private func availability(
+        _ engines: Set<EngineKind>,
+        whisperModels: [String] = [],
+        cloudRefusal: CloudAccessRefusal? = nil
+    ) -> EngineAvailability {
+        EngineAvailability(
+            usableEngines: engines,
+            whisperModelPaths: whisperModels,
+            cloudTranscriptionRefusal: cloudRefusal
+        )
     }
 
     private func resolve(
@@ -169,6 +177,50 @@ final class EngineSelectionTests: XCTestCase {
         )
 
         XCTAssertNil(selection.active)
+    }
+
+    // MARK: - The chosen cloud engine
+
+    /// A chosen cloud engine that is misconfigured - key deleted, model field
+    /// blanked, base URL edited into something unusable - must fail out loud,
+    /// not be quietly stood in for: a local engine's transcript would be
+    /// indistinguishable from the provider's, which is exactly the ambiguity
+    /// `docs/cloud-api.md` promises cannot happen.
+    func testAMisconfiguredCloudSelection_staysActiveSoTheFailureIsVisible() {
+        let selection = resolve(
+            desired: .cloud,
+            lastReady: .whisper,
+            lastReadyWhisperModelPath: "/models/turbo.bin",
+            availability: availability(
+                [.whisper],
+                whisperModels: ["/models/turbo.bin"],
+                cloudRefusal: .noAPIKey
+            )
+        )
+
+        XCTAssertEqual(selection.active, .cloud)
+        XCTAssertNil(selection.interimReason)
+        XCTAssertFalse(selection.isDesiredEnginePending)
+    }
+
+    /// An offline-only build is the one refusal that is not the user's
+    /// configuration: there `EngineKind.cloud` must never become active, so a
+    /// leftover cloud preference falls through to the interim tiers as any
+    /// other unusable selection does.
+    func testACloudSelectionInAnOfflineOnlyBuild_neverBecomesActive() {
+        let selection = resolve(
+            desired: .cloud,
+            lastReady: .whisper,
+            lastReadyWhisperModelPath: "/models/turbo.bin",
+            availability: availability(
+                [.whisper],
+                whisperModels: ["/models/turbo.bin"],
+                cloudRefusal: .notInThisBuild
+            )
+        )
+
+        XCTAssertEqual(selection.active, .whisper)
+        XCTAssertEqual(selection.interimReason, .previousModel)
     }
 
     // MARK: - Nothing at all

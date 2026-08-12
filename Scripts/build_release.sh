@@ -19,6 +19,8 @@
 #   --notarize-profile NAME   notarytool keychain profile. Requires --sign-identity.
 #   --skip-verify             Do not run Scripts/verify_release_package.sh. Only
 #                             for debugging this script; a release must be verified.
+#   --offline-only            Build the offline-only variant: no cloud path at all.
+#                             See "Offline-only variant" below and docs/cloud-api.md.
 #
 # ## Signing mode and hardened runtime
 #
@@ -35,6 +37,16 @@
 #
 # `Scripts/verify_release_package.sh` re-checks that pairing on the finished
 # artifact, so getting it wrong here fails the release rather than the user.
+#
+# ## Offline-only variant
+#
+# `--offline-only` sets the ECHOFORGE_OFFLINE_ONLY compilation condition, which
+# makes `CloudBuild.isCompiledIn` false: no Cloud pane, and `CloudAccess` refuses
+# every feature before it looks at anything else, so a preferences file copied
+# from a normal build cannot switch it on. Everything else about the app is
+# unchanged - the cloud path is off by default in the ordinary build too, and
+# this is for installs that need "not present" rather than "not enabled".
+# docs/cloud-api.md is the whole story.
 
 set -euo pipefail
 
@@ -50,12 +62,14 @@ readonly HOMEBREW_LIBOMP="/opt/homebrew/opt/libomp/lib/libomp.dylib"
 sign_identity="-"
 notarize_profile=""
 run_verify=true
+offline_only=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --sign-identity) sign_identity="$2"; shift 2 ;;
         --notarize-profile) notarize_profile="$2"; shift 2 ;;
         --skip-verify) run_verify=false; shift ;;
+        --offline-only) offline_only=true; shift ;;
         -h|--help) sed -n '2,/^set -euo/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//;$d'; exit 0 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
@@ -163,6 +177,13 @@ if [[ "$ADHOC" == true ]]; then
     xcodebuild_args+=(DEVELOPMENT_TEAM="" "PROVISIONING_PROFILE_SPECIFIER=")
 else
     xcodebuild_args+=("DEVELOPMENT_TEAM=${DEVELOPMENT_TEAM}" OTHER_CODE_SIGN_FLAGS=--timestamp)
+fi
+
+if [[ "$offline_only" == true ]]; then
+    echo "🔌 Offline-only variant: the cloud path is compiled out."
+    # `$(inherited)` matters: the project sets its own conditions and replacing
+    # them wholesale would silently drop them.
+    xcodebuild_args+=('SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) ECHOFORGE_OFFLINE_ONLY')
 fi
 
 if command -v xcpretty >/dev/null 2>&1; then
