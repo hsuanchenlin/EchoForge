@@ -108,10 +108,11 @@ $ gh-axi api repos/hsuanchenlin/EchoForge/releases/latest   # → v0.5.2, unchan
 | `minimumAppVersion` | 0.6.0 |
 
 The minimum is the version that first *ships* the installer: no released app up to and including
-v0.5.2 has any pack code, so a pack offered to one could only be ignored. Until `MARKETING_VERSION`
-reaches 0.6.0 the entry is therefore deliberately inert - `ModelPackManifest.installable` filters it
-out and the app downloads SenseVoice's weights the way it always has - and it turns on with the
-version bump, with no second change needed anywhere.
+v0.5.2 has any pack code, so a pack offered to one could only be ignored. The entry was written
+before that version existed and was deliberately inert until it did - `ModelPackManifest.installable`
+filtered it out and the app downloaded SenseVoice's weights the way it always had. **v0.6.0 is the
+release that turned it on**, and the version bump was the whole change; nothing else had to be
+edited anywhere.
 
 The published URL percent-encodes the tag's slashes
 (`.../download/models%2Fsensevoice-small%2F1.0.0/...`), which is what
@@ -218,7 +219,7 @@ survive the swap, so:
 | Who | What happens |
 |---|---|
 | Updating user with models | Keeps them. The thin app finds them present and behaves identically. Nothing is downloaded. |
-| Updating user who deleted their cache | Lands in the same first-run model picker a fresh install sees. |
+| Updating user who deleted their cache | Is told no engine is set up and chooses again from the same catalog in Settings; onboarding does not re-run. |
 | Fresh install | Picks a model in onboarding. Served by a pack once one is published for that engine, otherwise by the engine's own downloader. |
 | Someone still running a bundled build | `StarterModel.installIfNeeded()` is unchanged and still installs from their bundle. It stays until no bundled build is plausibly still running. |
 
