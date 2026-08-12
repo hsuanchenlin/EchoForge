@@ -104,7 +104,11 @@ cost you the bandwidth to be told no by a 413.
 
 A failed cloud transcription does **not** silently fall back to a local engine.
 The app tells you what happened and keeps the audio, because a fallback would
-mean you could not tell which engine produced any given transcript.
+mean you could not tell which engine produced any given transcript. That holds
+before a request exists too: while cloud transcription is your selection but
+missing its key, model or a usable base URL, each dictation fails naming the
+missing piece - and a relaunch keeps the selection - rather than quietly
+transcribing on a local engine.
 
 ---
 
@@ -125,7 +129,11 @@ These are the load-bearing ones. Each is pinned by a test.
 - **The cloud engine is never a stand-in.** `EngineSelector` skips it in both
   interim tiers and `EngineConfiguration.recoveryOrder` never recovers onto it,
   so a dictation is never uploaded because some other engine's download had not
-  finished. `EngineKind.usesCloudProvider` states that once.
+  finished. `EngineKind.usesCloudProvider` states that once. Nor is it stood in
+  *for*: a chosen cloud engine that is misconfigured stays the selection -
+  launch recovery leaves it in place
+  (`EngineConfigurationOutcome.cloudMisconfigured`) and dictation fails with
+  the reason instead of running on a local engine unannounced.
 - **The engine picker has no Cloud row.** Every row there is one tap from being
   selected; the cloud engine is chosen in the Cloud pane, where the consent sheet
   is.

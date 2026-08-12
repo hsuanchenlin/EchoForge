@@ -98,6 +98,15 @@ enum EngineSelector {
     /// provider because some other engine's download had not finished. The cloud
     /// engine transcribes when the user chose it - tier 1 - and never otherwise.
     ///
+    /// The reverse also holds: a *chosen* cloud engine that `CloudAccess`
+    /// refuses for a fixable reason stays the active one, so the dictation
+    /// fails naming the missing piece (`CloudRequestError.notPermitted`) and
+    /// keeps the audio. A local engine quietly standing in would produce a
+    /// transcript the user cannot tell from the provider's - exactly the
+    /// ambiguity `docs/cloud-api.md` promises cannot happen. Only a build with
+    /// no cloud path at all falls through to the interim tiers, since there the
+    /// selection is a leftover preference, not a reachable choice.
+    ///
     /// - Parameters:
     ///   - lastReady: the engine that was last actually loaded and used, from
     ///     `AppPreferences.lastReadyEngine`. Distinct from the desired engine and
@@ -134,6 +143,16 @@ enum EngineSelector {
                 desired: desired,
                 active: desired,
                 activeWhisperModelPath: desired == .whisper ? desiredWhisperModelPath : nil,
+                interimReason: nil
+            )
+        }
+
+        if desired.usesCloudProvider,
+           availability.cloudTranscriptionRefusal?.isMisconfiguration == true {
+            return EngineSelection(
+                desired: desired,
+                active: desired,
+                activeWhisperModelPath: nil,
                 interimReason: nil
             )
         }

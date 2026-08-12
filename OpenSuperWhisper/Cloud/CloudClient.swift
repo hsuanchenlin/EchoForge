@@ -122,15 +122,22 @@ protocol CloudHTTPPerforming: Sendable {
 /// not tidiness: `shared` has a seven-day `timeoutIntervalForResource`, which is
 /// how a v0.5.0 update sat at 0% forever after a connection died silently
 /// mid-transfer (see `CLAUDE.md`). A dictation upload that wedges the same way
-/// would leave the user watching a HUD that never resolves, so this session's
-/// resource timeout is the request budget and nothing longer.
+/// would leave the user watching a HUD that never resolves.
+///
+/// The two timeouts split the way the updater's do: what gets a transfer
+/// abandoned is **silence, not throughput**. The request timeout is an idle
+/// interval - `URLSession` resets it on every byte transmitted or received - so
+/// it catches a dead connection in minutes while a near-limit recording on a
+/// slow uplink keeps moving and completes. The resource timeout is only the
+/// backstop far above any legitimate call (`CloudTimeouts.resourceBackstop`),
+/// never a cap a live upload can reach.
 struct CloudURLSessionTransport: CloudHTTPPerforming {
     let session: URLSession
 
     init(timeout: TimeInterval = CloudTimeouts.request) {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = timeout
-        configuration.timeoutIntervalForResource = timeout
+        configuration.timeoutIntervalForResource = CloudTimeouts.resourceBackstop
         // Nothing about a transcription is cacheable, and a cached copy of a
         // dictation's transcript on disk is a privacy cost with no benefit.
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -151,18 +158,28 @@ struct CloudURLSessionTransport: CloudHTTPPerforming {
     }
 }
 
-/// How long a cloud call may take before it is abandoned.
+/// How long a cloud call may say nothing before it is abandoned.
 enum CloudTimeouts {
-    /// The upload-and-decode budget for one dictation. Generous because it
-    /// covers the upload of a long recording on a slow link as well as the
-    /// provider's own decode, and finite because the alternative is a HUD that
-    /// never resolves.
+    /// How long one dictation's call may be idle - no byte sent or received -
+    /// before it is treated as dead. An idle interval rather than a total
+    /// budget on purpose: a 25 MB recording on a 1 Mbit/s uplink takes longer
+    /// than any fixed total, and it is moving the whole time, which is exactly
+    /// what distinguishes it from the wedged transfer this exists to catch.
+    /// Generous because it also covers the provider's own decode of a long
+    /// recording, which arrives as one silent stretch after the upload.
     static let request: TimeInterval = 120
 
     /// Translation, which sends a few kilobytes of text. The rewriting stage
     /// races this against `StyleRewriteBudget` as well, and whichever is shorter
     /// wins - so this is a backstop, not the deadline the user feels.
     static let text: TimeInterval = 60
+
+    /// The ceiling on one whole call, sitting far above the idle timeout rather
+    /// than beside it - the shape `UpdateDownloadSettings.resourceTimeout`
+    /// keeps, and for the same reason: a slow link is a normal way to make a
+    /// large call, so no total-time cap may sit within a legal transfer's
+    /// reach. It exists only for a connection that trickles forever.
+    static let resourceBackstop: TimeInterval = 30 * 60
 }
 
 /// The two calls this app makes, and what it accepts back.

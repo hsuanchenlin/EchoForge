@@ -346,6 +346,17 @@ final class CloudConsentCopyTests: XCTestCase {
         XCTAssertFalse(translation.points.joined().contains("audio"))
     }
 
+    /// The sheet covers the pane footer - the only other place the disclosure
+    /// link lives - at exactly the moment the user is deciding, so the full
+    /// "what is sent, when, and where" page has to be reachable from the sheet
+    /// itself.
+    func testTheSheetLinksTheFullDisclosure() {
+        let copy = CloudConsent.copy(for: .transcription, host: "api.openai.com", isLoopback: false)
+
+        XCTAssertTrue(copy.learnMore.contains("What is sent"))
+        XCTAssertTrue(CloudConsent.docsURL.absoluteString.hasSuffix("docs/cloud-api.md"))
+    }
+
     /// A provider on this Mac is a different disclosure, and saying "a company
     /// outside your control" about the user's own Ollama would make the real
     /// warning less believable when it matters.

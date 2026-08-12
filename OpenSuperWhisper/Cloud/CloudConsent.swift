@@ -17,18 +17,27 @@ enum CloudConsent {
 
     /// The wording, kept here rather than in the view so it can be asserted.
     ///
-    /// Three requirements, and `CloudConsentTests` pins all three: it names what
-    /// leaves the Mac, it names where it goes, and it says the choice can be
-    /// undone. Nothing here is hedged - "may be transmitted to third-party
-    /// services" is how a privacy policy avoids saying that a company gets a
-    /// recording of your voice.
+    /// Four requirements, and `CloudConsentCopyTests` pins them: it names what
+    /// leaves the Mac, it names where it goes, it says the choice can be
+    /// undone, and it links the full disclosure (`docsURL`) - the sheet covers
+    /// the pane footer that otherwise carries that link, at exactly the moment
+    /// the user is deciding. Nothing here is hedged - "may be transmitted to
+    /// third-party services" is how a privacy policy avoids saying that a
+    /// company gets a recording of your voice.
     struct Copy: Equatable {
         let title: String
         let body: String
         let points: [String]
+        let learnMore: String
         let confirm: String
         let cancel: String
     }
+
+    /// The page whose table says exactly what is sent, when, and where. One URL
+    /// for the sheet and the pane footer, so the two cannot drift apart.
+    static let docsURL = URL(
+        string: "https://github.com/hsuanchenlin/EchoForge/blob/master/docs/cloud-api.md"
+    )!
 
     static func copy(for feature: CloudFeature, host: String, isLoopback: Bool) -> Copy {
         // A provider running on this Mac is a different disclosure, and pretending
@@ -55,6 +64,7 @@ enum CloudConsent {
             body: "EchoForge normally does all of this on your Mac, and it will keep doing so "
                 + "for everything you do not turn on here.",
             points: points,
+            learnMore: "What is sent, when, and where →",
             confirm: "Use \(host)",
             cancel: "Keep it on my Mac"
         )

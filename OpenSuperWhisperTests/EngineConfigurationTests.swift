@@ -210,6 +210,49 @@ final class EngineConfigurationTests: XCTestCase {
         XCTAssertEqual(outcome, .usable(.sensevoice))
     }
 
+    // MARK: - The chosen cloud engine
+
+    /// A cloud selection whose configuration is incomplete is a choice made in
+    /// the Cloud pane, not a stale configuration: recovery must keep it and let
+    /// the refusal surface on each dictation, naming the field to fix.
+    func testResolve_misconfiguredCloudSelection_isKeptRatherThanRecovered() {
+        let outcome = EngineConfiguration.resolve(
+            selectedEngine: .cloud,
+            whisperModelPath: nil,
+            language: "en",
+            fluidAudioModelVersion: "v3",
+            availability: EngineAvailability(
+                usableEngines: [.whisper],
+                whisperModelPaths: ["/models/turbo.bin"],
+                cloudTranscriptionRefusal: .noAPIKey
+            )
+        )
+
+        XCTAssertEqual(outcome, .cloudMisconfigured(.noAPIKey))
+    }
+
+    /// The offline-only build is the one case where a stored cloud selection is
+    /// recovered: `EngineKind.cloud` can never become the active engine there,
+    /// and the preference can only be a leftover from another build.
+    func testResolve_cloudSelectionInAnOfflineOnlyBuild_isRecoveredOntoALocalEngine() {
+        let outcome = EngineConfiguration.resolve(
+            selectedEngine: .cloud,
+            whisperModelPath: nil,
+            language: "en",
+            fluidAudioModelVersion: "v3",
+            availability: EngineAvailability(
+                usableEngines: [.whisper],
+                whisperModelPaths: ["/models/turbo.bin"],
+                cloudTranscriptionRefusal: .notInThisBuild
+            )
+        )
+
+        XCTAssertEqual(
+            outcome,
+            .recovered(engine: .whisper, whisperModelPath: "/models/turbo.bin", language: "en")
+        )
+    }
+
     // MARK: - Ordering
 
     /// Adding an engine without placing it in the recovery order would make it
@@ -355,6 +398,25 @@ final class EngineConfigurationRecoveryWriteTests: IsolatedPreferencesTestCase {
         XCTAssertEqual(outcome, .unavailable)
         XCTAssertNil(storedPreference("selectedEngine"))
         XCTAssertNil(AppPreferences.shared.selectedWhisperModelPath)
+    }
+
+    /// The launch-recovery half of the same rule the pure tests pin: a cloud
+    /// selection missing only its key - the user quit before pasting it, or
+    /// denied the post-update keychain prompt - comes out of a launch exactly
+    /// as it went in.
+    func testRecoverIfNeeded_misconfiguredCloudSelection_leavesTheChoiceStored() {
+        AppPreferences.shared.selectedEngine = .cloud
+
+        let outcome = EngineConfiguration.recoverIfNeeded(
+            availability: EngineAvailability(
+                usableEngines: [.sensevoice],
+                whisperModelPaths: [],
+                cloudTranscriptionRefusal: .noAPIKey
+            )
+        )
+
+        XCTAssertEqual(outcome, .cloudMisconfigured(.noAPIKey))
+        XCTAssertEqual(AppPreferences.shared.selectedEngine, .cloud)
     }
 
     /// A user who already has a working engine must come out of a launch with

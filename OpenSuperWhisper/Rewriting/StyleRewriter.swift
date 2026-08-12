@@ -224,7 +224,7 @@ enum StyleRewriterFactory {
     /// were thinking about it; the Ask panel and screen queries carry whatever is
     /// on screen. Translation is the one the user asks for by name, one dictation
     /// at a time, which is why it is the one with a cloud option.
-    /// `docs/cloud-api.md` records that reasoning; `StyleRewriterFactoryTests`
+    /// `docs/cloud-api.md` records that reasoning; `CloudPrivacyTests`
     /// pins it, so a later edit that offers a second one has to change a test
     /// that says why it should not.
     static func availability(for feature: OnDeviceModelFeature) -> StyleRewriteAvailability {

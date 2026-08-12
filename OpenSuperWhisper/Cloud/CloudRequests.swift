@@ -69,6 +69,25 @@ enum CloudRequests {
     /// A boundary no audio file or model name can contain.
     static func makeBoundary() -> String { "echoforge-\(UUID().uuidString)" }
 
+    /// The file part's name, made safe for its `Content-Disposition` line.
+    ///
+    /// APFS allows a double quote, a backslash, even a newline in a file name,
+    /// and any of them interpolated raw ends the header early - the provider
+    /// answers with an opaque 400 and the user is left with a kept recording
+    /// and no readable reason. Providers key format detection off the extension
+    /// and the MIME type, so replacing the offending characters loses nothing.
+    static func headerSafeFileName(_ name: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        for scalar in name.unicodeScalars {
+            if CharacterSet.controlCharacters.contains(scalar) || CharacterSet.newlines.contains(scalar) {
+                continue
+            }
+            scalars.append(scalar == "\"" || scalar == "\\" ? "_" : scalar)
+        }
+        let cleaned = String(scalars).trimmingCharacters(in: .whitespaces)
+        return cleaned.isEmpty ? "audio" : cleaned
+    }
+
     /// The multipart body for a speech-to-text request.
     ///
     /// - Parameters:
@@ -104,7 +123,7 @@ enum CloudRequests {
 
         body.append(Data("--\(boundary)\r\n".utf8))
         body.append(Data(
-            "Content-Disposition: form-data; name=\"file\"; filename=\"\(fileName)\"\r\n".utf8
+            "Content-Disposition: form-data; name=\"file\"; filename=\"\(headerSafeFileName(fileName))\"\r\n".utf8
         ))
         body.append(Data("Content-Type: \(mimeType)\r\n\r\n".utf8))
         body.append(audio)

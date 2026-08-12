@@ -125,11 +125,8 @@ struct CloudSettingsView: View {
             }
             .disabled(!viewModel.hasAnythingToForget)
 
-            Link(
-                "What is sent, when, and where →",
-                destination: URL(string: "https://github.com/hsuanchenlin/EchoForge/blob/master/docs/cloud-api.md")!
-            )
-            .font(.caption)
+            Link("What is sent, when, and where →", destination: CloudConsent.docsURL)
+                .font(.caption)
         }
     }
 }
@@ -196,6 +193,9 @@ private struct CloudConsentSheet: View {
                     }
                 }
             }
+
+            Link(copy.learnMore, destination: CloudConsent.docsURL)
+                .font(.caption)
 
             HStack {
                 Button(copy.cancel, action: cancel)

@@ -75,6 +75,28 @@ final class CloudRequestTests: XCTestCase {
         XCTAssertFalse(body(of: request).contains("name=\"prompt\""), "a blank prompt is not a prompt")
     }
 
+    /// APFS allows quotes, backslashes and newlines in a file name, and any of
+    /// them interpolated raw ends the Content-Disposition header early - an
+    /// opaque provider 400 with no readable reason. A dropped file's name goes
+    /// through `headerSafeFileName` instead.
+    func testAFileNameThatWouldBreakTheHeaderIsSentSafely() {
+        let body = CloudRequests.transcriptionBody(
+            audio: Data("x".utf8),
+            fileName: "a\"b\r\nc.wav",
+            mimeType: "audio/wav",
+            model: "whisper-1",
+            language: nil,
+            prompt: nil,
+            boundary: "B"
+        )
+
+        XCTAssertTrue(String(decoding: body, as: UTF8.self).contains("filename=\"a_bc.wav\""))
+        XCTAssertEqual(
+            CloudRequests.headerSafeFileName("\r\n \t"), "audio",
+            "a name that sanitises away entirely still has to name the part"
+        )
+    }
+
     /// The initial-prompt setting reaches the endpoint, which accepts it as the
     /// same kind of decoding hint `WhisperEngine` passes whisper.cpp.
     func testTheInitialPromptIsPassedThroughWhenThereIsOne() throws {
