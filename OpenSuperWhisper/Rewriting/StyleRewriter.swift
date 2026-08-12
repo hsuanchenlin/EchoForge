@@ -91,7 +91,39 @@ enum StyleRewriteAvailability: Equatable, Sendable {
     /// Enabled, but the model is still downloading or otherwise not ready yet.
     case modelNotReady
 
-    var canRun: Bool { self == .available }
+    /// The feature runs, but at a provider the user configured rather than on
+    /// this Mac. Only translation can reach this (`CloudFeature`).
+    ///
+    /// Its own case rather than `available`, because `available`'s sentence is
+    /// "runs on this Mac, on device" - which would be a lie in exactly the
+    /// situation a user most needs the truth. The host is carried so the
+    /// sentence can name where the text is going.
+    case cloudProvider(host: String)
+
+    /// A cloud refusal that is the user's configuration rather than their
+    /// choice: the key is missing, the base URL is unusable. Reported here
+    /// rather than as a generic failure so the Settings pane and the status line
+    /// name the field to fix.
+    case cloudNotConfigured(String)
+
+    var canRun: Bool {
+        switch self {
+        case .available:
+            return true
+        case .cloudProvider:
+            return true
+        case .unsupportedSystem, .deviceNotEligible, .appleIntelligenceOff, .modelNotReady,
+             .cloudNotConfigured:
+            return false
+        }
+    }
+
+    /// Whether what runs is a provider rather than this Mac. Read by the surfaces
+    /// that say so out loud.
+    var isCloud: Bool {
+        if case .cloudProvider = self { return true }
+        return false
+    }
 
     /// One sentence for the Settings pane, phrased as what the user can do
     /// about it where there is anything they can do.
@@ -115,6 +147,10 @@ enum StyleRewriteAvailability: Equatable, Sendable {
             return "Turn on Apple Intelligence in System Settings to use \(feature.lowercasedName)."
         case .modelNotReady:
             return "Apple Intelligence is still preparing its model. \(feature.name) will work once it has finished."
+        case .cloudProvider(let host):
+            return "\(feature.name) is sent to \(host). Nothing else in EchoForge is."
+        case .cloudNotConfigured(let reason):
+            return "\(feature.name) is set to use a provider. \(reason)"
         }
     }
 }
@@ -145,6 +181,22 @@ enum OnDeviceModelFeature: Equatable, Sendable {
         }
     }
 
+    /// The cloud feature this one may be answered by, or `nil` for the two that
+    /// are on-device only.
+    ///
+    /// This is the enforcement point for "only translation has a cloud option",
+    /// and it is a `nil` rather than a comment so a rewrite or an Ask query has
+    /// no reachable path to a provider at all. Rewriting is applied to every
+    /// dictation whether or not the user was thinking about it and the Ask panel
+    /// carries whatever is on screen; a translation is asked for by name, one
+    /// dictation at a time. See `docs/cloud-api.md`.
+    var cloudFeature: CloudFeature? {
+        switch self {
+        case .translation: return .translation
+        case .rewriting, .ask: return nil
+        }
+    }
+
     /// What still works without it, so the sentence does not read as the app
     /// being broken.
     var unaffected: String {
@@ -163,6 +215,30 @@ enum OnDeviceModelFeature: Equatable, Sendable {
 /// way; the compile-time check is what keeps the project building against an
 /// SDK that predates the framework, which is what CI may be handed.
 enum StyleRewriterFactory {
+
+    /// What would answer this feature, and where.
+    ///
+    /// One feature can be answered somewhere other than this Mac -
+    /// `CloudFeature.translation` - and that is deliberately the only one.
+    /// Rewriting replaces the user's words in every dictation whether or not they
+    /// were thinking about it; the Ask panel and screen queries carry whatever is
+    /// on screen. Translation is the one the user asks for by name, one dictation
+    /// at a time, which is why it is the one with a cloud option.
+    /// `docs/cloud-api.md` records that reasoning; `StyleRewriterFactoryTests`
+    /// pins it, so a later edit that offers a second one has to change a test
+    /// that says why it should not.
+    static func availability(for feature: OnDeviceModelFeature) -> StyleRewriteAvailability {
+        guard let cloudFeature = feature.cloudFeature,
+              CloudAccess.isCloudSelected(cloudFeature, settings: .current())
+        else { return availability() }
+
+        switch CloudAccess.resolve(cloudFeature) {
+        case .success(let call):
+            return .cloudProvider(host: call.endpoint.host)
+        case .failure(let refusal):
+            return .cloudNotConfigured(refusal.explanation)
+        }
+    }
 
     static func availability() -> StyleRewriteAvailability {
         #if canImport(FoundationModels)
@@ -205,6 +281,20 @@ enum StyleRewriterFactory {
         #else
         return nil
         #endif
+    }
+
+    /// The rewriter for one feature: the configured provider where the user has
+    /// chosen one for it, and the on-device model everywhere else.
+    ///
+    /// The cloud branch is taken only when `CloudAccess` produces a permitted
+    /// call, so there is no path from here to a request without consent and a
+    /// key. Anything less returns the on-device rewriter, which is the same
+    /// fallback direction the whole stage takes: away from the network, never
+    /// towards it.
+    static func makeRewriter(for feature: OnDeviceModelFeature) -> StyleRewriting? {
+        guard let cloudFeature = feature.cloudFeature else { return makeRewriter() }
+        guard case .success(let call) = CloudAccess.resolve(cloudFeature) else { return makeRewriter() }
+        return CloudStyleRewriter(call: call)
     }
 }
 

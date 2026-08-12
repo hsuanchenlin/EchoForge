@@ -214,16 +214,23 @@ final class EngineConfigurationTests: XCTestCase {
 
     /// Adding an engine without placing it in the recovery order would make it
     /// invisible to recovery, which is the quiet half of this bug all over again.
-    func testRecoveryOrder_coversEveryEngine() {
+    ///
+    /// Every engine that runs on this Mac, that is. Recovery repairs a broken
+    /// configuration silently, at launch, without asking - so recovering onto an
+    /// engine that uploads the user's audio (`EngineKind.usesCloudProvider`)
+    /// would make that the one change this app makes behind someone's back.
+    func testRecoveryOrder_coversEveryLocalEngineAndNoCloudOne() {
+        let local = EngineKind.allCases.filter { !$0.usesCloudProvider }
+
         for language in ["en", "zh"] {
             XCTAssertEqual(
                 Set(EngineConfiguration.recoveryOrder(for: language)),
-                Set(EngineKind.allCases),
-                "every engine must be reachable by recovery for a \(language) user"
+                Set(local),
+                "every local engine must be reachable by recovery for a \(language) user"
             )
             XCTAssertEqual(
                 EngineConfiguration.recoveryOrder(for: language).count,
-                EngineKind.allCases.count,
+                local.count,
                 "no engine may appear twice in the recovery order"
             )
         }

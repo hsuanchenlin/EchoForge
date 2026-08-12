@@ -30,6 +30,13 @@ struct EngineAvailability: Equatable {
     /// user can delete any of these caches from the folder Settings offers to
     /// open, and a preference claiming "downloaded" afterwards is exactly the
     /// lie this whole type exists to stop believing.
+    ///
+    /// The cloud engine has no cache, so what stands in for "downloaded" is
+    /// `CloudAccess`: the feature selected, its consent given, a usable base URL
+    /// and a key present. Reading it here rather than at each call site is what
+    /// keeps every decision below a pure function of this snapshot - and the gate
+    /// stops before the Keychain unless the user has actually chosen the cloud,
+    /// so the default install pays nothing for the question.
     static func current(fluidAudioModelVersion: String = AppPreferences.shared.fluidAudioModelVersion)
         -> EngineAvailability {
         let whisperModelPaths = WhisperModelManager.shared.getAvailableModels().map(\.path)
@@ -40,6 +47,7 @@ struct EngineAvailability: Equatable {
         for kind in EngineKind.allCases where kind.isSingleModelDownloaded == true {
             usable.insert(kind)
         }
+        if case .success = CloudAccess.resolve(.transcription) { usable.insert(.cloud) }
 
         return EngineAvailability(usableEngines: usable, whisperModelPaths: whisperModelPaths)
     }
@@ -116,6 +124,10 @@ enum EngineConfiguration {
             return availability.whisperModelPaths.contains(whisperModelPath)
         case .fluidaudio, .sensevoice, .paraformer:
             return availability.isUsable(engine)
+        case .cloud:
+            // Same question, different answer to what "downloaded" means: the
+            // snapshot carries whether `CloudAccess` would permit a call.
+            return availability.isUsable(engine)
         }
     }
 
@@ -135,6 +147,11 @@ enum EngineConfiguration {
         switch engine {
         case .whisper:
             return false
+        case .cloud:
+            // Nothing to fetch: it has no weights. What it is missing when it
+            // cannot transcribe is consent, a key or a base URL, none of which
+            // the app can supply on the user's behalf.
+            return false
         case .fluidaudio, .sensevoice, .paraformer:
             return true
         }
@@ -147,6 +164,13 @@ enum EngineConfiguration {
     /// the app holds an opinion about, and `EngineKind.defaultChineseDictation`
     /// is where that opinion lives, so a Chinese user meets the two Chinese
     /// engines first instead - the same order onboarding offers them in.
+    ///
+    /// `EngineKind.cloud` is not in either list and must not be added to one.
+    /// Recovery repairs a broken configuration silently, at launch, without
+    /// asking; recovering *onto* an engine that uploads the user's audio would
+    /// make that the one change this app makes behind someone's back. The same
+    /// rule holds in `EngineSelector`'s interim tiers, and `usesCloudProvider` is
+    /// where it is stated once.
     static func recoveryOrder(for language: String) -> [EngineKind] {
         let general: [EngineKind] = [EngineKind.fallback, .fluidaudio]
         let chinese: [EngineKind] = [EngineKind.defaultChineseDictation, EngineKind.chineseAccuracyAlternative]

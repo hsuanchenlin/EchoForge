@@ -172,6 +172,13 @@ dictation is the most private thing this app touches - it is whatever is said at
 the user's desk - and because rewriting then keeps the offline promise the
 speech engines already make.
 
+**Rewriting has no cloud option and must not gain one.** A style is applied to
+every dictation once it is on, whether or not the user was thinking about it that
+time, which is exactly the case where a per-use consent cannot be given.
+`OnDeviceModelFeature.cloudFeature` returns `nil` here, so there is no reachable
+path from this stage to a provider; the sibling stage that does have one, and
+why, is `docs/cloud-api.md`.
+
 It needs macOS 26 and Apple Intelligence, while the app supports macOS 15.1, so
 availability is a first-class value (`StyleRewriteAvailability`) rather than a
 crash. The framework is behind `#if canImport(FoundationModels)` as well as

@@ -2,6 +2,12 @@
 
 EchoForge is a macOS application that provides real-time audio transcription using on-device speech models. It offers a seamless way to record and transcribe audio with customizable settings and keyboard shortcuts.
 
+Everything runs on your Mac by default - no account, no server, nothing uploaded. There is one
+opt-in exception: you can point speech transcription and the spoken translation command at an
+OpenAI-compatible provider using your own API key. It is off until you turn it on and accept a
+sheet saying what is uploaded and where; [docs/cloud-api.md](docs/cloud-api.md) lists exactly what
+leaves the device, when, and where it goes.
+
 It is a fork of [OpenSuperWhisper](https://github.com/Starmel/OpenSuperWhisper) - which this
 repository's source directories are still named after - renamed and given its own bundle
 identifier (`com.hsuanchenlin.EchoForge`) so it installs and runs alongside an upstream build
@@ -29,6 +35,7 @@ instead of replacing it.
 - ❓ Ask panel - press ⌥A (configurable) and speak or type a question; a floating card answers it on device (macOS 26 with Apple Intelligence) and can copy the answer or insert it into the app you were using ([details](docs/ask-panel.md))
 - 🖥️ Ask about your screen - press ⌥S (configurable) to capture the window you are looking at and speak a question about it; the Ask panel answers on device from the text it reads off the screenshot, with a thumbnail showing exactly what was captured. Asks for Screen Recording permission only when you use it ([details](docs/screen-context.md))
 - 🗣️ Optional spoken commands - start a dictation with "Ask: …" / "請問…" to send the question to the Ask panel, or "Translate to Spanish: …" / "翻譯成西班牙文：…" to paste the translation instead of the words themselves. Off by default ([details](docs/spoken-intents.md))
+- ☁️ Optional cloud transcription and translation - use an OpenAI-compatible provider with your own API key, kept in your Keychain, with a per-feature Local/Cloud choice and a one-time consent sheet. Off by default; everything else always stays on your Mac ([details](docs/cloud-api.md))
 - 📋 Voice snippets - save the boilerplate you retype (an email signoff, a meeting template) and say "insert email signoff" / "插入會議記錄", or the trigger alone, to type it exactly as stored - never rewritten. Part of spoken commands, so off until those are on ([details](docs/voice-snippets.md))
 
 ## Installation

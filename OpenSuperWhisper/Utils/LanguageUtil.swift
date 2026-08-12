@@ -88,12 +88,22 @@ class LanguageUtil {
             return paraformerLanguages
         case .sensevoice:
             return senseVoiceLanguages
+        case .cloud:
+            // The Whisper list, because the endpoint this speaks to is the
+            // Whisper API and its compatible re-implementations. Offering fewer
+            // languages than a provider happens to support is a smaller mistake
+            // than offering more: an unsupported code comes back as a 400 the
+            // user cannot read, while a missing one is a picker entry they can
+            // ask for.
+            return availableLanguages
         }
     }
 
     static func fallbackLanguage(engine: EngineKind) -> String {
         switch engine {
-        case .whisper:
+        // Auto-detect for both: the cloud endpoint detects the language when it
+        // is not told one, exactly as Whisper does.
+        case .whisper, .cloud:
             return "auto"
         case .fluidaudio:
             return "en"

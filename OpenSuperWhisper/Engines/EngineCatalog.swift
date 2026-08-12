@@ -77,6 +77,13 @@ enum EngineCatalog {
     /// first because most users want one of them, and among the Chinese pair the
     /// default (`EngineKind.defaultChineseDictation`) is offered before the
     /// alternative it is the default over.
+    ///
+    /// `EngineKind.cloud` is deliberately absent, and its absence is a product
+    /// decision rather than an omission: every row in this picker can be selected
+    /// with one tap, and one tap must not be all it takes to start sending
+    /// dictation to a company. The cloud engine is selected from the Cloud pane,
+    /// where the consent sheet is (`CloudConsent`), and the picker shows a banner
+    /// saying so while it is the engine in use. `EngineCatalogTests` pins this.
     static let pickerOrder: [EngineKind] = [
         .whisper, .fluidaudio, EngineKind.defaultChineseDictation, EngineKind.chineseAccuracyAlternative,
     ]
@@ -89,6 +96,7 @@ enum EngineCatalog {
         case .fluidaudio: return parakeet
         case .sensevoice: return senseVoice
         case .paraformer: return paraformer
+        case .cloud: return cloud
         }
     }
 
@@ -173,6 +181,29 @@ enum EngineCatalog {
     private static func displayName(_ code: String) -> String {
         summaryLanguageNames[code] ?? LanguageUtil.languageNames[code] ?? code
     }
+
+    /// The one engine that is not on this Mac.
+    ///
+    /// Its notes are the disclosure, not a feature list, and they are written to
+    /// the same standard as the two Chinese engines' - each one is a thing a user
+    /// would rather read here than discover afterwards. The first is the one that
+    /// matters: this is the only engine in the app for which the audio leaves the
+    /// machine, and no amount of surrounding copy may bury that.
+    private static let cloud = EngineCatalogEntry(
+        displayName: "Cloud (OpenAI-compatible)",
+        summary: "Transcribes with a provider you choose, using your own API key. Off unless you turn it on.",
+        attributionCredit: nil,
+        notes: [
+            "Your recordings are uploaded to the provider you configure. Nothing else in EchoForge "
+                + "sends audio anywhere.",
+            "You need an account and an API key with that provider, and they bill you for what you use.",
+            "It needs a working connection. With none, the dictation fails and the recording is kept "
+                + "so it can be transcribed later.",
+            "Recordings over 25 MB - about thirteen minutes of dictation - are refused before upload.",
+        ],
+        download: nil,
+        attribution: []
+    )
 
     private static let whisper = EngineCatalogEntry(
         displayName: "Whisper",

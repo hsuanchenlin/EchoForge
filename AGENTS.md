@@ -276,6 +276,41 @@ them. Model-backed regression tests are opt-in on locally generated fixtures und
 generate its own, and fixture filenames must be unique across engines because the test bundle
 flattens them all into one Resources directory.
 
+## Cloud
+
+`OpenSuperWhisper/Cloud/` is the opt-in path to an OpenAI-compatible provider, and
+`docs/cloud-api.md` is its whole story - including the table of exactly what leaves the device
+and what never does. Everything else in this app is on-device and stays that way.
+
+**`CloudAccess.resolve` is the only way a request can exist.** Nothing can build one without a
+`CloudCall` and only that function produces one, after checking in order: compiled in
+(`CloudBuild`), the feature is set to Cloud, its consent is recorded, the base URL resolves, a
+model is named, a key exists. The key is fetched **last**, so a default install never reads the
+Keychain - `CloudAccessTests` asserts that, and `CloudPrivacyTests` asserts a default install
+sends nothing at all. `CloudEndpoint` is the security boundary the way `UpdateManifest` is:
+HTTPS or loopback (a local Ollama is a legitimate provider), no credentials, no query.
+
+Two features and no more: transcription (`EngineKind.cloud` behind `TranscriptionEngine`) and
+translation (`CloudStyleRewriter` behind `StyleRewriting`). Rewriting, Ask and screen queries have
+**no** cloud path, enforced by `OnDeviceModelFeature.cloudFeature` returning `nil` rather than by
+convention. Transcription's on/off is `selectedEngine == .cloud` and there is deliberately no
+second preference beside it; translation, which has no engine, gets `cloudTranslationEnabled`.
+Consent is separate from both (`CloudConsent`) because "the toggle was on" and "the person agreed"
+are different states.
+
+`EngineKind.usesCloudProvider` states once that this engine is never chosen *for* the user:
+`EngineSelector` skips it in both interim tiers, `EngineConfiguration.recoveryOrder` never recovers
+onto it, and `EngineCatalog.pickerOrder` has no row for it - it is selected in the Cloud pane, where
+the consent sheet is. A failed cloud dictation keeps the recording (`DictationFailureOutcome`),
+because every one of those failures is transient or fixable. The API key lives only in the Keychain
+(`CloudCredentialStore`) and only ever reaches the `Authorization` header; everything printed or
+stored goes through `CloudRedaction` first, and a source scan in `CloudPrivacyTests` holds both.
+
+The offline-only variant is `Scripts/build_release.sh --offline-only`
+(`ECHOFORGE_OFFLINE_ONLY` → `CloudBuild.isCompiledIn == false`). It is one value rather than `#if`
+around the sources because `EngineKind` is switched exhaustively in eight places; compiling a case
+out means compiling every switch conditionally, which is how a variant stops being the same build.
+
 ## Text post-processing
 
 Everything between the engine and the user is three stages, described in

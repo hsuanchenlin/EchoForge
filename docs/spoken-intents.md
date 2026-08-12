@@ -121,9 +121,16 @@ transcript's own language, because that is what stops Chinese dictation coming
 back in English (`docs/style-rewriting.md`). Translation is the one request
 where all of that is backwards.
 
-What is shared stays shared: the `StyleRewriting` protocol and its on-device
-backend, `StyleRewriterFactory`'s availability, `AsyncDeadline`'s hard budget,
-`StyleRewriteGuard`, and `StyledTranscript` as the result. What is not:
+What is shared stays shared: the `StyleRewriting` protocol, `StyleRewriterFactory`'s
+availability, `AsyncDeadline`'s hard budget, `StyleRewriteGuard`, and
+`StyledTranscript` as the result. What is not:
+
+- **The backend can be a provider**, and this is the only stage where it can.
+  Translation is asked for by name, one dictation at a time, which is what makes
+  a per-use cloud call match how it is used - and rewriting, Ask and screen
+  queries, which are not, have no such option. It is off by default and takes an
+  explicit consent; the prompts, the budget and the guard are identical either
+  way. See `docs/cloud-api.md`.
 
 - **The instruction is written in the target language**, where this app has one
   (English, Traditional, Simplified), and names the target explicitly either

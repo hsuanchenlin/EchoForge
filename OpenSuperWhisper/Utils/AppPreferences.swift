@@ -189,6 +189,61 @@ final class AppPreferences {
     @UserDefault(key: "voiceSnippetsEnabled", defaultValue: true)
     var voiceSnippetsEnabled: Bool
 
+    // MARK: - Cloud
+
+    /// Whether the spoken `Translate to …` command is answered by the configured
+    /// provider instead of the on-device model.
+    ///
+    /// Off by default, like every setting here that changes where the user's
+    /// words go, and unlike the others it changes whether they leave the Mac at
+    /// all - so `CloudAccess` requires a recorded consent alongside it and
+    /// refuses the feature without one. There is deliberately no sibling
+    /// `cloudTranscriptionEnabled`: transcription's answer is `selectedEngine ==
+    /// .cloud`, because the app already stores exactly one answer to "which
+    /// engine transcribes" and a second one would be free to disagree with it.
+    /// See `CloudSettings`.
+    @UserDefault(key: "cloudTranslationEnabled", defaultValue: false)
+    var cloudTranslationEnabled: Bool
+
+    /// The provider's base URL. Whatever the user typed - `CloudEndpoint` is the
+    /// only thing that decides whether it is usable, and it refuses plain http to
+    /// anywhere but this machine.
+    @UserDefault(key: "cloudBaseURL", defaultValue: CloudEndpoint.openAIBaseURL)
+    var cloudBaseURL: String
+
+    /// The speech model asked for by name. A free-text field rather than a
+    /// picker: every compatible provider names its models differently and none
+    /// of them publishes a list this app could enumerate.
+    @UserDefault(key: "cloudTranscriptionModel", defaultValue: "whisper-1")
+    var cloudTranscriptionModel: String
+
+    /// The text model translation is asked of. A different field from the speech
+    /// one because no provider has a model that is both.
+    @UserDefault(key: "cloudTranslationModel", defaultValue: "gpt-4o-mini")
+    var cloudTranslationModel: String
+
+    /// The `CloudFeature` raw values whose one-time consent sheet was accepted.
+    ///
+    /// The record of a decision, not a setting: it is what makes "the toggle was
+    /// on" and "the person agreed" different states, and `CloudAccess` requires
+    /// it independently of the enable flags. A value written by a newer build is
+    /// ignored rather than trusted - `CloudSettings.current` drops anything that
+    /// is not a known feature.
+    @UserDefault(key: "cloudConsentedFeatures", defaultValue: [])
+    var cloudConsentedFeatures: [String]
+
+    /// The engine that was in use before the cloud one was chosen, so turning
+    /// cloud transcription off puts the user back where they were instead of on
+    /// `EngineKind.fallback` and a Whisper model they may never have downloaded.
+    /// See `CloudTranscriptionSelection`.
+    @OptionalUserDefault(key: "cloudPreviousLocalEngine")
+    var cloudPreviousLocalEngineRawValue: String?
+
+    var cloudPreviousLocalEngine: EngineKind? {
+        get { cloudPreviousLocalEngineRawValue.flatMap(EngineKind.init(rawValue:)) }
+        set { cloudPreviousLocalEngineRawValue = newValue?.rawValue }
+    }
+
     @UserDefault(key: "hasCompletedOnboarding", defaultValue: false)
     var hasCompletedOnboarding: Bool
     
