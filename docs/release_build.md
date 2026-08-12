@@ -4,7 +4,8 @@ A release is **thin**: it ships no model weights, and the verifier fails it if a
 packaged ([model-packs.md](model-packs.md) has the measurements and how weights are published
 instead). Bundling the starter speech model is opt-in, for an offline install medium: stage it
 **before** building and set `ECHOFORGE_BUNDLE_STARTER_MODEL=1` - see
-[starter-model.md](starter-model.md).
+[starter-model.md](starter-model.md). `--offline-only` builds the variant with no cloud path
+compiled in at all - [cloud-api.md](cloud-api.md) says what it removes and why.
 
 ```shell
 Scripts/build_release.sh                              # ad-hoc: what this fork ships
