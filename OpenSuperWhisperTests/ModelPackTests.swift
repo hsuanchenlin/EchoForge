@@ -197,6 +197,20 @@ final class ModelPackManifestTests: XCTestCase {
         XCTAssertEqual(ModelPackManifest.installable(packs, appVersion: AppVersion("1.0.0")).count, 1)
     }
 
+    /// The tests above pin the pieces with versions written into this file; this
+    /// one asks the built product itself. The unit-test target runs inside the
+    /// app (`TEST_HOST`), so `ModelPackManifest.bundled()` with its defaults is
+    /// exactly the production call: the `ModelPacks.json` copied into this app
+    /// bundle, filtered by the version this build was stamped with. An app built
+    /// before 0.6.0 answers with an empty list here - the version bump is what
+    /// turned the pack on, and this is the assertion that it stays on.
+    func testTheBuiltAppOffersTheShippedPack() {
+        XCTAssertEqual(
+            ModelPackManifest.bundled().map(\.id), ["sensevoice-small"],
+            "the built app (\(AppBuildIdentity.current().marketingVersion)) does not offer the shipped pack"
+        )
+    }
+
     private var shippedList: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
