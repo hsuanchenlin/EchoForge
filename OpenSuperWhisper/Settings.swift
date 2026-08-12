@@ -9,17 +9,54 @@ import FluidAudio
 class SettingsViewModel: ObservableObject {
     @Published var selectedEngine: EngineKind {
         didSet {
-            AppPreferences.shared.selectedEngine = selectedEngine
-            refreshModelState(for: selectedEngine)
-            resetLanguageIfUnsupported()
+            // Not while catching up with a change made elsewhere - the engine
+            // shortcut, the Cloud pane - or the pane would carry out again the
+            // selection it is only being told about.
+            guard !isSyncingFromPreferences else { return }
             Task { @MainActor in
-                // Downloads allowed: choosing an engine is the request to
-                // prepare it. It happens in the background and dictation carries
-                // on with whatever was already ready, so this no longer costs the
-                // user the minutes it used to.
-                TranscriptionService.shared.reloadEngine()
+                // One call rather than the four things it does. Choosing an engine
+                // in this pane and choosing it with the shortcut have to be the
+                // same act, down to the language that follows it and the download
+                // it starts, so both go through `EngineSelectionCommand`.
+                EngineSelectionCommand.select(selectedEngine)
+                // The pane's own catching up: which model list to show, and the
+                // language control, which the command may just have changed.
+                refreshModelState(for: selectedEngine)
+                syncLanguageFromPreferences()
             }
         }
+    }
+
+    /// True while the published values are being brought into line with what is
+    /// stored, so the `didSet`s above act as observers rather than as commands.
+    private var isSyncingFromPreferences = false
+
+    private var selectedEngineObserver: NSObjectProtocol?
+
+    /// Catches up with an engine chosen somewhere other than this pane.
+    ///
+    /// The engine shortcut can be pressed with Settings open and in front of the
+    /// user, and a picker still showing the previous engine would be a second
+    /// answer to the question this pane exists to answer.
+    private func syncFromPreferences() {
+        let stored = AppPreferences.shared.selectedEngine
+        if stored != selectedEngine {
+            isSyncingFromPreferences = true
+            selectedEngine = stored
+            isSyncingFromPreferences = false
+            refreshModelState(for: stored)
+        }
+        syncLanguageFromPreferences()
+    }
+
+    /// Mirrors the stored dictation language onto the picker without writing it
+    /// back: the language may have been reset by whoever chose the engine.
+    private func syncLanguageFromPreferences() {
+        let stored = AppPreferences.shared.whisperLanguage
+        guard stored != selectedLanguage else { return }
+        isSyncingFromPreferences = true
+        selectedLanguage = stored
+        isSyncingFromPreferences = false
     }
 
     /// Refreshes whichever download list the engine actually shows.
@@ -123,6 +160,10 @@ class SettingsViewModel: ObservableObject {
     
     @Published var selectedLanguage: String {
         didSet {
+            // Same rule as `selectedEngine`: a value being mirrored from
+            // preferences is already stored, and announcing it again would send
+            // `TranscriptionService` off to re-resolve for nothing.
+            guard !isSyncingFromPreferences else { return }
             AppPreferences.shared.whisperLanguage = selectedLanguage
             NotificationCenter.default.post(name: .appPreferencesLanguageChanged, object: nil)
         }
@@ -305,6 +346,22 @@ class SettingsViewModel: ObservableObject {
             selectedLanguage = fallback
             AppPreferences.shared.whisperLanguage = fallback
             NotificationCenter.default.post(name: .appPreferencesLanguageChanged, object: nil)
+        }
+
+        // The engine can be changed while this pane is open - by the engine
+        // shortcut, or by the Cloud pane's toggle - and the picker has to follow.
+        selectedEngineObserver = NotificationCenter.default.addObserver(
+            forName: .selectedEngineChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.syncFromPreferences()
+        }
+    }
+
+    deinit {
+        if let selectedEngineObserver {
+            NotificationCenter.default.removeObserver(selectedEngineObserver)
         }
     }
     
@@ -1771,6 +1828,41 @@ struct SettingsView: View {
                         }
 
                         Text("Both use the same on-device model as rewriting, so they need macOS 26 with Apple Intelligence. Nothing is sent anywhere.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(.controlBackgroundColor).opacity(0.3))
+                .cornerRadius(12)
+
+                // Switching engine. Its own section beside the other shortcuts
+                // rather than in the Models pane: it is a shortcut, and it is
+                // pressed while working somewhere else - the pane it changes is
+                // the one place the user is not when they use it.
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Switch Engine")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Next engine shortcut")
+                                    .font(.subheadline)
+                                Text("Moves dictation to the next engine that is ready and names it on screen. Engines that are not downloaded, and ones that cannot dictate your language, are skipped. Cloud is included once it is set up in the Cloud tab.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer()
+                            KeyboardShortcuts.Recorder("", name: .cycleEngine)
+                                .frame(width: 150)
+                        }
+
+                        Text("Pressed during a dictation, it takes effect once that dictation has finished - the words you have already spoken are transcribed by the engine you spoke them to.")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
