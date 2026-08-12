@@ -219,7 +219,7 @@ survive the swap, so:
 | Who | What happens |
 |---|---|
 | Updating user with models | Keeps them. The thin app finds them present and behaves identically. Nothing is downloaded. |
-| Updating user who deleted their cache | Lands in the same first-run model picker a fresh install sees. |
+| Updating user who deleted their cache | Is told no engine is set up and chooses again from the same catalog in Settings; onboarding does not re-run. |
 | Fresh install | Picks a model in onboarding. Served by a pack once one is published for that engine, otherwise by the engine's own downloader. |
 | Someone still running a bundled build | `StarterModel.installIfNeeded()` is unchanged and still installs from their bundle. It stays until no bundled build is plausibly still running. |
 
