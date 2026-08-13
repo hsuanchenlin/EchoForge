@@ -318,16 +318,18 @@ are different states.
 
 `EngineKind.usesCloudProvider` states once that this engine is never chosen *for* the user:
 `EngineSelector` skips it in both interim tiers, `EngineConfiguration.recoveryOrder` never recovers
-onto it, and `EngineCatalog.pickerOrder` has no row for it - it is selected in the Cloud pane, where
-the consent sheet is. A failed cloud dictation keeps the recording (`DictationFailureOutcome`),
-because every one of those failures is transient or fixable. The API key lives only in the Keychain
-(`CloudCredentialStore`) and only ever reaches the `Authorization` header; everything printed or
-stored goes through `CloudRedaction` first, and a source scan in `CloudPrivacyTests` holds both.
+onto it, and `EngineCatalog.pickerOrder` has no row for it - it is first selected in the Cloud
+pane, where the consent sheet is. A failed cloud dictation keeps the recording
+(`DictationFailureOutcome`), because every one of those failures is transient or fixable. The API
+key lives only in the Keychain (`CloudCredentialStore`) and only ever reaches the `Authorization`
+header; everything printed or stored goes through `CloudRedaction` first, and a source scan in
+`CloudPrivacyTests` holds both.
 
 The offline-only variant is `Scripts/build_release.sh --offline-only`
 (`ECHOFORGE_OFFLINE_ONLY` → `CloudBuild.isCompiledIn == false`). It is one value rather than `#if`
-around the sources because `EngineKind` is switched exhaustively in eight places; compiling a case
-out means compiling every switch conditionally, which is how a variant stops being the same build.
+around the sources because `EngineKind` is switched exhaustively in over a dozen places; compiling
+a case out means compiling every switch conditionally, which is how a variant stops being the same
+build.
 
 ## Text post-processing
 

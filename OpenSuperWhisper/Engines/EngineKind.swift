@@ -27,12 +27,14 @@ enum EngineKind: String, CaseIterable {
 
     /// An OpenAI-compatible speech API, with the user's own key.
     ///
-    /// The one engine that is not on this Mac, and the only one that can only be
-    /// selected from the Cloud pane - the engine picker offers the four local
-    /// ones (`EngineCatalog.pickerOrder`), because choosing this one is a consent
-    /// decision rather than a model preference. Everything downstream treats it
-    /// as an engine like any other; what differs is stated in
-    /// `usesCloudProvider` and in `CloudTranscriptionEngine`.
+    /// The one engine that is not on this Mac. The engine picker offers only the
+    /// four local ones (`EngineCatalog.pickerOrder`), because choosing this one
+    /// is a consent decision rather than a model preference: it is first
+    /// selected in the Cloud pane, where the consent sheet is, and only after
+    /// that can the engine shortcut move to and from it
+    /// (`CloudAccess.isSelectable`). Everything downstream treats it as an
+    /// engine like any other; what differs is stated in `usesCloudProvider` and
+    /// in `CloudTranscriptionEngine`.
     case cloud
 
     /// Used when nothing is stored yet and when the stored value is not one we
@@ -103,9 +105,9 @@ enum EngineKind: String, CaseIterable {
 
     /// Whether transcribing with this engine sends the audio off the Mac.
     ///
-    /// Switched exhaustively so a future engine has to answer it, because three
-    /// separate rules read it and all three are about consent rather than
-    /// capability:
+    /// Switched exhaustively so a future engine has to answer it, because the
+    /// rules that hang off it are about consent rather than capability - above
+    /// all the three that never choose this engine *for* the user:
     ///
     /// - `EngineSelector` refuses to use it as an interim engine. A dictation
     ///   must never leave the Mac because some *other* engine's download had not

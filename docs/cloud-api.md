@@ -179,7 +179,7 @@ It sets the `ECHOFORGE_OFFLINE_ONLY` compilation condition, which makes
 
 Everything else is byte-for-byte the same app. The gate is one value rather than
 `#if` blocks around the cloud sources because `EngineKind` is switched
-exhaustively in eight places and `StyleRewriteAvailability` in two more:
+exhaustively in over a dozen places and `StyleRewriteAvailability` in two more:
 compiling a case out of an enum means compiling every one of those switches
 conditionally, which is how a variant build stops being the same build.
 `CloudAccessTests` drives the gate with `isCompiledIn: false` and asserts a fully
