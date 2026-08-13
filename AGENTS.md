@@ -207,7 +207,12 @@ language either, since an engine that would need that is skipped; a press during
 deferred until the session is over rather than applied or refused, and "in flight" spans the whole
 session because every individual flag is briefly false between the recorder stopping and the
 transcription starting; and the cloud engine is offered only on `CloudAccess.isSelectable`, which
-never grants consent and never reads the Keychain on an install that has not consented.
+never grants consent and never reads the Keychain on an install that has not consented. A press's
+only feedback is `EngineSwitchHUD`, so it is drawn on **every** attached display rather than on the
+one holding the focused window - that guess is what made 0.8.0's working shortcut look absent on a
+two-display Mac - and posted as a VoiceOver announcement, which a never-key panel otherwise has no
+way to reach. Settings → Models states the shortcut in the binding actually in force
+(`EngineShortcutHint`), and nothing on that path may write one.
 
 Model preparation is never modal. History stays open, searchable and playable throughout, and
 dictation is disabled only when `EngineSelector` finds nothing at all. Progress is a percentage

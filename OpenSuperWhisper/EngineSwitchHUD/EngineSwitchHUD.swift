@@ -31,6 +31,15 @@ private final class EngineSwitchPanel: NSPanel {
 /// default, and a press that happens during a dictation would have to either
 /// overwrite what that capsule is saying or wait for it. This is its own pill,
 /// placed clear of the capsule's slot when the capsule is switched on.
+///
+/// **It is drawn on every attached display at once**, which is the one thing here
+/// that is not obvious. It used to go to the screen holding the focused window, and
+/// on a two-display Mac that is how the whole feature came to look missing: the
+/// engine changed, the pill appeared on the display the user was not looking at,
+/// and two seconds later there was nothing left to find. Choosing a screen at all
+/// is a guess about where someone's eyes are - a guess this confirmation cannot
+/// afford, because it is the only thing a press shows. On a single display it is
+/// what it always was.
 @MainActor
 final class EngineSwitchHUD {
     static let shared = EngineSwitchHUD()
@@ -51,7 +60,10 @@ final class EngineSwitchHUD {
 
     let viewModel: EngineSwitchHUDViewModel
 
-    private var panel: NSPanel?
+    /// One panel per attached display, keyed by its display ID so a monitor being
+    /// unplugged takes its panel with it rather than leaving one addressed to
+    /// coordinates no display covers any more.
+    private var panels: [CGDirectDisplayID: NSPanel] = [:]
 
     init() {
         // Built here rather than taken as a defaulted parameter: a default
@@ -59,80 +71,74 @@ final class EngineSwitchHUD {
         // belongs to the main actor like the panel it draws.
         let viewModel = EngineSwitchHUDViewModel()
         self.viewModel = viewModel
-        viewModel.onHide = { [weak self] in self?.hidePanel() }
+        viewModel.onHide = { [weak self] in self?.hidePanels() }
     }
 
     /// Puts an announcement on screen, replacing whatever was there.
+    ///
+    /// The pill and the spoken announcement go up together: a HUD that never takes
+    /// focus is invisible to VoiceOver, and this shortcut has no other surface for
+    /// it to read.
     func show(_ announcement: EngineSwitchAnnouncement) {
         viewModel.show(announcement)
         present()
+        EngineSwitchAccessibility.announce(announcement)
     }
 
-    // MARK: - The panel
+    // MARK: - The panels
 
     private func present() {
-        ensurePanel()
-        guard let panel, let screen = CapsuleHUDWindowController.targetScreen(nearPoint: nil) else { return }
-
-        panel.setFrameOrigin(
-            Self.origin(
-                visibleFrame: screen.visibleFrame,
-                screenFrame: screen.frame,
-                windowSize: EngineSwitchHUDView.windowSize,
-                topOffset: Self.topOffset(capsuleHUDEnabled: CapsuleHUDWindowController.isEnabled)
-            )
+        let placements = Self.placements(
+            for: ScreenGeometry.attached(),
+            windowSize: EngineSwitchHUDView.windowSize,
+            topOffset: Self.topOffset(capsuleHUDEnabled: CapsuleHUDWindowController.isEnabled)
         )
 
-        guard !panel.isVisible || panel.alphaValue < 1 else { return }
-        panel.alphaValue = 0
-        panel.orderFront(nil)
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.fadeDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().alphaValue = 1
+        discardPanels(notIn: Set(placements.map(\.displayID)))
+
+        for placement in placements {
+            let panel = ensurePanel(for: placement.displayID)
+            panel.setFrameOrigin(placement.origin)
+
+            guard !panel.isVisible || panel.alphaValue < 1 else { continue }
+            panel.alphaValue = 0
+            panel.orderFront(nil)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = Self.fadeDuration
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().alphaValue = 1
+            }
         }
     }
 
-    private func hidePanel() {
-        guard let panel, panel.isVisible else { return }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = Self.fadeDuration
-            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
-            panel.animator().alphaValue = 0
-        } completionHandler: { [weak self] in
-            // A further press may have put a new message up during the fade;
-            // ordering the panel out then would take that one off the screen.
-            guard let self, self.viewModel.announcement == nil else { return }
+    private func hidePanels() {
+        for panel in panels.values where panel.isVisible {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = Self.fadeDuration
+                context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+                panel.animator().alphaValue = 0
+            } completionHandler: { [weak self] in
+                // A further press may have put a new message up during the fade;
+                // ordering the panel out then would take that one off the screen.
+                guard let self, self.viewModel.announcement == nil else { return }
+                panel.orderOut(nil)
+            }
+        }
+    }
+
+    /// Takes down and forgets the panels belonging to displays that are no longer
+    /// attached.
+    private func discardPanels(notIn attached: Set<CGDirectDisplayID>) {
+        for (displayID, panel) in panels where !attached.contains(displayID) {
             panel.orderOut(nil)
+            panels[displayID] = nil
         }
     }
 
-    private func ensurePanel() {
-        if panel == nil {
-            let created = EngineSwitchPanel(
-                contentRect: NSRect(origin: .zero, size: EngineSwitchHUDView.windowSize),
-                styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
-                backing: .buffered,
-                defer: false
-            )
-            created.isFloatingPanel = true
-            created.level = .floating
-            // Over every desktop and alongside full-screen apps: the shortcut is
-            // pressed from whatever the user is doing, not from this app.
-            created.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
-            created.backgroundColor = .clear
-            created.isOpaque = false
-            // The pill draws its own shadow, inside the window.
-            created.hasShadow = false
-            created.hidesOnDeactivate = false
-            // Always: there is nothing here to click, and a HUD that swallowed
-            // mouse events would take a strip of the screen away from the app
-            // underneath it.
-            created.ignoresMouseEvents = true
-            panel = created
-        }
+    private func ensurePanel(for displayID: CGDirectDisplayID) -> NSPanel {
+        let panel = panels[displayID] ?? makePanel()
+        panels[displayID] = panel
 
-        guard let panel else { return }
         if let hostingView = panel.contentView as? NSHostingView<EngineSwitchHUDView> {
             hostingView.rootView = EngineSwitchHUDView(viewModel: viewModel)
         } else {
@@ -143,6 +149,31 @@ final class EngineSwitchHUD {
         }
         panel.setContentSize(EngineSwitchHUDView.windowSize)
         panel.contentView?.layoutSubtreeIfNeeded()
+        return panel
+    }
+
+    private func makePanel() -> NSPanel {
+        let created = EngineSwitchPanel(
+            contentRect: NSRect(origin: .zero, size: EngineSwitchHUDView.windowSize),
+            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        created.isFloatingPanel = true
+        created.level = .floating
+        // Over every desktop and alongside full-screen apps: the shortcut is
+        // pressed from whatever the user is doing, not from this app.
+        created.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        created.backgroundColor = .clear
+        created.isOpaque = false
+        // The pill draws its own shadow, inside the window.
+        created.hasShadow = false
+        created.hidesOnDeactivate = false
+        // Always: there is nothing here to click, and a HUD that swallowed
+        // mouse events would take a strip of the screen away from the app
+        // underneath it.
+        created.ignoresMouseEvents = true
+        return created
     }
 
     /// How far below the top of the usable screen the pill sits.
@@ -153,6 +184,37 @@ final class EngineSwitchHUD {
     /// reasons the user cannot see.
     static func topOffset(capsuleHUDEnabled: Bool) -> CGFloat {
         capsuleHUDEnabled ? topMargin + capsuleClearance : topMargin
+    }
+
+    /// Where the pill goes on one display.
+    struct Placement: Equatable {
+        let displayID: CGDirectDisplayID
+        let origin: NSPoint
+    }
+
+    /// One placement per attached display, top-centre of each.
+    ///
+    /// A pure function of the geometry rather than of `NSScreen`, for the reason
+    /// `origin` takes rectangles: the arithmetic is the part that goes wrong, and a
+    /// checkout machine has one display while the setup this was written for has
+    /// two. Empty in, empty out - a Mac with no display attached shows nothing,
+    /// which is what the old single-panel guard did too.
+    static func placements(
+        for screens: [ScreenGeometry],
+        windowSize: CGSize,
+        topOffset: CGFloat
+    ) -> [Placement] {
+        screens.map { screen in
+            Placement(
+                displayID: screen.displayID,
+                origin: origin(
+                    visibleFrame: screen.visibleFrame,
+                    screenFrame: screen.frame,
+                    windowSize: windowSize,
+                    topOffset: topOffset
+                )
+            )
+        }
     }
 
     /// Top-centre of the screen's usable area, `topOffset` down, in the window
