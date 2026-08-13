@@ -176,11 +176,74 @@ enum CloudAccess {
 
     /// The production resolution, for callers that are not being tested.
     static func resolve(_ feature: CloudFeature) -> Result<CloudCall, CloudAccessRefusal> {
-        resolve(feature, settings: .current(), credentials: KeychainCloudCredentialStore())
+        resolve(feature, settings: .current(), credentials: productionCredentials())
+    }
+
+    /// The store this app's own resolution reads a key from.
+    ///
+    /// Empty under a test host, and that is a safety rule rather than a
+    /// convenience. This function is reached from `EngineAvailability.current()`,
+    /// which anything may ask - including work a preference change woke up after a
+    /// test restored the developer's real settings. With a cloud engine configured
+    /// in those settings the read is a *real* Keychain read, and an ad-hoc-signed
+    /// test host asking for an item it did not create is exactly the case macOS
+    /// answers with a modal prompt: the suite then hangs waiting for a click. The
+    /// same reason `TranscriptionService` refuses to load a model under a test, and
+    /// the rule `KeychainCloudCredentialStore` already states for tests that reach
+    /// it directly.
+    private static func productionCredentials() -> CloudCredentialStoring {
+        OpenSuperWhisperApp.isRunningTests
+            ? InMemoryCloudCredentialStore()
+            : KeychainCloudCredentialStore()
+    }
+
+    /// Whether turning this feature on right now would actually work - consent
+    /// recorded, base URL usable, model named, key present.
+    ///
+    /// The question `isEnabled` cannot answer, and the difference matters for
+    /// transcription in particular: its enable state *is* `selectedEngine ==
+    /// .cloud`, so "would the cloud work if chosen" cannot be asked without
+    /// pretending it already was. That is what `CloudSettings.enabling` is for.
+    ///
+    /// This is what the engine shortcut offers the cloud engine on
+    /// (`EngineCycle`): a press must never land on an engine that cannot
+    /// transcribe, and it must never be the thing that gives consent. A default
+    /// install answers `false` at the consent gate, before the Keychain is
+    /// touched - so an install that has never chosen the cloud pays nothing for
+    /// asking, which `CloudAccessTests` pins.
+    ///
+    /// - Parameter credentials: `nil` means this app's own store, which is what
+    ///   production passes; a test hands its own in.
+    static func isSelectable(
+        _ feature: CloudFeature,
+        settings: CloudSettings = .current(),
+        credentials: CloudCredentialStoring? = nil
+    ) -> Bool {
+        let credentials = credentials ?? productionCredentials()
+        if case .success = resolve(feature, settings: settings.enabling(feature), credentials: credentials) {
+            return true
+        }
+        return false
     }
 }
 
 extension CloudSettings {
+    /// The same settings with `feature` switched on, for asking what would happen
+    /// if the user turned it on - without turning it on.
+    ///
+    /// Only the enable state is moved. Consent, the base URL, the model and the
+    /// key are left exactly as stored, because they are the answer being looked
+    /// for: a probe that also granted consent would turn `CloudAccess` from a gate
+    /// into a formality.
+    func enabling(_ feature: CloudFeature) -> CloudSettings {
+        var enabled = self
+        switch feature {
+        case .transcription: enabled.selectedEngine = .cloud
+        case .translation: enabled.translationEnabled = true
+        }
+        return enabled
+    }
+
     /// The model this feature is asked for. Two fields rather than one because
     /// they name different kinds of model - a speech model and a text model - and
     /// no provider offers one string that is both.

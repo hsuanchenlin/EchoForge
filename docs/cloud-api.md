@@ -142,6 +142,14 @@ These are the load-bearing ones. Each is pinned by a test.
 - **The engine picker has no Cloud row.** Every row there is one tap from being
   selected; the cloud engine is chosen in the Cloud pane, where the consent sheet
   is.
+- **The engine shortcut cannot turn it on.** ⌥M cycles engines
+  (`docs/engine-shortcut.md`), and the cloud engine is in that cycle only once
+  `CloudAccess.isSelectable` says a call would be permitted - consent recorded,
+  base URL usable, model named, key present. So a press moves *between* choices
+  you have already made and never makes this one; with no consent recorded the
+  probe answers no at the consent gate, before the Keychain, so an install that
+  has never turned this on still never reads it. Once you have set it up, ⌥M is
+  the quick way back and forth between your provider and an engine on this Mac.
 - **The guard is unchanged.** A cloud translation goes through
   `StyleRewriteGuard` exactly as an on-device one does - same script, number,
   symbol and length rules - so a model that obeys a spoken "ignore all previous
@@ -171,7 +179,7 @@ It sets the `ECHOFORGE_OFFLINE_ONLY` compilation condition, which makes
 
 Everything else is byte-for-byte the same app. The gate is one value rather than
 `#if` blocks around the cloud sources because `EngineKind` is switched
-exhaustively in eight places and `StyleRewriteAvailability` in two more:
+exhaustively in over a dozen places and `StyleRewriteAvailability` in two more:
 compiling a case out of an enum means compiling every one of those switches
 conditionally, which is how a variant build stops being the same build.
 `CloudAccessTests` drives the gate with `isCompiledIn: false` and asserts a fully

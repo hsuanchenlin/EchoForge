@@ -28,6 +28,15 @@ extension KeyboardShortcuts.Name {
     /// decision that cannot be made after a panel is already open.
     /// See `docs/screen-context.md`.
     static let askAboutScreen = Self("askAboutScreen", default: .init(.s, modifiers: .option))
+
+    /// Moves dictation to the next engine that is ready, wrapping around.
+    ///
+    /// ⌥M by default - free alongside ⌥`, ⌥A and ⌥S, and M for model, which is
+    /// what a user calls this. Its own shortcut for the same reason the two above
+    /// have theirs: it is a decision made *while* working in another app, which is
+    /// exactly when opening Settings to change engine costs more than the switch is
+    /// worth. See `EngineSwitcher` and `docs/engine-shortcut.md`.
+    static let cycleEngine = Self("cycleEngine", default: .init(.m, modifiers: .option))
 }
 
 class ShortcutManager {
@@ -105,6 +114,19 @@ class ShortcutManager {
         KeyboardShortcuts.onKeyUp(for: .askAboutScreen) {
             Task { @MainActor in
                 AskPanelWindowController.shared.toggleScreenQuery()
+            }
+        }
+
+        // Independent of the recording trigger, like the two above, and safe to
+        // press during a dictation: a press while one is in flight is held and
+        // applied when it ends, rather than changing the engine underneath the
+        // words already spoken (`EngineSwitcher`).
+        //
+        // On key-up rather than key-down, so holding the key down walks one engine
+        // instead of every engine in the cycle.
+        KeyboardShortcuts.onKeyUp(for: .cycleEngine) {
+            Task { @MainActor in
+                EngineSwitcher.shared.advance()
             }
         }
     }

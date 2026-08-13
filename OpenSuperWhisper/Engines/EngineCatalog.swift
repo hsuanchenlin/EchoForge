@@ -81,9 +81,11 @@ enum EngineCatalog {
     /// `EngineKind.cloud` is deliberately absent, and its absence is a product
     /// decision rather than an omission: every row in this picker can be selected
     /// with one tap, and one tap must not be all it takes to start sending
-    /// dictation to a company. The cloud engine is selected from the Cloud pane,
-    /// where the consent sheet is (`CloudConsent`), and the picker shows a banner
-    /// saying so while it is the engine in use. `EngineCatalogTests` pins this.
+    /// dictation to a company. The cloud engine is first selected from the Cloud
+    /// pane, where the consent sheet is (`CloudConsent`), and the picker shows a
+    /// banner saying so while it is the engine in use; only after that consent
+    /// does the engine shortcut offer it (`EngineCycle`). `EngineCatalogTests`
+    /// pins this.
     static let pickerOrder: [EngineKind] = [
         .whisper, .fluidaudio, EngineKind.defaultChineseDictation, EngineKind.chineseAccuracyAlternative,
     ]

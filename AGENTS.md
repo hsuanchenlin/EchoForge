@@ -161,7 +161,11 @@ Every preference goes through `PreferenceStore.defaults` (`Utils/AppPreferences.
 than `UserDefaults.standard`, so a test can redirect the lot to a throwaway suite by subclassing
 `IsolatedPreferencesTestCase`. Any test that writes a preference must: the suite runs in several
 parallel host processes against one real defaults domain, and one clearing `selectedEngine` while
-another builds a view model from it is a flake, not a failure.
+another builds a view model from it is a flake, not a failure. That base class also drains the main
+queue before it restores the real defaults, and the comment there says why: work a preference change
+woke up can outlive the test, and a re-resolve that runs against the developer's own settings can
+reach the Keychain - which an ad-hoc-signed test host answers with a system dialog that hangs the
+whole run. `CloudAccess` refuses to read the real Keychain under a test host for the same reason.
 
 ## Engines
 
@@ -190,6 +194,20 @@ through it. `EngineConfigurationTests`, `EngineSelectionTests` and
 changed behind the user's back, and that no fallback ever becomes the user's selection; when
 nothing can transcribe the user is told (`DictationFailureOutcome`) and their audio is kept as a
 failed recording rather than deleted.
+
+A user's engine choice is carried out in exactly one place, `EngineSelectionCommand`, shared by the
+Settings picker, the Cloud pane's toggle and the ⌥M engine shortcut - it writes `selectedEngine`,
+moves the dictation language when the new engine cannot do it, keeps `CloudTranscriptionSelection`'s
+bookkeeping, posts `.selectedEngineChanged` for an open pane to follow, and reloads the service.
+The shortcut itself is `EngineCycle` (the pure decision: which engines a press may land on, the
+wrap-around, and the mid-dictation rule) plus `EngineSwitcher` (reads the machine, and waits);
+`docs/engine-shortcut.md` is its whole story. Three things there are absolute: a press never lands
+on an engine that could not transcribe the next dictation - so it never changes the dictation
+language either, since an engine that would need that is skipped; a press during a dictation is
+deferred until the session is over rather than applied or refused, and "in flight" spans the whole
+session because every individual flag is briefly false between the recorder stopping and the
+transcription starting; and the cloud engine is offered only on `CloudAccess.isSelectable`, which
+never grants consent and never reads the Keychain on an install that has not consented.
 
 Model preparation is never modal. History stays open, searchable and playable throughout, and
 dictation is disabled only when `EngineSelector` finds nothing at all. Progress is a percentage
@@ -300,16 +318,18 @@ are different states.
 
 `EngineKind.usesCloudProvider` states once that this engine is never chosen *for* the user:
 `EngineSelector` skips it in both interim tiers, `EngineConfiguration.recoveryOrder` never recovers
-onto it, and `EngineCatalog.pickerOrder` has no row for it - it is selected in the Cloud pane, where
-the consent sheet is. A failed cloud dictation keeps the recording (`DictationFailureOutcome`),
-because every one of those failures is transient or fixable. The API key lives only in the Keychain
-(`CloudCredentialStore`) and only ever reaches the `Authorization` header; everything printed or
-stored goes through `CloudRedaction` first, and a source scan in `CloudPrivacyTests` holds both.
+onto it, and `EngineCatalog.pickerOrder` has no row for it - it is first selected in the Cloud
+pane, where the consent sheet is. A failed cloud dictation keeps the recording
+(`DictationFailureOutcome`), because every one of those failures is transient or fixable. The API
+key lives only in the Keychain (`CloudCredentialStore`) and only ever reaches the `Authorization`
+header; everything printed or stored goes through `CloudRedaction` first, and a source scan in
+`CloudPrivacyTests` holds both.
 
 The offline-only variant is `Scripts/build_release.sh --offline-only`
 (`ECHOFORGE_OFFLINE_ONLY` → `CloudBuild.isCompiledIn == false`). It is one value rather than `#if`
-around the sources because `EngineKind` is switched exhaustively in eight places; compiling a case
-out means compiling every switch conditionally, which is how a variant stops being the same build.
+around the sources because `EngineKind` is switched exhaustively in over a dozen places; compiling
+a case out means compiling every switch conditionally, which is how a variant stops being the same
+build.
 
 ## Text post-processing
 

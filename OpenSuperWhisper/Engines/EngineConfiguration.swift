@@ -100,8 +100,9 @@ enum EngineConfigurationOutcome: Equatable {
     /// The stored choice is the cloud engine and `CloudAccess` refuses it for a
     /// reason the user can fix - no key, no model, an unusable base URL, a
     /// consent another build never recorded. Nothing is written: that selection
-    /// was made deliberately in the Cloud pane, so it stays exactly as made and
-    /// the refusal surfaces on each dictation instead
+    /// was made deliberately - in the Cloud pane, or with the engine shortcut,
+    /// which only offers the cloud while it would work - so it stays exactly as
+    /// made and the refusal surfaces on each dictation instead
     /// (`CloudRequestError.notPermitted`), naming the field to fix.
     case cloudMisconfigured(CloudAccessRefusal)
 

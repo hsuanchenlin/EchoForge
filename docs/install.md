@@ -134,6 +134,18 @@ Paraformer-large (zh). The same descriptions, caveats and download buttons are t
 Selecting an engine that only speaks Mandarin also moves the transcription language for
 you, so the picker never promises something the engine cannot do.
 
+### Switching engine without opening Settings
+
+Once you have more than one engine downloaded, **⌥M** moves to the next one and shows a
+pill naming it. It only offers engines that could transcribe your next dictation, so
+anything not downloaded is skipped, and so is anything that cannot dictate the language
+you are set to - which is why Paraformer is not offered while you are dictating English.
+Your cloud provider joins the list once you have set it up in **Settings → Cloud**.
+Pressed while you are dictating, it applies once that dictation has finished, so the words
+you have already spoken are transcribed by the engine you spoke them to. The shortcut is
+configurable in **Settings → Shortcuts → Switch Engine**
+([details](engine-shortcut.md)).
+
 ### What the first download looks like
 
 Downloading takes as long as your connection needs for 240 MB or 653 MB, and the app shows

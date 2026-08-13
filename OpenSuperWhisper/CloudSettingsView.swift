@@ -323,8 +323,13 @@ final class CloudSettingsViewModel: ObservableObject {
     func selectLocal(for feature: CloudFeature) {
         switch feature {
         case .transcription:
-            CloudTranscriptionSelection.disable(preferences: preferences)
-            reloadEngine()
+            // Which engine to go back to is `CloudTranscriptionSelection`'s
+            // decision; carrying the choice out is `EngineSelectionCommand`'s, the
+            // same as the Model pane's picker and the engine shortcut.
+            EngineSelectionCommand.select(
+                CloudTranscriptionSelection.localEngineToRestore(preferences: preferences),
+                preferences: preferences
+            )
         case .translation:
             preferences.cloudTranslationEnabled = false
         }
@@ -337,9 +342,13 @@ final class CloudSettingsViewModel: ObservableObject {
     /// this is not saying "pause it", they are saying "forget it".
     func forgetEverything() {
         credentials.setAPIKey(nil)
+        // Revoking transcription's consent also takes the cloud engine away
+        // (`CloudConsent.revoke`), so this is an engine change like any other and
+        // the panes showing the engine have to hear about it.
         CloudConsent.revokeEverything(preferences: preferences)
         apiKeyDraft = ""
         reloadEngine()
+        NotificationCenter.default.post(name: .selectedEngineChanged, object: nil)
         refresh()
     }
 
@@ -401,8 +410,7 @@ final class CloudSettingsViewModel: ObservableObject {
     private func enable(_ feature: CloudFeature) {
         switch feature {
         case .transcription:
-            CloudTranscriptionSelection.enable(preferences: preferences)
-            reloadEngine()
+            EngineSelectionCommand.select(.cloud, preferences: preferences)
         case .translation:
             preferences.cloudTranslationEnabled = true
         }

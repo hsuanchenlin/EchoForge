@@ -17,7 +17,7 @@ import Foundation
 /// offline build is the same build with one door welded shut.
 ///
 /// The gate is a value rather than `#if` scattered through the sources on
-/// purpose. `EngineKind` switches exhaustively in eight places and
+/// purpose. `EngineKind` switches exhaustively in over a dozen places and
 /// `StyleRewriteAvailability` in two more; conditionally compiling a case out of
 /// an enum means conditionally compiling every one of those switches, which is
 /// how a variant build stops being the same build. One value, checked first in
