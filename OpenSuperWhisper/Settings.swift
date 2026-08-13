@@ -1052,6 +1052,11 @@ struct SettingsView: View {
                     .font(.headline)
                     .foregroundColor(.primary)
 
+                // Above the picker rather than under it: the shortcut is the same
+                // decision this pane exists for, made without the trip here, and a
+                // user who has already scrolled past the rows has made the trip.
+                EngineShortcutHintView()
+
                 // While the cloud engine is in use none of the rows below is the
                 // selected one, and a picker with nothing selected is a bug
                 // unless it says why. Tapping a row still switches back to that

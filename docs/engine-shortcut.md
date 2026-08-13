@@ -14,6 +14,20 @@ Engine. ⌥M is the default because it is free alongside ⌥` (record), ⌥A (As
 ⌥S (ask about the screen) - `EngineSwitcherTests` fails if a later default
 collides.
 
+## Where a user finds it
+
+Two places, and the second one exists because the first was not enough. Settings
+→ Shortcuts → Switch Engine is where the key is *changed*. Settings → Models is
+where someone stands when they realise they are on the wrong engine, and it now
+opens with one line naming the shortcut that would have saved them the trip
+(`EngineShortcutHintView`).
+
+That line prints the binding **in force**, never the literal ⌥M: the user most
+likely to read it is the one who moved the shortcut, and a hint naming a key that
+does nothing is worse than no hint. A cleared shortcut is described rather than
+repaired - having none is a setting. Nothing on that path writes a shortcut, and
+`EngineShortcutHintTests` scans the two files to keep it that way.
+
 ## What it cycles through
 
 `EngineCycle.available` is the whole answer, and it is a pure function of a
@@ -139,6 +153,23 @@ capsule is one presentation of one dictation (`docs/capsule-hud.md`), it is off 
 default, and a press during a dictation would otherwise have to overwrite what the
 capsule is saying. When the capsule is switched on this pill sits clear of its slot
 so the two never overlap.
+
+**It is drawn on every attached display at once.** It used to go to the one screen
+holding the focused window, and that is how the whole feature came to look absent
+on a two-display Mac: 0.8.0 switched the engine correctly, put the pill on the
+monitor the user was not looking at, and took it away two seconds later - a working
+shortcut, indistinguishable from a dead key. Choosing a screen at all is a guess
+about where someone's eyes are, and this confirmation is the only thing a press
+shows, so it does not guess. `EngineSwitchHUD.placements` is the pure function, one
+panel per `CGDirectDisplayID`; on a single display nothing about it changed.
+`EngineSwitchHUDViewModelTests` asserts it against the two-display arrangement it
+was reported on, which no checkout machine has.
+
+A HUD that never takes focus is also invisible to VoiceOver - there is no focus
+move to follow and no interaction to describe - so the same sentence is posted as
+an announcement (`EngineSwitchAccessibility`), at high priority because a queued
+one would arrive after the pill it belongs to has gone. It is the same string, so
+a deferred press is spoken as deferred and never as a switch that has happened.
 
 The wording is in `EngineSwitchMessage`, so it can be asserted. Whisper and the
 cloud engine are named with their model - "Whisper - large-v3-turbo", "Cloud -
