@@ -22,7 +22,7 @@ import Foundation
 ///   write.
 enum EngineShortcutHint {
 
-    /// The line shown under the engine picker.
+    /// The line shown above the engine picker.
     ///
     /// - Parameter shortcut: how the bound shortcut reads - "⌥M" - or `nil` when
     ///   the user has cleared it.
