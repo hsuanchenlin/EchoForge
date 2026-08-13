@@ -266,6 +266,40 @@ final class EngineSwitcherTests: IsolatedPreferencesTestCase {
         )
     }
 
+    /// An engine chosen somewhere else while a press waits - the Settings picker,
+    /// the Cloud pane - is the newer decision, so the pending press is dropped
+    /// rather than applied over it, and the overlay says nothing: a pill may only
+    /// ever name an engine the shortcut actually selected. A later press advances
+    /// from that newer choice, not from the stale target.
+    func testAnEngineChosenElsewhereWhileWaitingCancelsThePendingPress() {
+        AppPreferences.shared.selectedEngine = .sensevoice
+        AppPreferences.shared.selectedWhisperModelPath = "/models/ggml-base.bin"
+        AppPreferences.shared.whisperLanguage = "zh"
+        availability = EngineAvailability(
+            usableEngines: [.whisper, .sensevoice, .paraformer],
+            whisperModelPaths: ["/models/ggml-base.bin"]
+        )
+        inFlight = true
+
+        let switcher = makeSwitcher()
+        switcher.advance()
+        XCTAssertEqual(switcher.pendingEngine, EngineKind.chineseAccuracyAlternative)
+
+        // The same call the Settings picker and the Cloud pane make.
+        EngineSelectionCommand.select(.whisper)
+        XCTAssertNil(switcher.pendingEngine)
+
+        inFlight = false
+        activity.send()
+
+        XCTAssertEqual(applied, [], "the cancelled press must not be applied")
+        XCTAssertEqual(AppPreferences.shared.selectedEngine, .whisper)
+        XCTAssertEqual(announced.count, 1, "no pill for a switch that was not made: \(announced)")
+
+        switcher.advance()
+        XCTAssertEqual(applied, [.sensevoice], "a later press advances from the newer choice")
+    }
+
     // MARK: - Equivalence with the Settings picker
 
     /// A press changes one thing. The cycle only contains engines that already do

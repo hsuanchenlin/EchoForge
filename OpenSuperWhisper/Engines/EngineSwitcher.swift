@@ -43,6 +43,7 @@ final class EngineSwitcher {
     private let activityChanges: @MainActor () -> AnyPublisher<Void, Never>
 
     private var activityObserver: AnyCancellable?
+    private var selectionObserver: AnyCancellable?
 
     init(
         preferences: AppPreferences = .shared,
@@ -175,15 +176,35 @@ final class EngineSwitcher {
     /// Subscribed only while a press is pending, and dropped as soon as it is
     /// applied: this exists to notice one thing ending, not to watch every
     /// dictation the app ever runs.
+    ///
+    /// The second subscription is why a pending press cannot override a choice
+    /// made after it. An engine picked in Settings or the Cloud pane while the
+    /// press waits is the newer decision, so the press is dropped rather than
+    /// applied over it - and a later press advances from that choice, not from
+    /// the stale target. `.selectedEngineChanged` can only mean such a choice
+    /// here: this switcher clears the pending press and both subscriptions
+    /// before it ever calls `apply`, so its own selection is never heard.
     private func startWaiting() {
         guard activityObserver == nil else { return }
         activityObserver = activityChanges().sink { [weak self] _ in
             self?.applyPendingIfIdle()
         }
+        selectionObserver = NotificationCenter.default
+            .publisher(for: .selectedEngineChanged)
+            .sink { [weak self] _ in self?.cancelPending() }
     }
 
     private func stopWaiting() {
         activityObserver = nil
+        selectionObserver = nil
+    }
+
+    /// Dropped silently: the choice that cancels it was made in a visible pane,
+    /// and a pill for a switch that was not made is what the overlay must never
+    /// show.
+    private func cancelPending() {
+        pendingEngine = nil
+        stopWaiting()
     }
 
     // MARK: - Reading the machine

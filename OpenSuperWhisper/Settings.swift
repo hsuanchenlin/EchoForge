@@ -13,15 +13,19 @@ class SettingsViewModel: ObservableObject {
             // shortcut, the Cloud pane - or the pane would carry out again the
             // selection it is only being told about.
             guard !isSyncingFromPreferences else { return }
+            // Captured now rather than read when the task runs: an engine change
+            // arriving from elsewhere in that window syncs this property back,
+            // and the task must carry out the click, not the sync.
+            let chosen = selectedEngine
             Task { @MainActor in
                 // One call rather than the four things it does. Choosing an engine
                 // in this pane and choosing it with the shortcut have to be the
                 // same act, down to the language that follows it and the download
                 // it starts, so both go through `EngineSelectionCommand`.
-                EngineSelectionCommand.select(selectedEngine)
+                EngineSelectionCommand.select(chosen)
                 // The pane's own catching up: which model list to show, and the
                 // language control, which the command may just have changed.
-                refreshModelState(for: selectedEngine)
+                refreshModelState(for: chosen)
                 syncLanguageFromPreferences()
             }
         }

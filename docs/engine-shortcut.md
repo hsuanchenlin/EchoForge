@@ -84,7 +84,7 @@ key at that moment is the least useful possible answer. So the overlay says
 "… after this dictation", and `EngineSwitcher` applies it the moment nothing is in
 flight.
 
-Two details there are easy to get wrong:
+Three details there are easy to get wrong:
 
 - **"In flight" spans the whole session, not each of its parts.** Between the
   recorder stopping and the transcription starting every individual flag is
@@ -100,6 +100,16 @@ Two details there are easy to get wrong:
   the next one - and the overlay names what was actually selected. It may never
   name an engine that was not: announcing a switch that did not happen is worse
   than announcing nothing.
+- **An engine chosen anywhere else while the press waits cancels it.** The
+  Settings picker and the Cloud pane can both be used mid-dictation, and a choice
+  made after the press is the newer decision - a pending target applied over it
+  would undo, moments later, something the user watched themselves do. The press
+  is dropped silently (the cancelling choice happened in a visible pane, and a
+  pill may only name an engine the shortcut actually selected), and a later press
+  advances from the newer choice. `EngineSwitcher` hears about such a choice on
+  `.selectedEngineChanged`, which while a press is pending can only mean one made
+  elsewhere: the switcher clears the pending press and its subscriptions before
+  it ever applies anything itself.
 
 A second press while one is pending advances from the pending engine, so two
 presses move two places whether or not a dictation happens to be running.
