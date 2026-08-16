@@ -63,14 +63,30 @@ final class TextEditTestInstanceTests: XCTestCase {
     /// `runningProcessIDs` is what the ownership decision is fed, so it has to report the
     /// live process table rather than a stale snapshot. Nothing is launched or terminated
     /// here - a run with TextEdit open and a run without it both have to pass.
+    ///
+    /// The table itself is shared and mutable: a sibling test host's paste tests launch and
+    /// kill their own TextEdit mid-run, and `NSWorkspace.shared.runningApplications` only
+    /// catches up when the main run loop spins. So the two reads are compared, and a
+    /// mismatch is re-read after a run-loop turn rather than trusted - a stale
+    /// `runningProcessIDs` disagrees on every read, churn only on the one it straddled.
     func testRunningProcessIDsMatchTheProcessTable() {
-        let reported = Set(TextEditTestInstance.runningProcessIDs())
-        let expected = Set(
+        var reported = Set(TextEditTestInstance.runningProcessIDs())
+        var expected = workspaceTextEditProcessIDs()
+        let deadline = Date().addingTimeInterval(2)
+        while reported != expected, Date() < deadline {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+            reported = Set(TextEditTestInstance.runningProcessIDs())
+            expected = workspaceTextEditProcessIDs()
+        }
+        XCTAssertEqual(reported, expected)
+    }
+
+    private func workspaceTextEditProcessIDs() -> Set<pid_t> {
+        Set(
             NSWorkspace.shared.runningApplications
                 .filter { $0.bundleIdentifier == TextEditTestInstance.bundleIdentifier }
                 .map(\.processIdentifier)
         )
-        XCTAssertEqual(reported, expected)
     }
 
     // MARK: - The invariant that cannot be expressed as a type
