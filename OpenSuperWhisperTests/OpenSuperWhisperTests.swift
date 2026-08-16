@@ -630,8 +630,12 @@ final class MicrophoneServiceRequiresConnectionTests: XCTestCase {
 
 final class ClipboardUtilPasteIntegrationTests: XCTestCase {
     
+    /// The one TextEdit this class launched, and the only one it may drive or kill.
+    /// See `TextEditTestInstance` for why that is a process and not a bundle identifier.
     private static var sharedTextEditProcess: NSRunningApplication?
     private static var sharedAppElement: AXUIElement?
+    /// Every TextEdit that was already running when the class started - the user's.
+    private static var preexistingTextEditProcessIDs: Set<pid_t> = []
     private static var originalInputSourceID: String?
     private static var testCounter = 0
     
@@ -661,18 +665,21 @@ final class ClipboardUtilPasteIntegrationTests: XCTestCase {
         _ = ClipboardUtil.switchToInputSource(withID: "US")
         print("[TEST] Switched to US layout for setup")
         
-        terminateTextEditIfRunning()
+        preexistingTextEditProcessIDs = Set(TextEditTestInstance.runningProcessIDs())
+        if !preexistingTextEditProcessIDs.isEmpty {
+            print("[TEST] TextEdit already running (pids: \(preexistingTextEditProcessIDs.sorted())) - "
+                + "those are the user's and are left running and untouched")
+        }
         testCounter = 0
     }
-    
+
     override class func tearDown() {
         print("[TEST] ========== CLASS TEARDOWN ==========")
         if let originalID = originalInputSourceID {
             _ = ClipboardUtil.switchToInputSource(withID: originalID)
         }
-        terminateTextEditIfRunning()
-        sharedTextEditProcess = nil
-        sharedAppElement = nil
+        terminateOwnedTextEdit()
+        preexistingTextEditProcessIDs = []
         super.tearDown()
     }
     
@@ -687,25 +694,31 @@ final class ClipboardUtilPasteIntegrationTests: XCTestCase {
         try super.tearDownWithError()
     }
     
-    private static func terminateTextEditIfRunning() {
-        let runningApps = NSWorkspace.shared.runningApplications
-        var terminated = false
-        for app in runningApps where app.bundleIdentifier == "com.apple.TextEdit" {
-            print("[TEST] Force terminating TextEdit (pid: \(app.processIdentifier))")
+    /// Kills the TextEdit this class launched, and only that one.
+    ///
+    /// The termination list comes from `TextEditTestInstance.terminationTargets`, which
+    /// never names a process the tests did not launch - that is the whole point of it, and
+    /// `TextEditTestInstanceTests` is what holds it there. `forceTerminate` rather than
+    /// `terminate` because the owned instance holds an unsaved scratch document, and a
+    /// polite quit would stop on its save sheet and hang the run.
+    private static func terminateOwnedTextEdit() {
+        let targets = TextEditTestInstance.terminationTargets(
+            ownedProcessID: sharedTextEditProcess?.processIdentifier,
+            runningProcessIDs: TextEditTestInstance.runningProcessIDs()
+        )
+        for app in NSRunningApplication.runningApplications(
+            withBundleIdentifier: TextEditTestInstance.bundleIdentifier
+        ) where targets.contains(app.processIdentifier) {
+            print("[TEST] Force terminating the TextEdit this test launched (pid: \(app.processIdentifier))")
             app.forceTerminate()
-            terminated = true
         }
-        if terminated {
+        if !targets.isEmpty {
             Thread.sleep(forTimeInterval: 0.5)
         }
         sharedTextEditProcess = nil
         sharedAppElement = nil
     }
-    
-    private func terminateTextEditIfRunning() {
-        Self.terminateTextEditIfRunning()
-    }
-    
+
     private func launchTextEditIfNeeded() throws -> AXUIElement {
         if let appElement = Self.sharedAppElement,
            let process = Self.sharedTextEditProcess,
@@ -723,21 +736,37 @@ final class ClipboardUtilPasteIntegrationTests: XCTestCase {
         
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
-        
+        // A separate process from any TextEdit the user has open, so this class types into
+        // its own instance and later kills its own instance.
+        configuration.createsNewApplicationInstance = true
+
         let semaphore = DispatchSemaphore(value: 0)
         var launchedApp: NSRunningApplication?
-        
+
         workspace.openApplication(at: textEditURL, configuration: configuration) { app, error in
             launchedApp = app
             semaphore.signal()
         }
-        
+
         _ = semaphore.wait(timeout: .now() + 5.0)
-        
+
         guard let app = launchedApp else {
             throw XCTSkip("Failed to launch TextEdit")
         }
-        
+
+        // The launch handed back a TextEdit that was already running, so it is the user's:
+        // typing into it and killing it afterwards would destroy their document.
+        guard TextEditTestInstance.isOwned(
+            launchedProcessID: app.processIdentifier,
+            preexistingProcessIDs: Self.preexistingTextEditProcessIDs
+        ) else {
+            log("Launch returned the already-running TextEdit (pid: \(app.processIdentifier)); leaving it alone")
+            throw XCTSkip(
+                "TextEdit was already running and would not start a second instance. Skipped rather "
+                    + "than drive and terminate an instance this test does not own - quit TextEdit to run it."
+            )
+        }
+
         log("TextEdit launched (pid: \(app.processIdentifier))")
         Self.sharedTextEditProcess = app
         Thread.sleep(forTimeInterval: 1.0)
@@ -749,9 +778,28 @@ final class ClipboardUtilPasteIntegrationTests: XCTestCase {
         return Self.sharedAppElement!
     }
     
-    private func activateTextEdit() {
-        Self.sharedTextEditProcess?.activate()
-        Thread.sleep(forTimeInterval: 0.3)
+    /// Brings the TextEdit this class launched to the front, and reports whether it got there.
+    ///
+    /// Everything destructive here - select-all-and-delete, the paste itself - is a CGEvent
+    /// posted to the session, so it lands in whatever app is frontmost. If the activation did
+    /// not take, that app is one of the user's, which is why the callers stop on `false`
+    /// instead of typing into it.
+    @discardableResult
+    private func activateTextEdit() -> Bool {
+        guard let process = Self.sharedTextEditProcess, !process.isTerminated else { return false }
+        process.activate()
+
+        let deadline = Date().addingTimeInterval(2.0)
+        repeat {
+            if NSWorkspace.shared.frontmostApplication?.processIdentifier == process.processIdentifier {
+                Thread.sleep(forTimeInterval: 0.1)
+                return true
+            }
+            Thread.sleep(forTimeInterval: 0.05)
+        } while Date() < deadline
+
+        log("The TextEdit this test launched (pid: \(process.processIdentifier)) did not come to the front")
+        return false
     }
     
     private func sendKeyStroke(keyCode: CGKeyCode, flags: CGEventFlags = []) {
@@ -770,7 +818,10 @@ final class ClipboardUtilPasteIntegrationTests: XCTestCase {
     
     private func dismissOpenDialogIfPresent() {
         log("Dismissing open dialog if present...")
-        activateTextEdit()
+        guard activateTextEdit() else {
+            log("Not sending Escape: it would land in an app this test does not own")
+            return
+        }
         sendKeyStroke(keyCode: 53)
         Thread.sleep(forTimeInterval: 0.5)
         sendKeyStroke(keyCode: 53)
@@ -779,7 +830,10 @@ final class ClipboardUtilPasteIntegrationTests: XCTestCase {
     
     private func createNewDocumentIfNeeded() {
         log("Creating new document...")
-        activateTextEdit()
+        guard activateTextEdit() else {
+            log("Not sending Command-N: it would land in an app this test does not own")
+            return
+        }
         sendKeyStroke(keyCode: 45, flags: .maskCommand)
         Thread.sleep(forTimeInterval: 1.0)
         
@@ -830,7 +884,10 @@ final class ClipboardUtilPasteIntegrationTests: XCTestCase {
     
     private func selectAllAndDelete() {
         log("Selecting all and deleting...")
-        activateTextEdit()
+        guard activateTextEdit() else {
+            log("Not sending select-all and delete: they would land in an app this test does not own")
+            return
+        }
         sendKeyStroke(keyCode: 0, flags: .maskCommand)
         Thread.sleep(forTimeInterval: 0.1)
         sendKeyStroke(keyCode: 51)
@@ -1017,10 +1074,14 @@ final class ClipboardUtilPasteIntegrationTests: XCTestCase {
         log("Switched to layout: \(layoutID)")
         
         Thread.sleep(forTimeInterval: 0.2)
-        
-        activateTextEdit()
+
+        try XCTSkipUnless(
+            activateTextEdit(),
+            "Could not bring the launched TextEdit to the front, so the paste would land in "
+                + "another app. Skipped rather than typed into whatever is frontmost."
+        )
         clickInTextArea()
-        
+
         log("Inserting text: \(testText)")
         ClipboardUtil.insertText(testText)
         
@@ -1098,10 +1159,14 @@ final class ClipboardUtilPasteIntegrationTests: XCTestCase {
             }
             
             Thread.sleep(forTimeInterval: 0.2)
-            
-            activateTextEdit()
+
+            try XCTSkipUnless(
+                activateTextEdit(),
+                "Could not bring the launched TextEdit to the front, so the paste would land in "
+                    + "another app. Skipped rather than typed into whatever is frontmost."
+            )
             clickInTextArea()
-            
+
             let testText = "Test for \(layout)"
             ClipboardUtil.insertText(testText)
             

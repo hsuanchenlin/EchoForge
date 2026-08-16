@@ -154,6 +154,15 @@ change - verify against a clean checkout before assuming you broke them:
 `ClipboardUtilPasteIntegrationTests` (drives TextEdit through Accessibility) and the
 `MicrophoneService*` cases that reach real CoreAudio devices.
 
+That paste class drives a real app on the developer's own desktop, so it owns what it touches:
+it launches its **own** TextEdit process (`createsNewApplicationInstance`) and may only drive and
+kill that one - `TextEditTestInstance` is the ownership decision and `TextEditTestInstanceTests`
+holds it, including a source scan for a second termination call. It used to match on the bundle
+identifier, so class setUp and tearDown `forceTerminate`d every running TextEdit and SIGKILLed
+whatever document the developer had open. The same rule covers keystrokes: CGEvents go to the
+frontmost app, so nothing destructive is posted unless the owned instance actually came to the
+front, and the test skips rather than typing into someone else's window.
+
 Targets use Xcode file-system-synchronized groups, so new source and test files are picked up
 without editing `project.pbxproj`.
 
