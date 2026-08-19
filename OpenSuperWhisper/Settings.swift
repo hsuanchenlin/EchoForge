@@ -898,78 +898,62 @@ struct SettingsView: View {
     @StateObject private var permissionsManager = PermissionsManager()
     @Environment(\.dismiss) var dismiss
     @State private var isRecordingNewShortcut = false
-    @State private var selectedTab = 0
+    @State private var selectedTab: SettingsTab = .shortcuts
     @State private var previousModelURL: URL?
-    
-    private var sheetSize: CGSize {
-        let visibleFrame = NSScreen.main?.visibleFrame.size ?? CGSize(width: 1280, height: 800)
-        let width = min(550, visibleFrame.width - 40)
-        let height = min(500, visibleFrame.height - 60)
-        return CGSize(width: width, height: height)
-    }
+
+    /// The tab titles and the sheet's size are one decision, and it is made in
+    /// `SettingsSheetLayout` so a test can check that they still agree.
+    private var sheetSize: CGSize { SettingsSheetLayout.current }
     
     var body: some View {
+        // Every tab item's title comes from `SettingsTab`, which is also what
+        // the sheet's width is measured against - see `SettingsSheetLayout`.
         TabView(selection: $selectedTab) {
 
              // Shortcut Settings
             shortcutSettings
-                .tabItem {
-                    Label("Shortcuts", systemImage: "command")
-                }
-                .tag(0)
+                .tabItem { SettingsTab.shortcuts.label }
+                .tag(SettingsTab.shortcuts)
+
             // Model Settings
             modelSettings
-                .tabItem {
-                    Label("Model", systemImage: "cpu")
-                }
-                .tag(1)
-            
+                .tabItem { SettingsTab.model.label }
+                .tag(SettingsTab.model)
+
             // Transcription Settings
             transcriptionSettings
-                .tabItem {
-                    Label("Transcription", systemImage: "text.bubble")
-                }
-                .tag(2)
-            
+                .tabItem { SettingsTab.transcription.label }
+                .tag(SettingsTab.transcription)
+
             // Personal terms dictionary, and the voice snippets beneath it
             PersonalTermsSettingsView()
-                .tabItem {
-                    Label("Dictionary & Snippets", systemImage: "character.book.closed")
-                }
-                .tag(3)
+                .tabItem { SettingsTab.dictionary.label }
+                .tag(SettingsTab.dictionary)
 
             // Style rewriting - the one stage that can change what the words
             // mean, so it gets its own pane rather than a row in Transcription.
             StyleRewriteSettingsView()
-                .tabItem {
-                    Label("Style", systemImage: "wand.and.stars")
-                }
-                .tag(4)
+                .tabItem { SettingsTab.style.label }
+                .tag(SettingsTab.style)
 
             // Advanced Settings
             advancedSettings
-                .tabItem {
-                    Label("Advanced", systemImage: "gear")
-                }
-                .tag(5)
+                .tabItem { SettingsTab.advanced.label }
+                .tag(SettingsTab.advanced)
 
             // The one pane that can point anything at a provider. Absent
             // entirely from an offline-only build, which is what makes that
             // build's promise checkable rather than a claim about defaults.
             if CloudBuild.isCompiledIn {
                 CloudSettingsView()
-                    .tabItem {
-                        Label("Cloud", systemImage: "cloud")
-                    }
-                    .tag(7)
+                    .tabItem { SettingsTab.cloud.label }
+                    .tag(SettingsTab.cloud)
             }
 
             // Which build this is, and the only place that offers to change it.
             AboutSettingsView()
-                .tabItem {
-                    Label("About", systemImage: "info.circle")
-                }
-                .tag(6)
+                .tabItem { SettingsTab.about.label }
+                .tag(SettingsTab.about)
             }
         .padding()
         .frame(width: sheetSize.width, height: sheetSize.height)

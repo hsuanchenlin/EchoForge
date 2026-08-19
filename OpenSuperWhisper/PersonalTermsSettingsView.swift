@@ -96,6 +96,7 @@ struct PersonalTermsSettingsView: View {
                 viewModel.upsert(edited)
             }
         }
+        .dismissesOnPowerOff($editedTerm)
     }
 
     // MARK: - Safe correction

@@ -485,6 +485,35 @@ while a cancel button is up, and `constrainFrameRect` returning its argument - A
 the panel down until its transparent shadow margin fits on screen, which lands every placement 16 pt
 low.
 
+## Settings, sheets, and shutting down
+
+Settings is a **sheet**, and `SettingsSheetLayout` owns the two things that follow from that.
+
+Its width is set by the tab bar, not by any pane: macOS draws a SwiftUI `TabView` inside a sheet as
+one `NSSegmentedControl` whose intrinsic width is the sum of its titles, so the tab titles and the
+sheet's width are a single decision. Compressing that bar is not a cosmetic problem - a compressed
+bar's width follows the *displayed* pane's content, so segment rects move as the user changes tabs
+and the keyboard focus ring gets drawn from a different layout than the selection pill. The 550 pt
+sheet was set when there were four tabs and never revisited; by eight it was 122 pt short and every
+title truncated. `SettingsTabBarFitTests` measures the real control headlessly and fails when the
+titles stop fitting, so adding a tab or a longer title says so at test time. Tab titles live in
+`SettingsTab`, which is the list that test reads.
+
+A visible window-modal sheet also makes AppKit **refuse the quit Apple Event** loginwindow sends, so
+an open Settings sheet cancels the user's restart and puts up *"'EchoForge' interrupted restart"*.
+`Utils/PowerOffPresentationGuard.swift` is the one owner of that: it reads
+`NSWorkspace.willPowerOffNotification` and broadcasts `.dismissModalPresentations`, and
+`.dismissesOnPowerOff($binding)` takes each presentation down. Two things there are absolute and
+both are measured, not reasoned. **The dismissal must go through the SwiftUI binding** - AppKit's
+sheet check runs before `applicationShouldTerminate`, so the delegate is never consulted, and
+`NSWindow.endSheet` never touches the state SwiftUI presents from. And **every `.sheet` and
+`.confirmationDialog` needs the modifier**, which a source scan in `ModalDismissalOnPowerOffTests`
+enforces; `.alert` is exempt because an alert measurably does not block termination while a
+confirmation dialog does. The one presentation outside the guard's reach is
+`AppStyleMappingSettingsView`'s `NSOpenPanel.runModal()`, which runs its own event loop - transient,
+and the user is at the machine while it is up. The guard wins a race rather than proving a rule:
+taking a sheet down costs ~270 ms and loginwindow quits apps one at a time, which is seconds.
+
 ## Permissions
 
 `OpenSuperWhisper/PermissionsManager.swift` owns the permission state the root view switches on.

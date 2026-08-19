@@ -142,6 +142,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
 
         setupStatusBarItem()
 
+        // A sheet on screen makes AppKit refuse the system's quit event, which
+        // cancels the user's restart and names this app in a dialog. The guard
+        // takes them down when the shutdown broadcast arrives, which is before
+        // that event. See `PowerOffPresentationGuard`.
+        PowerOffPresentationGuard.shared.start()
+
         // The WindowGroup window usually does not exist yet at this point:
         // SwiftUI creates it after applicationDidFinishLaunching, so it is
         // adopted lazily from windowDidBecomeKey instead.

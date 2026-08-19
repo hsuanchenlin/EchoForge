@@ -38,6 +38,7 @@ struct CloudSettingsView: View {
                 cancel: { viewModel.pendingConsent = nil }
             )
         }
+        .dismissesOnPowerOff($viewModel.pendingConsent)
     }
 
     private var header: some View {

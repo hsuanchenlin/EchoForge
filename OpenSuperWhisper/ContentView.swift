@@ -666,6 +666,7 @@ struct ContentView: View {
                                     } message: {
                                         Text("Are you sure you want to delete all recordings? This action cannot be undone.")
                                     }
+                                    .dismissesOnPowerOff($showDeleteConfirmation)
                                     .interactiveDismissDisabled()
                                 }
                                 
@@ -729,6 +730,7 @@ struct ContentView: View {
         .sheet(isPresented: $isSettingsPresented) {
             SettingsView()
         }
+        .dismissesOnPowerOff($isSettingsPresented)
         .onReceive(NotificationCenter.default.publisher(for: .openSettings)) { _ in
             isSettingsPresented = true
         }
