@@ -116,6 +116,7 @@ struct VoiceSnippetsSettingsView: View {
                 viewModel.upsert(edited)
             }
         }
+        .dismissesOnPowerOff($editedSnippet)
     }
 
     /// The trigger the hint sentence is written around: the user's own first
