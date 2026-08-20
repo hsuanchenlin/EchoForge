@@ -507,13 +507,23 @@ Settings is a **sheet**, and `SettingsSheetLayout` owns the two things that foll
 
 Its width is set by the tab bar, not by any pane: macOS draws a SwiftUI `TabView` inside a sheet as
 one `NSSegmentedControl` whose intrinsic width is the sum of its titles, so the tab titles and the
-sheet's width are a single decision. Compressing that bar is not a cosmetic problem - a compressed
-bar's width follows the *displayed* pane's content, so segment rects move as the user changes tabs
-and the keyboard focus ring gets drawn from a different layout than the selection pill. The 550 pt
-sheet was set when there were four tabs and never revisited; by eight it was 122 pt short and every
-title truncated. `SettingsTabBarFitTests` measures the real control headlessly and fails when the
-titles stop fitting, so adding a tab or a longer title says so at test time. Tab titles live in
-`SettingsTab`, which is the list that test reads.
+sheet's width are a single decision. The 550 pt sheet was set when there were four tabs and never
+revisited; by eight it was 122 pt short and every title truncated. `SettingsTabBarFitTests` measures
+the real control headlessly and fails when the titles stop fitting, so adding a tab or a longer
+title says so at test time. Tab titles live in `SettingsTab`, which is the list that test reads.
+
+**A pane resizing the bar is a second problem, and the width does not fix it.** It was written down
+here that only a *compressed* bar follows its displayed pane, so widening the sheet froze the
+segment rects and settled the focus ring; measuring says otherwise. At the shipped 680 pt, a
+displayed pane 900 pt wide still lays the bar out 657 pt instead of 648, and the same pane on a tab
+that is not showing changes nothing. What contains a pane is `settingsPane()`
+(`SettingsSheetLayout.swift`), applied to every tab's content: `Color.clear` takes the offered width
+and reports none of its own, so the pane is an overlay inside it and never speaks for the sheet.
+`frame(maxWidth:)` and `frame(idealWidth:)` were measured and do not contain it; `frame(width:)`
+does but clips real content; the modifier is deliberately un-clipped so nothing trims a focus ring
+at a pane's edge. Whether the focus ring and the selection pill actually agree is **still
+unverified** - that needs an interactive check on a real Mac, and constant segment geometry is only
+its precondition.
 
 A visible window-modal sheet also makes AppKit **refuse the quit Apple Event** loginwindow sends, so
 an open Settings sheet cancels the user's restart and puts up *"'EchoForge' interrupted restart"*.
