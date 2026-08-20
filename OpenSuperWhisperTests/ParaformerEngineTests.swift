@@ -309,6 +309,138 @@ final class ParaformerEngineTests: XCTestCase {
         let (engine, _, _) = makeEngine(samples: positionEncodedSamples(seconds: 10), segments: [segment(0, 10)])
         XCTAssertEqual(engine.getSupportedLanguages(), ["zh"])
     }
+
+    // MARK: - Non-Mandarin input
+
+    /// The language lock is a picker setting, and a picker cannot stop somebody
+    /// speaking English. What the model returns then is not a poor transcript,
+    /// it is the tokeniser's own sub-word units, and it used to be pasted into
+    /// whatever the user was typing in.
+    ///
+    /// `ParaformerLanguageGuard` owns the classification and is tested on its
+    /// own; what is asserted here is that the engine consults it, and that a
+    /// refused transcript is a thrown error rather than a returned string.
+    func testFragmentedOutputFailsTheDictationInsteadOfReturningIt() async throws {
+        let engine = engineReturning("how@@ ever the mee@@ ting is on tues@@ day")
+
+        try await engine.initialize()
+        do {
+            let text = try await engine.transcribeAudio(
+                url: URL(fileURLWithPath: "/dev/null"), settings: Settings())
+            XCTFail("tokeniser fragments were returned as a transcript: \(text)")
+        } catch {
+            XCTAssertEqual(error as? TranscriptionError, ParaformerLanguageGuard.failure)
+        }
+    }
+
+    /// The same case with nothing for the marker rule to find - the model also
+    /// returns whole Latin words, and the day upstream starts detokenising it
+    /// will return them every time. The engine must fail identically.
+    func testUnmarkedNonMandarinOutputAlsoFailsTheDictation() async throws {
+        let engine = engineReturning("the meeting is on tuesday afternoon")
+
+        try await engine.initialize()
+        do {
+            let text = try await engine.transcribeAudio(
+                url: URL(fileURLWithPath: "/dev/null"), settings: Settings())
+            XCTFail("an English transcript was returned by a Mandarin-only engine: \(text)")
+        } catch {
+            XCTAssertEqual(error as? TranscriptionError, ParaformerLanguageGuard.failure)
+        }
+    }
+
+    /// The failure has to be the one that keeps the user's audio. A dictation
+    /// refused for its language is not a decode that produced nothing: the
+    /// recording is good and transcribes on another engine.
+    func testARefusedDictationIsReportedAsOneWorthKeepingTheAudioFor() async throws {
+        let engine = engineReturning("please send me the report before friday")
+
+        try await engine.initialize()
+        do {
+            _ = try await engine.transcribeAudio(
+                url: URL(fileURLWithPath: "/dev/null"), settings: Settings())
+            XCTFail("the dictation was not refused")
+        } catch {
+            XCTAssertEqual(
+                DictationFailureOutcome.forError(error),
+                .keep(
+                    reason: ParaformerLanguageGuard.message,
+                    indicatorState: .wrongLanguage(ParaformerLanguageGuard.shortMessage)))
+        }
+    }
+
+    /// Fragments spliced across chunks are still fragments. The guard reads the
+    /// joined transcript, so a marker in any chunk refuses the recording rather
+    /// than only the chunk it fell in.
+    func testFragmentsInOneChunkOfManyStillRefuseTheRecording() async throws {
+        let provider = StubChunkProvider(
+            samples: positionEncodedSamples(seconds: 44.78), segments: [segment(0, 44.78)])
+        let model = ScriptedFakeTranscriber(
+            responses: ["今天的會議紀錄", "已經整理好了", "sched@@ ule", "請大家過目"])
+        let engine = ParaformerEngine(chunkSource: provider, loadTranscriber: { model })
+
+        try await engine.initialize()
+        do {
+            let text = try await engine.transcribeAudio(
+                url: URL(fileURLWithPath: "/dev/null"), settings: Settings())
+            XCTFail("a transcript carrying tokeniser fragments was returned: \(text)")
+        } catch {
+            XCTAssertEqual(error as? TranscriptionError, ParaformerLanguageGuard.failure)
+        }
+    }
+
+    /// The guard must be invisible to the engine's actual job. Every other test
+    /// in this file transcribes Han characters and would fail if it were not, but
+    /// this says so directly.
+    func testMandarinIsUnaffectedByTheGuard() async throws {
+        let engine = engineReturning("今天天氣很好我們去公園散步吧")
+
+        try await engine.initialize()
+        let text = try await engine.transcribeAudio(
+            url: URL(fileURLWithPath: "/dev/null"), settings: Settings())
+
+        XCTAssertEqual(text, "今天天氣很好我們去公園散步吧")
+    }
+
+    /// A short recording is not evidence of a language, and refusing one would
+    /// refuse a legitimate two-word Mandarin dictation that mentions a product
+    /// name.
+    func testAShortMixedTranscriptIsNotRefused() async throws {
+        let engine = engineReturning("好的OK")
+
+        try await engine.initialize()
+        let text = try await engine.transcribeAudio(
+            url: URL(fileURLWithPath: "/dev/null"), settings: Settings())
+
+        XCTAssertEqual(text, "好的OK")
+    }
+
+    /// One 10 s recording, one chunk, one canned answer - so a test about what
+    /// the engine does with the model's output is not also a test about chunking.
+    private func engineReturning(_ response: String) -> ParaformerEngine {
+        let provider = StubChunkProvider(
+            samples: positionEncodedSamples(seconds: 10), segments: [segment(0, 10)])
+        return ParaformerEngine(
+            chunkSource: provider, loadTranscriber: { ScriptedFakeTranscriber(responses: [response]) })
+    }
+}
+
+/// Returns what it was told to, chunk by chunk, with the last answer repeated
+/// once it runs out. Unlike `ClampedFakeTranscriber` it models nothing about the
+/// decoder - these tests are about the string the engine is handed, not about
+/// how much audio produced it.
+private final class ScriptedFakeTranscriber: ParaformerTranscribing {
+    private let responses: [String]
+    private var callCount = 0
+
+    init(responses: [String]) {
+        self.responses = responses
+    }
+
+    func transcribe(audio: [Float]) async throws -> String {
+        defer { callCount += 1 }
+        return responses[min(callCount, responses.count - 1)]
+    }
 }
 
 /// Hands the engine chunks from the *real* `AudioChunker`, without decoding a

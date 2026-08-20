@@ -30,6 +30,16 @@ enum RecordingState: Equatable {
     /// (`CloudRequestError.shortMessage`) and the full sentence is on the
     /// recording that was kept.
     case cloudFailed(String)
+
+    /// A dictation the engine could not transcribe because it was not in a
+    /// language that engine can do - Paraformer, which answers non-Mandarin with
+    /// tokeniser fragments rather than refusing it (`ParaformerLanguageGuard`).
+    ///
+    /// Separate from `.noEngine` for the same reason `.cloudFailed` is: nothing
+    /// is wrong with the setup. Sending this user to a pane where every setting
+    /// is correct would be the app misdirecting them; the words they need are
+    /// "that was not Mandarin", and the fix is another engine.
+    case wrongLanguage(String)
 }
 
 /// What became of a dictation that arrived while the engine was busy.
@@ -73,6 +83,14 @@ enum DictationFailureOutcome: Equatable {
                 reason: cloud.errorDescription ?? cloud.shortMessage,
                 indicatorState: .cloudFailed(cloud.shortMessage)
             )
+        }
+        // The audio is good and a different engine transcribes it, so deleting
+        // it would throw away work over a choice the user can change in one
+        // press. The engine that refused supplies both strings.
+        if let transcription = error as? TranscriptionError,
+            case .unsupportedSpokenLanguage(let message, let shortMessage) = transcription
+        {
+            return .keep(reason: message, indicatorState: .wrongLanguage(shortMessage))
         }
         return .discard
     }
@@ -617,6 +635,21 @@ struct IndicatorWindow: View {
 
                     // Kept to the same one line as the case above; the sentence
                     // naming the fix is on the recording that was just kept.
+                    Text(reason)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.orange)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            case .wrongLanguage(let reason):
+                HStack(spacing: 8) {
+                    Image(systemName: "character.bubble")
+                        .foregroundColor(.orange)
+                        .frame(width: 24)
+
+                    // Same one line, same division: two words here, the sentence
+                    // naming the fix on the recording that was just kept.
                     Text(reason)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.orange)

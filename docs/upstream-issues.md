@@ -33,6 +33,45 @@ upstream.
 **On a FluidAudio bump:** re-measure. If the fast path landed, SenseVoice should jump to roughly
 Paraformer's order of magnitude and the per-chunk progress becomes cosmetic rather than load-bearing.
 
+## FluidAudio: Paraformer returns raw `@@` BPE continuation markers instead of detokenising
+
+**Status:** to be filed against <https://github.com/FluidInference/FluidAudio>. Not filed yet.
+
+**Measured** on FluidAudio 0.15.4 (`b9d43724`, the pin this app carries): `ParaformerManager.transcribe`
+returns the decoder's sub-word units joined as they are, so any token that carries the BPE
+continuation marker keeps it. On Mandarin this is invisible - vocab8404's Han tokens are whole
+characters - but the vocabulary also holds Latin sub-words, and non-Mandarin speech is decoded into
+those. English therefore comes back looking like `@@`-spattered fragments rather than words: the
+marker is a tokeniser internal that a detokeniser is supposed to consume by joining the piece to the
+one before it, and here it reaches the caller as text.
+
+The two halves are separable, and only one of them is this defect. That Paraformer answers English
+at all is the model: it takes no language parameter and refuses nothing, so a Mandarin-only ASR
+being fed English is a user error, not a bug. That the *string handed back* contains the
+tokeniser's own control markers is the library's, and it would be worth fixing even if every
+transcript were Mandarin - a caller has no way to tell a marker apart from text the model meant.
+
+**Fix:** detokenise before returning - join a piece carrying the continuation marker onto its
+predecessor and drop the marker, the standard BPE inverse. Failing that, document the returned
+string as sub-word units rather than as text.
+
+**What the app does:** treats a transcript containing `@@` as a failed dictation rather than
+repairing it (`ParaformerLanguageGuard`). Repairing it would mean this app owning a detokeniser for
+a vocabulary it does not ship, and the repaired text would still be English guessed at by a
+Mandarin model - so the recording is kept, the user is told the engine is Mandarin-only, and
+switching engine and pressing regenerate produces a real transcript. The guard has a second rule
+behind the marker test because the markers are not guaranteed: the model also returns whole Latin
+words, so a predominantly-Latin transcript is refused too.
+
+**On a FluidAudio bump:** re-check whether `@@` still appears. If it stops, the marker rule becomes
+dead weight and the Latin-share rule is the one carrying the case - but only for predominantly-Latin
+recordings. A mostly-Mandarin recording with an embedded English sentence sits below the share
+threshold by design (the guard's mixed fixture is 24 Han to 8 Latin letters, about a quarter), so
+with the markers gone its mis-transcribed English reaches the transcript.
+`ParaformerLanguageGuardTests` is written so the two rules can be seen failing independently.
+Cantonese stays undetectable either way - it comes back as fluent, wrong Mandarin with no signal in
+the output - which is why the engine's caveats say so instead.
+
 ## FunASR SenseVoice: inverse text normalisation mangles bare Chinese numerals
 
 **Status:** to be filed against <https://github.com/FunAudioLLM/SenseVoice>. Not filed yet.

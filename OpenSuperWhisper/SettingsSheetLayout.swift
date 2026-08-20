@@ -71,16 +71,25 @@ enum SettingsSheetLayout {
     /// about 672 pt before the bar stops being compressed. 680 pt leaves a
     /// little slack.
     ///
-    /// Compression is not merely ugly. A compressed bar's segment widths become
-    /// a function of the whole layout - the *displayed* pane's content width
-    /// feeds back into the bar - so segment rects move as the user changes tabs,
-    /// which is what let the keyboard focus ring be drawn around a different
-    /// rect than the selection. At the uncompressed width the bar sits at its
-    /// intrinsic size and every segment rect is constant.
-    ///
     /// This started at 550 pt when the sheet had four tabs and was never
     /// revisited as tabs were added; by eight tabs it was 122 pt short and every
     /// title truncated.
+    ///
+    /// **What this width does not do.** It was once written down here as also
+    /// fixing the tab bar's geometry, on the reasoning that an uncompressed bar
+    /// sits at its intrinsic size and so cannot be moved by the pane below it.
+    /// That is wrong, and measuring it says so: at this very width, a displayed
+    /// pane 900 pt wide lays the bar out 657 pt wide instead of 648, and the
+    /// same pane on a tab that is *not* showing changes nothing. The width is
+    /// what stops the titles truncating, and nothing more. What holds the bar
+    /// still is `settingsPane()`, which is applied to every pane and keeps a
+    /// pane's own width from reaching the bar at all.
+    ///
+    /// Whether the keyboard focus ring and the selection pill then agree is a
+    /// separate question this cannot answer: both are drawn by AppKit, and the
+    /// only honest check is an interactive one on a real Mac, tabbing to the bar
+    /// and looking at it. Constant segment geometry is a precondition for them
+    /// agreeing, not a proof that they do.
     static let preferredSize = CGSize(width: 680, height: 500)
 
     /// The preferred size, shrunk to whatever the screen can show.
@@ -98,5 +107,44 @@ enum SettingsSheetLayout {
     /// The size the sheet uses on this Mac right now.
     static var current: CGSize {
         size(fittingScreen: NSScreen.main?.visibleFrame.size ?? CGSize(width: 1280, height: 800))
+    }
+}
+
+extension View {
+
+    /// Contains one Settings pane, so its content cannot resize the tab bar.
+    ///
+    /// macOS lays a SwiftUI `TabView`'s tab bar out from the whole hosted view
+    /// tree, and the *displayed* pane is part of that tree: a pane wider than the
+    /// sheet makes the bar wider too, which moves every segment. Measured on the
+    /// shipped 680 pt sheet, a 900 pt pane takes the bar from 648 pt to 657 pt,
+    /// and moving to any other tab takes it back - so segment rects shift as the
+    /// user changes tabs. `SettingsSheetLayout.preferredSize` does not prevent
+    /// that; only this does.
+    ///
+    /// The mechanism is that `Color.clear` accepts whatever width it is offered
+    /// and reports nothing of its own, so the pane is laid out *inside* it as an
+    /// overlay and never gets to speak for the sheet. Three other shapes were
+    /// measured and rejected: `frame(maxWidth:)` and `frame(idealWidth:)` do not
+    /// contain it at all, and `frame(width:)` does but forces every pane to a
+    /// width the tab view's content area is narrower than, which clips real
+    /// content.
+    ///
+    /// Deliberately **not** `clipped()`. The containment is the overlay, not the
+    /// clip, and a clip at a pane's edge is exactly what would trim a keyboard
+    /// focus ring drawn just outside a control - the accessibility behaviour this
+    /// whole area exists to keep.
+    ///
+    /// `SettingsTabBarFitTests` pins the half that can be measured headlessly:
+    /// that this contains the bar, and that it does not change the sheet's own
+    /// layout. That it does not move a pane's *contents* is a rendering question
+    /// XCTest cannot answer without a screen - a hosted view's controls never get
+    /// laid out - and was checked instead by rendering a pane of the shape every
+    /// real one uses (`ScrollView` around a `VStack`) with and without this
+    /// modifier: the two bitmaps came out byte-identical. Every pane being a
+    /// `ScrollView` is why, since a scroll view takes whatever width it is
+    /// offered and so is proposed exactly what the tab view proposed before.
+    func settingsPane() -> some View {
+        Color.clear.overlay { self }
     }
 }

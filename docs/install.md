@@ -116,8 +116,11 @@ downloads and neither is installed until you pick it.
 | **Paraformer-large (zh)** | 653 MB | Slightly more accurate on Mandarin characters | Mandarin only, and produces no punctuation at all |
 
 Both write **Simplified Chinese (簡體字)**, and the app does not convert the result to
-Traditional (繁體字). Paraformer does not refuse other languages, it mis-transcribes
-them, so leave it selected only while you are dictating Mandarin.
+Traditional (繁體字). Paraformer refuses nothing: dictate English to it and the model
+answers with garbled fragments, which EchoForge catches - the dictation fails, the
+recording is kept, and switching engine and regenerating gets you a real transcript.
+Cantonese it cannot catch (that comes back as fluent but wrong Mandarin), so leave
+Paraformer selected only while you are dictating Mandarin.
 
 ### From the first-run screen
 

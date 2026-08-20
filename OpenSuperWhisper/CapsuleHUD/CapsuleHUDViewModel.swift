@@ -363,6 +363,10 @@ final class CapsuleHUDViewModel: ObservableObject {
         // than replaced with a generic line that says less.
         case .cloudFailed(let reason):
             fail(reason)
+        // Short by construction too - `ParaformerLanguageGuard.shortMessage` is
+        // written for these two overlays.
+        case .wrongLanguage(let reason):
+            fail(reason)
         }
     }
 

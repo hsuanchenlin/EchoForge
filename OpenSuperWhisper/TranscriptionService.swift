@@ -524,6 +524,21 @@ enum TranscriptionError: LocalizedError, Equatable {
     /// attention rather than a console line.
     case engineNotConfigured
 
+    /// The engine ran, and what came back is not a language it can transcribe.
+    ///
+    /// Only an engine that *cannot refuse* a language throws this: Paraformer
+    /// takes no language parameter, so a non-Mandarin recording is not rejected
+    /// by the model, it is mis-transcribed into fragments
+    /// (`ParaformerLanguageGuard`). It is its own case rather than
+    /// `processingFailed` because nothing failed technically - the fix is a
+    /// different engine, the audio is perfectly good, and `DictationFailureOutcome`
+    /// therefore keeps it.
+    ///
+    /// The two strings are carried rather than looked up so this stays engine-
+    /// neutral: the wording belongs to whichever engine had to refuse, and the
+    /// failure path only needs a sentence and a two-word form of it.
+    case unsupportedSpokenLanguage(message: String, shortMessage: String)
+
     /// `LocalizedError` so the failure reaches the user as an instruction
     /// rather than as "OpenSuperWhisper.TranscriptionError error 0" - the queue
     /// has always shown `localizedDescription` on a failed recording, which
@@ -538,6 +553,8 @@ enum TranscriptionError: LocalizedError, Equatable {
             return "The audio could not be read."
         case .processingFailed:
             return "The audio could not be transcribed."
+        case .unsupportedSpokenLanguage(let message, _):
+            return message
         }
     }
 }

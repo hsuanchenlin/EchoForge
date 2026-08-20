@@ -300,6 +300,27 @@ Model weights are downloaded at runtime and never bundled into the `.app` - some
 redistributed under licences that require attribution and forbid rebranding. Any engine whose
 model the app downloads needs an entry in `docs/speech-model-attribution.md`.
 
+An engine that cannot refuse a language has to refuse its own output instead. Paraformer takes no
+language parameter, so `LanguageUtil.paraformerLanguages` locking the picker to `zh` does nothing
+about somebody speaking English: the model answers, as the tokeniser's sub-word units with `@@`
+continuation markers in them (`docs/upstream-issues.md`), and that used to be pasted into whatever
+the user was typing in. `ParaformerLanguageGuard` reads the joined transcript before the engine
+returns it and fails the dictation - `TranscriptionError.unsupportedSpokenLanguage`, which
+`DictationFailureOutcome` keeps the recording for, so switching engine and pressing regenerate is
+all it costs. Three rules there are absolute. It classifies **output only**: nothing retokenises,
+strips markers or repairs a transcript, because text that had to be repaired to be shown is a guess
+pasted into someone's editor. The `@@` rule never stands alone - the model also returns whole Latin
+words, and the marker depends on an upstream defect that may be fixed - so every predominantly-English
+marker case in `ParaformerLanguageGuardTests` has a twin without one that the Latin-share rule has to
+catch by itself. And it is tuned to fire rather than to be certain, because a false positive costs a
+kept recording and one press while a false negative is corruption in the user's document. Two cases
+sit outside both rules. Cantonese has no signal in the output at all - it comes back as fluent,
+wrong Mandarin - and the engine's caveats say so instead. And a mostly-Mandarin recording with an
+embedded English sentence is refused today only by its `@@` markers: the mixed fixture is 24 Han to
+8 Latin letters, about a quarter, a share the guard accepts by design, so if upstream fixes
+detokenisation the share rule lets it through and that mis-transcribed English reaches the user's
+transcript.
+
 Engine limits are measured against the pinned FluidAudio, not read off its config constants,
 because several of them mislead. Defects found there that the app ships around rather than
 patches - and the reasons - live in `docs/upstream-issues.md`; add to it instead of rediscovering
@@ -491,13 +512,23 @@ Settings is a **sheet**, and `SettingsSheetLayout` owns the two things that foll
 
 Its width is set by the tab bar, not by any pane: macOS draws a SwiftUI `TabView` inside a sheet as
 one `NSSegmentedControl` whose intrinsic width is the sum of its titles, so the tab titles and the
-sheet's width are a single decision. Compressing that bar is not a cosmetic problem - a compressed
-bar's width follows the *displayed* pane's content, so segment rects move as the user changes tabs
-and the keyboard focus ring gets drawn from a different layout than the selection pill. The 550 pt
-sheet was set when there were four tabs and never revisited; by eight it was 122 pt short and every
-title truncated. `SettingsTabBarFitTests` measures the real control headlessly and fails when the
-titles stop fitting, so adding a tab or a longer title says so at test time. Tab titles live in
-`SettingsTab`, which is the list that test reads.
+sheet's width are a single decision. The 550 pt sheet was set when there were four tabs and never
+revisited; by eight it was 122 pt short and every title truncated. `SettingsTabBarFitTests` measures
+the real control headlessly and fails when the titles stop fitting, so adding a tab or a longer
+title says so at test time. Tab titles live in `SettingsTab`, which is the list that test reads.
+
+**A pane resizing the bar is a second problem, and the width does not fix it.** It was written down
+here that only a *compressed* bar follows its displayed pane, so widening the sheet froze the
+segment rects and settled the focus ring; measuring says otherwise. At the shipped 680 pt, a
+displayed pane 900 pt wide still lays the bar out 657 pt instead of 648, and the same pane on a tab
+that is not showing changes nothing. What contains a pane is `settingsPane()`
+(`SettingsSheetLayout.swift`), applied to every tab's content: `Color.clear` takes the offered width
+and reports none of its own, so the pane is an overlay inside it and never speaks for the sheet.
+`frame(maxWidth:)` and `frame(idealWidth:)` were measured and do not contain it; `frame(width:)`
+does but clips real content; the modifier is deliberately un-clipped so nothing trims a focus ring
+at a pane's edge. Whether the focus ring and the selection pill actually agree is **still
+unverified** - that needs an interactive check on a real Mac, and constant segment geometry is only
+its precondition.
 
 A visible window-modal sheet also makes AppKit **refuse the quit Apple Event** loginwindow sends, so
 an open Settings sheet cancels the user's restart and puts up *"'EchoForge' interrupted restart"*.
