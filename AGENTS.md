@@ -310,11 +310,16 @@ returns it and fails the dictation - `TranscriptionError.unsupportedSpokenLangua
 all it costs. Three rules there are absolute. It classifies **output only**: nothing retokenises,
 strips markers or repairs a transcript, because text that had to be repaired to be shown is a guess
 pasted into someone's editor. The `@@` rule never stands alone - the model also returns whole Latin
-words, and the marker depends on an upstream defect that may be fixed - so every marker case in
-`ParaformerLanguageGuardTests` has a twin without one that the Latin-share rule has to catch by
-itself. And it is tuned to fire rather than to be certain, because a false positive costs a kept
-recording and one press while a false negative is corruption in the user's document. Cantonese is
-the case it cannot catch and the engine's caveats say so instead.
+words, and the marker depends on an upstream defect that may be fixed - so every predominantly-English
+marker case in `ParaformerLanguageGuardTests` has a twin without one that the Latin-share rule has to
+catch by itself. And it is tuned to fire rather than to be certain, because a false positive costs a
+kept recording and one press while a false negative is corruption in the user's document. Two cases
+sit outside both rules. Cantonese has no signal in the output at all - it comes back as fluent,
+wrong Mandarin - and the engine's caveats say so instead. And a mostly-Mandarin recording with an
+embedded English sentence is refused today only by its `@@` markers: the mixed fixture is 24 Han to
+8 Latin letters, about a quarter, a share the guard accepts by design, so if upstream fixes
+detokenisation the share rule lets it through and that mis-transcribed English reaches the user's
+transcript.
 
 Engine limits are measured against the pinned FluidAudio, not read off its config constants,
 because several of them mislead. Defects found there that the app ships around rather than

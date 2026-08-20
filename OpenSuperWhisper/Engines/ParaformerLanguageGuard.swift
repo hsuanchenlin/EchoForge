@@ -33,7 +33,12 @@ import Foundation
 ///
 /// What it deliberately does **not** catch: Cantonese, which comes back as
 /// fluent, plausible, wrong Mandarin. There is no signal in the output to read
-/// there, and the engine's caveats say so instead.
+/// there, and the engine's caveats say so instead. Nor, once the markers are
+/// gone, a mostly-Mandarin recording with an embedded English sentence: that is
+/// refused today only because the `@@` markers are present - the mixed fixture
+/// is 24 Han to 8 Latin letters, about a quarter, a share the rule below
+/// accepts by design - so if upstream fixes detokenisation, the share rule lets
+/// it through and that mis-transcribed English reaches the user's transcript.
 ///
 /// The share test needs evidence before it condemns anything, hence
 /// `minimumLetters`. Above that line it is tuned to fire rather than to be

@@ -64,10 +64,13 @@ behind the marker test because the markers are not guaranteed: the model also re
 words, so a predominantly-Latin transcript is refused too.
 
 **On a FluidAudio bump:** re-check whether `@@` still appears. If it stops, the marker rule becomes
-dead weight but the Latin-share rule is still the one carrying the case, and
-`ParaformerLanguageGuardTests` is written so the two can be seen failing independently. Cantonese
-stays undetectable either way - it comes back as fluent, wrong Mandarin with no signal in the
-output - which is why the engine's caveats say so instead.
+dead weight and the Latin-share rule is the one carrying the case - but only for predominantly-Latin
+recordings. A mostly-Mandarin recording with an embedded English sentence sits below the share
+threshold by design (the guard's mixed fixture is 24 Han to 8 Latin letters, about a quarter), so
+with the markers gone its mis-transcribed English reaches the transcript.
+`ParaformerLanguageGuardTests` is written so the two rules can be seen failing independently.
+Cantonese stays undetectable either way - it comes back as fluent, wrong Mandarin with no signal in
+the output - which is why the engine's caveats say so instead.
 
 ## FunASR SenseVoice: inverse text normalisation mangles bare Chinese numerals
 

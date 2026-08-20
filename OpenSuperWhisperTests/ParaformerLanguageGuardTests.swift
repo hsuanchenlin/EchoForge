@@ -14,10 +14,13 @@ import XCTest
 /// Two rules carry it, and they are tested apart on purpose. The `@@` rule is
 /// the obvious one and it is also the fragile one: it depends on an upstream
 /// defect that may be fixed, and on the model happening to emit fragments rather
-/// than whole Latin words. So every case that would be caught by `@@` has a
-/// twin **without** `@@` in it, and the Latin-share rule has to catch that twin
-/// on its own. A change that makes the guard depend on the markers alone fails
-/// here rather than in a user's editor.
+/// than whole Latin words. So every predominantly-English case that would be
+/// caught by `@@` has a twin **without** `@@` in it, and the Latin-share rule
+/// has to catch that twin on its own. A change that makes the guard depend on
+/// the markers alone fails here rather than in a user's editor. The
+/// mostly-Mandarin case with one marked English word has no such twin and
+/// cannot: with the marker stripped its Latin share is one the guard accepts by
+/// design, which the guard's own doc states as the bilingual gap.
 ///
 /// Nothing here downloads weights or touches the model: the guard is a pure
 /// function over a string.
