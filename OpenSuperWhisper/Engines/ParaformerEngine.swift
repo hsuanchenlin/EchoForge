@@ -31,7 +31,11 @@ extension ParaformerManager: ParaformerTranscribing {}
 /// - **It is Mandarin-only and degrades silently.** English leaks raw `@@` BPE
 ///   continuation markers and Cantonese comes back as plausible-looking but
 ///   wrong Mandarin, so the language is hard-locked to `zh` in `LanguageUtil`
-///   rather than left to degrade.
+///   rather than left to degrade. The lock is what a picker can do and no more,
+///   so `ParaformerLanguageGuard` reads the transcript before it is returned and
+///   fails the dictation rather than handing fragments to whatever the user was
+///   typing in. Cantonese is not detectable that way and the engine's caveats
+///   say so.
 /// - **It has no no-speech gate.** 30 s of digital silence transcribes as
 ///   `嗯嗯嗯嗯嗯…`. The empty chunk list `AudioChunkSource` returns for silence is
 ///   therefore an empty transcript, never a padded call.
@@ -155,6 +159,15 @@ final class ParaformerEngine: TranscriptionEngine {
         // did not say. Shared transcript post-processing runs once afterwards,
         // in TextPostProcessor via TranscriptionService.
         let text = pieces.filter { !$0.isEmpty }.joined()
+
+        // Judged once, on the whole transcript rather than chunk by chunk: a
+        // single chunk is too little text for the share test, and `@@` anywhere
+        // in a recording is a recording with fragments in it wherever they fell.
+        // Nothing is returned when this fires - a partly-corrupt transcript
+        // pasted into the user's editor is the failure being prevented.
+        if ParaformerLanguageGuard.rejection(in: text) != nil {
+            throw ParaformerLanguageGuard.failure
+        }
 
         onProgressUpdate?(1.0)
         return text

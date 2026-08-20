@@ -300,6 +300,22 @@ Model weights are downloaded at runtime and never bundled into the `.app` - some
 redistributed under licences that require attribution and forbid rebranding. Any engine whose
 model the app downloads needs an entry in `docs/speech-model-attribution.md`.
 
+An engine that cannot refuse a language has to refuse its own output instead. Paraformer takes no
+language parameter, so `LanguageUtil.paraformerLanguages` locking the picker to `zh` does nothing
+about somebody speaking English: the model answers, as the tokeniser's sub-word units with `@@`
+continuation markers in them (`docs/upstream-issues.md`), and that used to be pasted into whatever
+the user was typing in. `ParaformerLanguageGuard` reads the joined transcript before the engine
+returns it and fails the dictation - `TranscriptionError.unsupportedSpokenLanguage`, which
+`DictationFailureOutcome` keeps the recording for, so switching engine and pressing regenerate is
+all it costs. Three rules there are absolute. It classifies **output only**: nothing retokenises,
+strips markers or repairs a transcript, because text that had to be repaired to be shown is a guess
+pasted into someone's editor. The `@@` rule never stands alone - the model also returns whole Latin
+words, and the marker depends on an upstream defect that may be fixed - so every marker case in
+`ParaformerLanguageGuardTests` has a twin without one that the Latin-share rule has to catch by
+itself. And it is tuned to fire rather than to be certain, because a false positive costs a kept
+recording and one press while a false negative is corruption in the user's document. Cantonese is
+the case it cannot catch and the engine's caveats say so instead.
+
 Engine limits are measured against the pinned FluidAudio, not read off its config constants,
 because several of them mislead. Defects found there that the app ships around rather than
 patches - and the reasons - live in `docs/upstream-issues.md`; add to it instead of rediscovering

@@ -273,8 +273,11 @@ enum EngineCatalog {
         attributionCredit: "Paraformer-large (zh) by FunASR / FunAudioLLM",
         notes: [
             "Produces no punctuation at all - its vocabulary contains none, and nothing here invents any.",
-            "Mandarin only. It does not refuse other languages, it mis-transcribes them: Cantonese comes back "
-                + "as fluent but wrong Mandarin.",
+            "Mandarin only, and the model refuses nothing - so English comes back as tokeniser fragments. "
+                + "EchoForge catches those and keeps the recording instead of inserting them, leaving you to "
+                + "switch engine and regenerate.",
+            "Cantonese is the case nothing can catch: it comes back as fluent but wrong Mandarin, which reads "
+                + "like a real transcript.",
             "Writes Simplified Chinese, and spells numbers as spoken - 三点二十分, not 3点20分.",
             "Long recordings are split into short pieces before the model sees them, because it silently "
                 + "truncates anything longer.",
