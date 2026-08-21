@@ -36,6 +36,42 @@ final class SpokenIntentPipelineTests: IsolatedPreferencesTestCase {
 
     // MARK: - What the pipeline does with each reading
 
+    func testAYouTubeCommandIsMarkedAndInsertsNothing() async throws {
+        AppPreferences.shared.spokenIntentsEnabled = true
+        let channel = YouTubeChannel(
+            displayName: "Veritasium", channelID: "UCHnyfMqiRRG1u-2MsSQLbXA"
+        )
+        try YouTubeChannelStore().upsert(channel)
+
+        let styled = await SpokenIntentPipeline.apply(
+            to: processed("Open the latest YouTube video from Veritasium"),
+            settings: Settings(routesSpokenIntents: true)
+        )
+
+        XCTAssertEqual(styled.intent, .openLatestVideo(.allowlisted(channel)))
+        // The words were an instruction, so nothing goes into whatever the user
+        // was typing in - the same rule a spoken question follows.
+        XCTAssertFalse(styled.intent.insertsText)
+        // History still keeps what was said.
+        XCTAssertEqual(styled.raw, "Open the latest YouTube video from Veritasium")
+    }
+
+    func testTheSameWordsAreDictationWithTheYouTubeCommandSwitchedOff() async throws {
+        AppPreferences.shared.spokenIntentsEnabled = true
+        AppPreferences.shared.youTubeLatestVideoEnabled = false
+        try YouTubeChannelStore().upsert(
+            YouTubeChannel(displayName: "Veritasium", channelID: "UCHnyfMqiRRG1u-2MsSQLbXA")
+        )
+
+        let styled = await SpokenIntentPipeline.apply(
+            to: processed("Open the latest YouTube video from Veritasium"),
+            settings: Settings(routesSpokenIntents: true)
+        )
+
+        XCTAssertEqual(styled.intent, .dictation)
+        XCTAssertTrue(styled.intent.insertsText)
+    }
+
     func testAQuestionIsStrippedAndWithheldFromInsertion() async {
         AppPreferences.shared.spokenIntentsEnabled = true
 

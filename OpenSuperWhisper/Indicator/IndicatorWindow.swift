@@ -40,6 +40,17 @@ enum RecordingState: Equatable {
     /// is correct would be the app misdirecting them; the words they need are
     /// "that was not Mandarin", and the fix is another engine.
     case wrongLanguage(String)
+
+    /// A spoken command that was understood and could not be carried out: an
+    /// unknown channel, a feed that could not be read, a browser that is not
+    /// installed. Nothing was inserted and nothing was opened, which is why it
+    /// needs a message of its own - the card would otherwise simply vanish and
+    /// leave the user wondering whether the words went somewhere.
+    ///
+    /// The reason is short by construction (`YouTubeLatestVideoReport`
+    /// carries a matching sentence for the surfaces with room, and posts it as a
+    /// VoiceOver announcement).
+    case commandFailed(String)
 }
 
 /// What became of a dictation that arrived while the engine was busy.
@@ -115,6 +126,10 @@ enum DictationResult: Equatable {
     /// The words were a spoken question and went to the Ask panel instead of
     /// into another app. Nothing was inserted, and that is the point.
     case asked
+    /// The words asked for a channel's latest video and it is open in the
+    /// browser. Nothing was inserted, for the same reason `asked` inserts
+    /// nothing.
+    case openedVideo(channel: String)
     /// The recording decoded to nothing. The audio is discarded, as it always was.
     case noSpeech
     /// It failed for a reason worth telling the user.
@@ -348,6 +363,19 @@ class IndicatorViewModel: ObservableObject {
                             AskPanelWindowController.shared.present(query: query)
                             self.result = .asked
                             print("Ask: \(query)")
+                        } else if case .openLatestVideo(let resolution) = styled.intent {
+                            // Nothing is pasted either way. The command is run
+                            // here, beside the Ask panel and for the same
+                            // reason: the pipeline reads the words, and what is
+                            // done about them belongs to the session that heard
+                            // them. The recording is already stored, so the
+                            // words survive whether or not the video opens.
+                            //
+                            // A refusal puts its own message up on its own
+                            // timer, so the session ends there rather than
+                            // falling through to the hide below - the same shape
+                            // the kept-recording failures take.
+                            if await self.runOpenLatestVideo(resolution) { return }
                         } else {
                             insertText(text)
                             self.result = .inserted(styleNotice: styled.statusExplanation)
@@ -399,6 +427,39 @@ class IndicatorViewModel: ObservableObject {
         }
     }
     
+    /// Carries out an "open the latest YouTube video from …" and reports it.
+    ///
+    /// The work itself is `YouTubeLatestVideoService`, which is where the feed
+    /// and the browser are tested against stubs; this is the wiring and the two
+    /// ways a session can end because of it.
+    ///
+    /// - Returns: whether it put a message on screen and so owns the end of the
+    ///   session, exactly as `DictationFailureOutcome.keep` does.
+    private func runOpenLatestVideo(_ resolution: YouTubeChannelResolution) async -> Bool {
+        let report = await Self.youTubeService.run(resolution)
+        // The full sentence, for the users the two-second card cannot reach and
+        // for anyone reading the log afterwards.
+        YouTubeCommandAccessibility.announce(report)
+        print("YouTube command: \(report.spokenSummary)")
+
+        switch report {
+        case .opened(let channel, _):
+            self.result = .openedVideo(channel: channel)
+            return false
+        case .refused(_, let shortMessage):
+            // Said on screen already, so there is no outcome left to report -
+            // the same division the kept-recording failures make. Both overlays
+            // follow `state`, so one message reaches the card and the capsule.
+            self.result = nil
+            self.showAutoDismissingMessage(.commandFailed(shortMessage))
+            return true
+        }
+    }
+
+    /// The service spoken YouTube commands run through: the real feed fetcher
+    /// and the real browser opener, built once.
+    private static let youTubeService: YouTubeLatestVideoService = .live
+
     /// One sentence for a failed dictation, on the surface that has room for one.
     ///
     /// `TranscriptionError` is a `LocalizedError` precisely so this reads as an
@@ -650,6 +711,22 @@ struct IndicatorWindow: View {
 
                     // Same one line, same division: two words here, the sentence
                     // naming the fix on the recording that was just kept.
+                    Text(reason)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.orange)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            case .commandFailed(let reason):
+                HStack(spacing: 8) {
+                    Image(systemName: "play.slash")
+                        .foregroundColor(.orange)
+                        .frame(width: 24)
+
+                    // The same one line as the cases above; the whole sentence
+                    // is spoken as an accessibility announcement and printed to
+                    // the log, and the pane that fixes it is named there.
                     Text(reason)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.orange)

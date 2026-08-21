@@ -333,7 +333,9 @@ flattens them all into one Resources directory.
 
 `OpenSuperWhisper/Cloud/` is the opt-in path to an OpenAI-compatible provider, and
 `docs/cloud-api.md` is its whole story - including the table of exactly what leaves the device
-and what never does. Everything else in this app is on-device and stays that way.
+and what never does. Everything else in this app is on-device and stays that way; the one
+other request that carries anything the user configured is the YouTube channel feed below, which
+carries a channel id and nothing about them.
 
 **`CloudAccess.resolve` is the only way a request can exist.** Nothing can build one without a
 `CloudCall` and only that function produces one, after checking in order: compiled in
@@ -421,6 +423,22 @@ list lives in the defaults domain rather than beside `terms.json`, since the
 dictionary is a file to be hand-edited and this is not; `Settings.voiceSnippets`
 resolves the three gates (`spokenIntentsEnabled`, `routesSpokenIntents`,
 `voiceSnippetsEnabled`) in one place.
+
+The fourth is an **action**: `OpenSuperWhisper/YouTube/` opens the newest video
+from a channel the user allowlisted - "open the latest YouTube video from
+Veritasium" - and `docs/youtube-latest-video.md` is its whole story. Three things
+carry it. The allowlist is the security model: a channel is named by the
+canonical `UC…` id its owner typed into Settings, nothing resolves a handle or
+searches, and no spoken name can reach a channel that is not listed. It is the
+one command whose marker, once matched, does **not** fall back to dictation -
+every spelling names YouTube *and* says which video is wanted, so a transcript
+that begins with it is not a sentence anyone was writing, and an unknown or
+ambiguous channel does nothing and says so rather than being pasted. And what
+leaves the app is one documented feed request and one validated video URL handed
+to Chrome by `NSWorkspace`: no scraping, no automation, no login, no injected
+script, and no existing tab touched. `YouTubeVideoURL` is the boundary the way
+`UpdateManifest` is, and `YouTubeFeedParser` refuses a feed that declares
+entities rather than parsing it carefully.
 
 `OpenSuperWhisper/Ask/` is the floating Ask panel (⌥A, or a spoken question) and
 `docs/ask-panel.md` is its story. It runs the same on-device model as rewriting

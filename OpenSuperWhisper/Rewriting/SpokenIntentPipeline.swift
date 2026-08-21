@@ -22,11 +22,23 @@ enum SpokenIntentOutcome: Equatable, Sendable {
     /// A voice snippet fired. Inserted like dictation; the keyword is carried so
     /// a surface can say which template went in.
     case snippet(keyword: String)
+    /// The words asked for a channel's latest video. **Nothing is inserted** -
+    /// like `.ask`, the transcript was an instruction rather than text - and the
+    /// resolution is carried so whoever runs the command can also report the two
+    /// ways the channel can fail to be one. See `YouTubeLatestVideoService`.
+    case openLatestVideo(YouTubeChannelResolution)
 
     /// Whether the text goes into whatever the user was typing in.
+    ///
+    /// False for the two outcomes that are instructions rather than text.
+    /// Pasting "open the latest YouTube video from Veritasium" into the document
+    /// the user was writing would be the app doing the one thing they did not
+    /// ask for.
     var insertsText: Bool {
-        if case .ask = self { return false }
-        return true
+        switch self {
+        case .ask, .openLatestVideo: return false
+        case .dictation, .translated, .snippet: return true
+        }
     }
 
     /// The capsule HUD's chip for this outcome, or nil when there is nothing to
@@ -37,6 +49,8 @@ enum SpokenIntentOutcome: Equatable, Sendable {
         case .ask: return .ask
         case .translated(let target): return .translate(to: target)
         case .snippet(let keyword): return .snippet(named: keyword)
+        case .openLatestVideo(let resolution):
+            return .openLatestVideo(from: resolution.spokenName)
         }
     }
 }
@@ -47,7 +61,7 @@ enum SpokenIntentOutcome: Equatable, Sendable {
 /// It sits exactly where the rewriting stage used to be called from, and for
 /// plain dictation it *is* the rewriting stage - `SpokenIntentRouter` is pure
 /// string matching, so the ordinary path pays a prefix comparison and nothing
-/// else. The three ways out are the three cases of `SpokenIntent`:
+/// else. The ways out are the cases of `SpokenIntent`:
 ///
 /// ```
 /// TextPostProcessor.process()
@@ -55,10 +69,11 @@ enum SpokenIntentOutcome: Equatable, Sendable {
 ///          ▼
 /// SpokenIntentPipeline.apply()          off unless the caller asks and the
 ///          │                            user switched it on
-///          ├── .dictate ──► StyleRewriteService.apply()   the chosen style
-///          ├── .translate ► TranslationRewrite.apply()    the spoken target
-///          ├── .snippet ──► the stored template, byte for byte
-///          └── .ask ──────► nothing at all, marked for the Ask panel
+///          ├── .dictate ─────────► StyleRewriteService.apply()  the chosen style
+///          ├── .translate ───────► TranslationRewrite.apply()   the spoken target
+///          ├── .snippet ─────────► the stored template, byte for byte
+///          ├── .ask ─────────────► nothing at all, marked for the Ask panel
+///          └── .openLatestVideo ─► nothing at all, marked for the caller to run
 /// ```
 ///
 /// Only live dictation asks for routing (`Settings.routesSpokenIntents`). A
@@ -77,6 +92,7 @@ enum SpokenIntentPipeline {
         let intent = SpokenIntentRouter.route(
             processed.final,
             snippets: settings.voiceSnippets,
+            channels: settings.youTubeChannels,
             fallbackChineseVariant: ChineseScriptVariant.systemPreferred
         )
         await MainActor.run { SpokenIntentActivity.shared.resolved(intent.outcome) }
@@ -97,6 +113,18 @@ enum SpokenIntentPipeline {
             )
         case .translate(let target, let text):
             return await TranslationRewrite.apply(to: processed, body: text, target: target)
+        case .openLatestVideo(let resolution):
+            // Nothing is rewritten and nothing is inserted: what the transcript
+            // named is a channel, and what happens next is a feed lookup the
+            // caller runs. The transcript is still carried and still stored, so
+            // the words the user said survive in history either way.
+            return StyledTranscript(
+                raw: processed.raw,
+                transcript: processed.final,
+                final: processed.final,
+                status: .notRequested,
+                intent: .openLatestVideo(resolution)
+            )
         case .snippet(let keyword, let expansion):
             // The rewriting stage is skipped, and skipping it is the feature.
             // A template's blank lines, indentation and deliberate lack of a
@@ -121,6 +149,7 @@ extension SpokenIntent {
         case .ask(let query): return .ask(query: query)
         case .translate(let target, _): return .translated(target)
         case .snippet(let keyword, _): return .snippet(keyword: keyword)
+        case .openLatestVideo(let resolution): return .openLatestVideo(resolution)
         }
     }
 }

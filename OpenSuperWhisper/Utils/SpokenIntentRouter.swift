@@ -17,6 +17,11 @@ enum SpokenIntent: Equatable, Sendable {
     /// A voice snippet, and the template it expands into. The expansion is the
     /// user's own text and is carried through untouched - see `VoiceSnippet`.
     case snippet(keyword: String, expansion: String)
+    /// "Open the latest YouTube video from …", carrying what the allowlist made
+    /// of the channel the user named. **Nothing is inserted** either way: the
+    /// words were an instruction, and the two ways it can fail to name a channel
+    /// are reported rather than pasted. See `docs/youtube-latest-video.md`.
+    case openLatestVideo(YouTubeChannelResolution)
 }
 
 /// The language a `translate` intent named, and the two ways it is written down.
@@ -82,12 +87,19 @@ enum SpokenIntentRouter {
     ///     that may fire. Empty - the default - is every caller that does not
     ///     have them, and a router with no snippets behaves exactly as it did
     ///     before they existed.
+    ///   - channels: the allowlisted YouTube channels, or `nil` when this path
+    ///     does not run that command at all. The distinction matters and is not
+    ///     the same as an empty list: `nil` leaves "open the latest YouTube
+    ///     video from …" as ordinary dictation, while an empty allowlist reads
+    ///     it as the command it is and reports that no channel answers - which
+    ///     is what a user who has switched the feature on needs to hear.
     ///   - fallbackChineseVariant: which Chinese "翻譯成中文" means when the
     ///     request itself does not say. Production reads the user's languages;
     ///     a test states it.
     static func route(
         _ transcript: String,
         snippets: [VoiceSnippet] = [],
+        channels: YouTubeChannelAllowlist? = nil,
         fallbackChineseVariant: ChineseScriptVariant? = nil
     ) -> SpokenIntent {
         let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -103,6 +115,9 @@ enum SpokenIntentRouter {
         }
         if let ask = matchAsk(trimmed) {
             return ask
+        }
+        if let channels, let video = matchOpenLatestVideo(trimmed, channels: channels) {
+            return video
         }
         if let snippet = matchSnippet(trimmed, snippets: snippets) {
             return snippet
@@ -165,6 +180,84 @@ enum SpokenIntentRouter {
     ) -> ChineseScriptVariant? {
         guard ChineseScriptVariant.chineseLanguageCodes.contains(languageCode) else { return nil }
         return fallback
+    }
+
+    // MARK: - Open the latest YouTube video
+
+    /// "Open the latest YouTube video from Veritasium".
+    ///
+    /// The marker carries the whole reading here, and it is deliberately the
+    /// longest in this file: every spelling names YouTube and says which video
+    /// is wanted, so nothing a person dictates arrives at it by accident. That
+    /// is what makes it safe for the two failures to be *reported* rather than
+    /// left as dictation - a transcript that opens "open the latest YouTube
+    /// video from …" is not a sentence somebody was writing, so pasting it would
+    /// be no better an answer than saying the channel is not in the list.
+    ///
+    /// What follows the marker has to name one allowlisted channel in full, the
+    /// same constraint a snippet trigger and a language name carry.
+    private static func matchOpenLatestVideo(
+        _ text: String, channels: YouTubeChannelAllowlist
+    ) -> SpokenIntent? {
+        for marker in SpokenIntentGrammar.openLatestVideoMarkers {
+            guard let rest = remainderIgnoringInternalWhitespace(after: marker, in: text) else {
+                continue
+            }
+            let spoken = strippingLeadingSeparators(rest)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            // The marker with no channel behind it named nothing to open, so
+            // there is no command and the words are dictation - the same reading
+            // "Translate to Spanish" on its own gets.
+            guard !spoken.isEmpty else { continue }
+            return .openLatestVideo(channels.resolve(spokenName: spoken))
+        }
+        return nil
+    }
+
+    /// What follows `marker` at the start of `text`, comparing both with their
+    /// whitespace removed.
+    ///
+    /// Only this grammar uses it, and only because its markers are the ones that
+    /// mix scripts: a transcript writes "打開 YouTube 最新影片" or
+    /// "打開YouTube最新影片" depending on the engine and the day, and a table of
+    /// every spacing of every marker would be a table that is always missing the
+    /// one a user just said. The delimiter rule is applied to the remainder
+    /// exactly as `remainder(after:in:)` applies it, so an English marker still
+    /// has to end at a word boundary.
+    static func remainderIgnoringInternalWhitespace(
+        after marker: SpokenIntentMarker, in text: String
+    ) -> String? {
+        let characters = Array(text)
+        let needle = Array(marker.text).filter { !$0.isWhitespace }
+        var position = 0
+        var matched = 0
+
+        while matched < needle.count {
+            guard position < characters.count else { return nil }
+            let character = characters[position]
+            if character.isWhitespace {
+                position += 1
+                continue
+            }
+            guard String(character).lowercased() == String(needle[matched]).lowercased() else {
+                return nil
+            }
+            position += 1
+            matched += 1
+        }
+
+        let rest = String(characters[position...])
+        switch marker.delimiter {
+        case .none:
+            return rest
+        case .punctuation:
+            guard let first = rest.first, isSeparatorPunctuation(first) else { return nil }
+            return rest
+        case .punctuationOrSpace:
+            guard let first = rest.first,
+                  isSeparatorPunctuation(first) || first.isWhitespace else { return nil }
+            return rest
+        }
     }
 
     // MARK: - Snippets
@@ -332,6 +425,38 @@ enum SpokenIntentGrammar {
     /// both cases the real constraint is the one that follows: what comes after
     /// the marker has to be a keyword this user stored, or the words stay
     /// dictation.
+    /// "Open the latest YouTube video from [channel]" - and its Chinese
+    /// equivalents.
+    ///
+    /// Longest first, so "open the latest YouTube video from" is not read as
+    /// "open the latest YouTube video" followed by a channel called "from".
+    ///
+    /// Every spelling names YouTube. That is not decoration: it is what keeps
+    /// this grammar from reaching a sentence anyone would dictate, and it is why
+    /// this is the one command whose failures are reported instead of falling
+    /// back to dictation. The English forms end in "from" and take a space or
+    /// punctuation behind it; the Chinese ones need no delimiter, for the reason
+    /// every CJK marker here does not - a Mandarin transcript has no space to
+    /// require - and are matched with whitespace ignored, since an engine may
+    /// write "打開 YouTube 最新影片" or "打開YouTube最新影片" for the same words.
+    static let openLatestVideoMarkers: [SpokenIntentMarker] = [
+        SpokenIntentMarker(text: "open the latest youtube video from", delimiter: .punctuationOrSpace),
+        SpokenIntentMarker(text: "open the newest youtube video from", delimiter: .punctuationOrSpace),
+        SpokenIntentMarker(text: "play the latest youtube video from", delimiter: .punctuationOrSpace),
+        SpokenIntentMarker(text: "play the newest youtube video from", delimiter: .punctuationOrSpace),
+        SpokenIntentMarker(text: "open latest youtube video from", delimiter: .punctuationOrSpace),
+        SpokenIntentMarker(text: "play latest youtube video from", delimiter: .punctuationOrSpace),
+        SpokenIntentMarker(text: "open youtube latest video from", delimiter: .punctuationOrSpace),
+        SpokenIntentMarker(text: "play youtube latest video from", delimiter: .punctuationOrSpace),
+        SpokenIntentMarker(text: "打開YouTube最新影片", delimiter: .none),
+        SpokenIntentMarker(text: "打開YouTube最新的影片", delimiter: .none),
+        SpokenIntentMarker(text: "打开YouTube最新视频", delimiter: .none),
+        SpokenIntentMarker(text: "開啟YouTube最新影片", delimiter: .none),
+        SpokenIntentMarker(text: "开启YouTube最新视频", delimiter: .none),
+        SpokenIntentMarker(text: "播放YouTube最新影片", delimiter: .none),
+        SpokenIntentMarker(text: "播放YouTube最新视频", delimiter: .none),
+    ]
+
     static let snippetMarkers: [SpokenIntentMarker] = [
         SpokenIntentMarker(text: "insert snippet", delimiter: .punctuationOrSpace),
         SpokenIntentMarker(text: "insert", delimiter: .punctuationOrSpace),

@@ -1,14 +1,16 @@
 # Spoken commands
 
-Three things a user can say instead of dictating: **"Ask: …"**, which sends the
+Four things a user can say instead of dictating: **"Ask: …"**, which sends the
 question to the Ask panel, **"Translate to Spanish: …"**, which translates what
-follows instead of pasting it, and **"insert [trigger]"**, which expands one of
-their own voice snippets. Everything else is dictation, unchanged.
+follows instead of pasting it, **"insert [trigger]"**, which expands one of
+their own voice snippets, and **"open the latest YouTube video from …"**, which
+opens the newest video from a channel they allowlisted. Everything else is
+dictation, unchanged.
 
 It is off by default (`Settings → Shortcuts → Ask & Spoken Commands → Spoken
-commands`). `docs/ask-panel.md` is the panel's own story and
-`docs/voice-snippets.md` is the snippets'; this file is the router and the
-translation.
+commands`). `docs/ask-panel.md` is the panel's own story,
+`docs/voice-snippets.md` is the snippets' and `docs/youtube-latest-video.md` is
+the YouTube command's; this file is the router and the translation.
 
 ## Where it sits
 
@@ -22,16 +24,18 @@ TextPostProcessor.process()        deterministic, cannot fail
 SpokenIntentPipeline.apply()       only when the caller asked AND the user
      │                             switched it on
      │
-     ├── .dictate ──► StyleRewriteService.apply()   the chosen style
-     ├── .translate ► TranslationRewrite.apply()    the spoken target
-     ├── .snippet ──► the stored template, byte for byte
-     └── .ask ──────► nothing at all
+     ├── .dictate ─────────► StyleRewriteService.apply()  the chosen style
+     ├── .translate ───────► TranslationRewrite.apply()   the spoken target
+     ├── .snippet ─────────► the stored template, byte for byte
+     ├── .ask ─────────────► nothing at all
+     └── .openLatestVideo ─► nothing at all
      │
      ▼
 StyledTranscript { raw, transcript, final, status, intent }
      │
-     ├── intent == .ask ─────► AskPanelWindowController, NOT inserted
-     └── otherwise ──────────► pasted, stored, searched, as always
+     ├── intent == .ask ──────────────► AskPanelWindowController, NOT inserted
+     ├── intent == .openLatestVideo ──► YouTubeLatestVideoService, NOT inserted
+     └── otherwise ───────────────────► pasted, stored, searched, as always
 ```
 
 `SpokenIntentRouter` (`Utils/`) is the whole grammar and is pure string
@@ -62,11 +66,19 @@ into the panel it came from.
 | `Translate to Spanish: …` (also `into` / `this to` / `it to` / bare `Translate Spanish`) | `.translate(target:text:)` |
 | `翻譯成西班牙文：…` (also `翻译成` `翻成` `譯成` `翻譯為` `幫我翻譯成`) | `.translate(target:text:)` |
 | `insert [trigger]` `snippet [trigger]` `插入[觸發詞]`, or the trigger alone | `.snippet(keyword:expansion:)` - see `docs/voice-snippets.md` |
+| `Open the latest YouTube video from [channel]` `打開YouTube最新影片[頻道]` | `.openLatestVideo(resolution)` - see `docs/youtube-latest-video.md` |
 | anything else | `.dictate` - the transcript, byte for byte |
 
 **Everything that is not recognised is dictation.** That bias is the whole
 design: a mis-read command sends the user's words somewhere they did not ask
 for, and a missed command costs them a retry.
+
+The one command that does not fall back to dictation once its marker matched is
+the YouTube one, and only because its marker is long enough to make that safe:
+every spelling of it names YouTube *and* says which video is wanted, so a
+transcript that begins with it is not a sentence anyone was writing. What it does
+instead is nothing at all, with a message saying which channel it did not
+recognise - see `docs/youtube-latest-video.md`.
 
 ### Why some markers need punctuation
 
@@ -89,6 +101,9 @@ shows the pause a real command has:
 - **`insert …`** is delimited like `問`, and carries the same constraint
   `translate to` does: a trigger the user actually stored has to follow, in
   full. "Insert a row above this one" names none and stays dictation.
+- **`open the latest YouTube video from …`** needs no delimiter of its own
+  either: the whole phrase is the constraint, and a channel the user allowlisted
+  has to follow it in full.
 
 The built-in markers are matched before the user's own triggers, so a snippet
 can never take `Ask:` or `Translate to …` away from the features that shipped
@@ -179,5 +194,5 @@ panel uses so a failure names the feature the user was actually using.
   spelling of a language name work.
 
 `SpokenIntentRouterTests`, `SpokenIntentPipelineTests`,
-`SpokenIntentRouterSnippetTests` and `TranslationRewriteTests` pin all of the
-above.
+`SpokenIntentRouterSnippetTests`, `SpokenIntentRouterYouTubeTests` and
+`TranslationRewriteTests` pin all of the above.
