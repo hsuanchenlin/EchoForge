@@ -590,11 +590,16 @@ struct OnboardingView: View {
                             // Traditional characters, because that is the reader
                             // this paragraph is for: the app's interface is
                             // English, and the one thing a Traditional-Chinese
-                            // user has to know before downloading either engine
-                            // is that neither writes 繁體字.
+                            // user had to know before downloading either engine
+                            // was that neither model writes 繁體字. EchoForge now
+                            // does that for them, so the sentence says who does
+                            // what rather than dropping the subject entirely -
+                            // the models are still Simplified, and someone who
+                            // wants Simplified has to know where to say so.
                             Text("Dictating Chinese (中文)? The Mandarin (國語) engines below run on your Mac. "
-                                + "Both write Simplified Chinese (簡體字) and the app does not convert it to "
-                                + "Traditional (繁體字); the notes under each say what else they do to your text.")
+                                + "Both models write Simplified Chinese (簡體字); EchoForge writes your "
+                                + "transcript in Traditional (繁體字) unless you choose Simplified in "
+                                + "Settings. The notes under each say what else they do to your text.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)

@@ -4,9 +4,13 @@ import Foundation
 ///
 /// This is not the same question `ChineseScriptFolding` answers. That one folds
 /// the two together so a dictionary entry written in either matches dictation in
-/// the other; this one tells them apart, because two callers need to know which
-/// one the user is actually writing in:
+/// the other; this one tells them apart, because three callers need to know
+/// which one the user is actually writing in:
 ///
+/// - it is the value of the user's own choice of output script
+///   (`AppPreferences.chineseOutputScript`), which `ChineseScriptNormalizer`
+///   writes every Chinese transcript in - Traditional unless they said
+///   otherwise;
 /// - the rewriting stage picks the instruction written in that variant, since an
 ///   instruction written in the other one converts the whole rewrite to it (a
 ///   Simplified dictation restyled by a Traditional instruction came back in
@@ -86,6 +90,67 @@ enum ChineseScriptVariant: String, Equatable, Sendable {
     static let chineseLanguageCodes: Set<String> = ["zh", "yue", "cmn", "nan", "hak", "wuu"]
 
     private static let traditionalRegions: Set<String> = ["TW", "HK", "MO"]
+
+    // MARK: - Is this text Chinese at all?
+
+    /// Whether a transcript dictated with `languageCode` selected is Chinese.
+    ///
+    /// **One predicate, and every stage that has to answer this question reads
+    /// it.** `ChineseScriptNormalizer` decides whether to write the transcript
+    /// in the user's chosen script by it, and `StyleRewriteLanguage` decides
+    /// whether to address the model in Chinese by it. Two answers to "is this
+    /// Chinese" is how a stage ends up rewriting text its own guard then
+    /// refuses, or converting a script the rest of the app does not think is
+    /// Chinese at all.
+    ///
+    /// Both halves are needed and neither is enough. The language code alone
+    /// cannot say - a user who leaves the language on Chinese and dictates a
+    /// sentence of English must not have it converted - and the text alone
+    /// cannot either, because Japanese kanji and Korean hanja are Han
+    /// characters too.
+    static func isChineseText(_ text: String, languageCode: String) -> Bool {
+        mayBeChinese(languageCode: languageCode) && isHanDominant(text)
+    }
+
+    /// Whether the dictation language leaves Chinese possible at all.
+    ///
+    /// Auto-detect and an unknown code both leave it open, because neither says
+    /// anything; a language this app knows and that is not Chinese closes it,
+    /// which is what keeps Japanese and Korean dictation out of a stage written
+    /// for the script they share.
+    static func mayBeChinese(languageCode: String) -> Bool {
+        let code = languageCode.lowercased().split(separator: "-").first.map(String.init) ?? ""
+        if chineseLanguageCodes.contains(code) { return true }
+        return LanguageUtil.languageNames[code] == nil || code == "auto"
+    }
+
+    /// Whether the text is written in Han characters, with no kana or Hangul in
+    /// it at all.
+    ///
+    /// The ratio matches `StyleRewriteGuard`'s script check on purpose - the
+    /// stages have to agree about what "this transcript is Chinese" means. A
+    /// single kana or Hangul character is enough to rule it out: Japanese
+    /// written in kanji alone is rare, and Japanese written with kana is not
+    /// Chinese however many Han characters it also has.
+    static func isHanDominant(_ text: String) -> Bool {
+        var letters = 0
+        var han = 0
+        for character in text where character.isLetter {
+            letters += 1
+            guard let scalar = character.unicodeScalars.first else { continue }
+            switch scalar.value {
+            case 0x3040 ... 0x30FF,     // Hiragana, Katakana
+                 0x1100 ... 0x11FF,     // Hangul jamo
+                 0xAC00 ... 0xD7AF:     // Hangul syllables
+                return false
+            default:
+                break
+            }
+            if HanCharacterTransform.isHan(scalar) { han += 1 }
+        }
+        guard letters > 0 else { return false }
+        return Double(han) / Double(letters) >= 0.3
+    }
 
     // MARK: - The characters
 

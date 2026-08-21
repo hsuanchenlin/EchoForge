@@ -372,9 +372,26 @@ build.
 
 Everything between the engine and the user is three stages, described in
 `docs/text-post-processing.md`: the deterministic transcript stage
-(`TextPostProcessor.process` - personal terms, then CJK spacing), the style rewriting
-stage (`StyleRewriteService.apply`), and the live-dictation insertion stage. The first
-and third are synchronous and cannot fail; keep them that way.
+(`TextPostProcessor.process` - Chinese output script, personal terms, then CJK
+spacing), the style rewriting stage (`StyleRewriteService.apply`), and the
+live-dictation insertion stage. The first and third are synchronous and cannot
+fail; keep them that way.
+
+A Chinese transcript is written in **one** script - the user's, Traditional
+unless they chose otherwise (`chineseOutputScript`) - by `ChineseScriptNormalizer`
+at the front of the transcript stage, with `docs/chinese-script.md` as the whole
+story. Three things there are absolute. It is an **output** setting only: it never
+makes recognition Chinese, never writes `whisperLanguage` and never tilts
+auto-detect, and English dictation stays English even with the language set to
+Chinese - it converts only text that both the language and the characters say is
+Chinese (`ChineseScriptVariant.isChineseText`, the same predicate
+`StyleRewriteLanguage` asks with). The mapping is **ICU** (`HanCharacterTransform`,
+shared with `ChineseScriptFolding`) applied one character at a time and refused
+unless it returns exactly one character, which is what makes "Latin, digits,
+timestamps and punctuation come out untouched" a property rather than a hope; a
+hand-maintained table is not an option. And it converts **the recognizer's words,
+never the user's**, which is why it runs before the terms dictionary and why a
+snippet template is inserted in the script it was typed in.
 
 `OpenSuperWhisper/Rewriting/` is the rewriting stage and `docs/style-rewriting.md` is its
 whole story. Two rules carry it. First, it is a **peer** of the terms dictionary, never its

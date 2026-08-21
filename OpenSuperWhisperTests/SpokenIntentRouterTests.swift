@@ -273,4 +273,58 @@ final class SpokenIntentRouterTests: XCTestCase {
             "Translate Japanese"
         )
     }
+
+    // MARK: - The transcript this router is handed has already been normalized
+
+    /// `ChineseScriptNormalizer` rewrites the transcript into the user's chosen
+    /// script *before* the router sees it, command prefix included. So every CJK
+    /// spelling the grammar knows has to survive that conversion in both
+    /// directions - a Simplified speaker whose output script is Traditional says
+    /// "翻译成意大利语" and this router is handed "翻譯成意大利語".
+    ///
+    /// The check is generated rather than written out, because the failure it
+    /// catches is someone adding one spelling of a new word and not the other,
+    /// which no hand-written case would cover.
+    func testEveryCJKSpellingSurvivesScriptNormalization() {
+        var known = Set(SpokenLanguageLexicon.variantNames.keys)
+        known.formUnion(SpokenLanguageLexicon.aliases.keys)
+        known.formUnion(SpokenIntentGrammar.askMarkers.map(\.text))
+        known.formUnion(SpokenIntentGrammar.translateMarkers.map(\.text))
+        known.formUnion(SpokenIntentGrammar.snippetMarkers.map(\.text))
+
+        for spelling in known where spelling.contains(where: { !$0.isASCII }) {
+            for variant in [ChineseScriptVariant.traditional, .simplified] {
+                let converted = ChineseScriptNormalizer.convert(spelling, to: variant)
+                XCTAssertTrue(
+                    known.contains(converted),
+                    "\(spelling) becomes \(converted) in \(variant.rawValue), which the grammar "
+                        + "does not know - that command turns back into dictation for anyone "
+                        + "whose output script is the other one"
+                )
+            }
+        }
+    }
+
+    /// The same thing said end to end: the command a Simplified speaker dictates
+    /// still routes after their Traditional-output transcript has been written.
+    func testACommandStillRoutesAfterTheTranscriptWasConvertedToTheOtherScript() {
+        let spoken = "翻译成意大利语：这个项目的进度"
+        let normalized = ChineseScriptNormalizer.normalized(
+            spoken, to: .traditional, languageCode: "zh"
+        )
+        XCTAssertNotEqual(normalized, spoken)
+
+        guard case .translate(let target, let body) = SpokenIntentRouter.route(normalized) else {
+            return XCTFail("expected a translate intent, got \(SpokenIntentRouter.route(normalized))")
+        }
+        XCTAssertEqual(target.languageCode, "it")
+        XCTAssertEqual(body, "這個項目的進度")
+    }
+
+    func testAChineseQuestionStillRoutesAfterConversion() {
+        let normalized = ChineseScriptNormalizer.normalized(
+            "请问明天几点开会", to: .traditional, languageCode: "zh"
+        )
+        XCTAssertEqual(ask(normalized), "明天幾點開會")
+    }
 }

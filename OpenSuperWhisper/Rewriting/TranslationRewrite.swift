@@ -125,13 +125,40 @@ enum TranslationRewrite {
             return StyledTranscript(
                 raw: processed.raw,
                 transcript: trimmedBody,
-                final: text,
+                final: inTargetScript(text, language: language),
                 status: .applied(styleID: styleID),
                 intent: outcome
             )
         case .rejected(let rejection):
             return kept(.rejected(rejection))
         }
+    }
+
+    /// A Chinese translation, written in the variant that was actually asked
+    /// for. Everything else is returned exactly as the model wrote it.
+    ///
+    /// The instructions already say which Chinese to answer in, in that Chinese,
+    /// and the model still drifts - which is the same reason
+    /// `ChineseScriptNormalizer` exists one stage earlier. The variant here is
+    /// the *target's*, so "翻譯成簡體中文" is answered in Simplified even for a
+    /// user whose own output script is Traditional: they said which one they
+    /// wanted for this dictation, and a spoken request outranks a setting. A
+    /// bare "translate to Chinese" carries no variant of its own and was already
+    /// resolved against that setting by `SpokenIntentRouter`.
+    ///
+    /// It runs after `StyleRewriteGuard` rather than before it because a
+    /// conversion the guard then refuses would cost the user the whole
+    /// translation. Nothing the guard checked can change underneath it: the
+    /// conversion is character-wise and touches Han characters only, so the
+    /// numbers, currency symbols, length and addressing verdicts all still hold.
+    /// The one it cannot hold is a dictionary term the user spells in the other
+    /// variant - the same limit on `mustSurvive` that `docs/spoken-intents.md`
+    /// already records for translation.
+    private static func inTargetScript(
+        _ text: String, language: StyleRewriteLanguage
+    ) -> String {
+        guard let variant = language.chineseVariant else { return text }
+        return ChineseScriptNormalizer.convert(text, to: variant)
     }
 
     /// The production entry point: resolves what this Mac can do, then runs the

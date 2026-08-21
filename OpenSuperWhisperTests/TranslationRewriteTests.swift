@@ -319,6 +319,78 @@ final class TranslationRewriteTests: XCTestCase {
         XCTAssertNil(recorder.request)
     }
 
+    // MARK: - Which Chinese comes back
+
+    /// The model is instructed in the target's own variant and still drifts,
+    /// which is the same reason `ChineseScriptNormalizer` exists one stage
+    /// earlier. A translation into Chinese is written in the Chinese that was
+    /// asked for, deterministically.
+    func testAChineseTranslationComesBackInTheVariantThatWasAskedFor() async {
+        let simplified = await TranslationRewrite.apply(
+            to: processed("Translate to Simplified Chinese: the team meets at three."),
+            body: "the team meets at three.",
+            target: SpokenTranslationTarget(languageCode: "zh", chineseVariant: .simplified),
+            availability: .available,
+            // A model that answered in the wrong variant, which is the observed
+            // failure rather than a hypothetical one.
+            rewriter: FixedRewriter("團隊三點開會。")
+        )
+        XCTAssertEqual(simplified.final, "团队三点开会。")
+
+        let traditional = await TranslationRewrite.apply(
+            to: processed("Translate to Traditional Chinese: the team meets at three."),
+            body: "the team meets at three.",
+            target: SpokenTranslationTarget(languageCode: "zh", chineseVariant: .traditional),
+            availability: .available,
+            rewriter: FixedRewriter("团队三点开会。")
+        )
+        XCTAssertEqual(traditional.final, "團隊三點開會。")
+    }
+
+    /// A translation into Cantonese is written in Traditional, the same as the
+    /// instruction it was asked with.
+    func testACantoneseTranslationComesBackTraditional() async {
+        let styled = await TranslationRewrite.apply(
+            to: processed("Translate to Cantonese: the team meets at three."),
+            body: "the team meets at three.",
+            target: SpokenTranslationTarget(languageCode: "yue"),
+            availability: .available,
+            rewriter: FixedRewriter("团队三点开会。")
+        )
+        XCTAssertEqual(styled.final, "團隊三點開會。")
+    }
+
+    /// Only Chinese. Every other target is written exactly as the model wrote
+    /// it - there is no script to normalize, and touching it would be this
+    /// stage editing a translation it cannot read.
+    func testATranslationIntoAnotherLanguageIsNotTouched() async {
+        let styled = await TranslationRewrite.apply(
+            to: processed("Translate to Spanish: the team meets at three."),
+            body: "the team meets at three.",
+            target: spanish,
+            availability: .available,
+            rewriter: FixedRewriter("el equipo se reúne a las tres.")
+        )
+        XCTAssertEqual(styled.final, "el equipo se reúne a las tres.")
+    }
+
+    /// A failed translation is the body the user actually said, and the
+    /// conversion runs only on what the guard accepted - so nothing on the
+    /// failure path is rewritten either.
+    func testARefusedChineseTranslationLeavesTheBodyExactlyAsItWas() async {
+        let styled = await TranslationRewrite.apply(
+            to: processed("翻譯成簡體中文：團隊 3 點開會。"),
+            body: "團隊 3 點開會。",
+            target: SpokenTranslationTarget(languageCode: "zh", chineseVariant: .simplified),
+            availability: .available,
+            // Changes a number, so the guard refuses it.
+            rewriter: FixedRewriter("团队 4 点开会。")
+        )
+
+        XCTAssertEqual(styled.status, .rejected(.numbersChanged))
+        XCTAssertEqual(styled.final, "團隊 3 點開會。")
+    }
+
     // MARK: - Stub rewriters
 
     private struct FixedRewriter: StyleRewriting {

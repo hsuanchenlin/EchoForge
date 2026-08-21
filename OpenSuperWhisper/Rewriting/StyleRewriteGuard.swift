@@ -207,9 +207,12 @@ enum StyleRewriteGuard {
     ///
     /// It applies to every style, including the custom one. Restyling text is
     /// never a licence to change the script the user writes in, and a user who
-    /// wants the other variant has an app-wide way to ask for it - dictating in
-    /// it. The check only fires when the transcript itself is decisive, so
-    /// dictation that already mixes the two is left alone.
+    /// wants the other variant has an app-wide way to ask for it: the Chinese
+    /// output script setting, which by the time a transcript reaches here has
+    /// already written it in that script (`docs/chinese-script.md`). So this
+    /// check is what stops the model undoing that choice. It only fires when the
+    /// transcript itself is decisive, so dictation that already mixes the two is
+    /// left alone.
     private static func chineseVariantSurvives(_ candidate: String, _ transcript: String) -> Bool {
         let source = ChineseScriptVariant.signal(in: transcript)
         guard source.isDecisive else { return true }

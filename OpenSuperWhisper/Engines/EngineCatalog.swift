@@ -37,7 +37,7 @@ struct EngineModelDownload {
 ///
 /// Settings and onboarding are separate surfaces describing the same engines,
 /// and the parts worth keeping honest - Paraformer emits no punctuation,
-/// SenseVoice rewrites spoken numbers, both write Simplified Chinese - are
+/// SenseVoice rewrites spoken numbers, both models write Simplified Chinese - are
 /// exactly the parts a second, hand-written copy of the copy quietly drops. So
 /// the copy lives next to the engines it describes.
 ///
@@ -238,10 +238,11 @@ enum EngineCatalog {
             // can cause is real but was not reproducible here, so this says
             // "occasionally" rather than quoting an example that did not
             // reproduce. See docs/upstream-issues.md.
-            "Adds punctuation, and writes spoken numbers as digits - say 三點二十分 and it transcribes 3点20分. "
+            "Adds punctuation, and writes spoken numbers as digits - say 三點二十分 and it transcribes 3點20分. "
                 + "Upstream these are one switch, so punctuation is not available without the conversion, "
                 + "and it can occasionally turn a bare numeral into the wrong number.",
-            "Writes Simplified Chinese. The app does not convert it to Traditional.",
+            "The model writes Simplified Chinese; EchoForge writes your transcript in Traditional "
+                + "unless you choose otherwise in Settings \u{2192} Transcription.",
             "About 8x faster than real time, so a 30-second recording takes a few seconds.",
         ],
         download: EngineModelDownload(
@@ -278,7 +279,8 @@ enum EngineCatalog {
                 + "switch engine and regenerate.",
             "Cantonese is the case nothing can catch: it comes back as fluent but wrong Mandarin, which reads "
                 + "like a real transcript.",
-            "Writes Simplified Chinese, and spells numbers as spoken - 三点二十分, not 3点20分.",
+            "The model writes Simplified Chinese - EchoForge writes your transcript in the script you "
+                + "chose - and it spells numbers as spoken: 三點二十分, not 3點20分.",
             "Long recordings are split into short pieces before the model sees them, because it silently "
                 + "truncates anything longer.",
         ],

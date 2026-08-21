@@ -64,11 +64,20 @@ enum TextPostProcessor {
     /// silently ship without it. Engines now return their text unformatted and
     /// this runs once for all of them.
     ///
-    /// The order of the two deterministic passes is load-bearing. The personal
-    /// terms dictionary runs **first**, so entries match what the user actually
-    /// said rather than a respaced version of it, and the spans it protects are
-    /// then held out of CJK autocorrect. Reversing them would let autocorrect
-    /// respace a term the user had just pinned.
+    /// The order of the three deterministic passes is load-bearing.
+    ///
+    /// Chinese script normalization runs **before either of the others**, and
+    /// the rule it follows is: *convert the recognizer's words, never the
+    /// user's*. Everything the user wrote themselves - a dictionary entry, a
+    /// voice snippet template - is spliced in after it and is inserted in the
+    /// script they stored it in. See `ChineseScriptNormalizer`.
+    ///
+    /// The personal terms dictionary then runs **before CJK spacing**, so
+    /// entries match what the user actually said rather than a respaced version
+    /// of it, and the spans it protects are held out of CJK autocorrect.
+    /// Reversing those two would let autocorrect respace a term the user had
+    /// just pinned. Normalization cannot break a term match either way, because
+    /// the matcher compares script-folded text (`ChineseScriptFolding`).
     ///
     /// `terms` is injectable for tests; in the app it comes from the shared
     /// store. Passing terms does not bypass the toggle - `safeCorrectionEnabled`
@@ -80,12 +89,22 @@ enum TextPostProcessor {
     ) -> ProcessedText {
         guard !text.isEmpty else { return .unchanged(text) }
 
+        // Which Chinese this transcript is written in. Deterministic and
+        // offline - ICU, one character at a time - and a no-op for every
+        // language that is not Chinese. It runs first so that what it converts
+        // is the machine's words and never the user's.
+        let normalized = ChineseScriptNormalizer.normalized(
+            text,
+            to: settings.chineseOutputScript,
+            languageCode: settings.selectedLanguage
+        )
+
         // Deterministic safe correction: no model, no network, no macOS 26.
         // Independent of any later style-rewriting setting.
         let activeTerms = settings.safeCorrectionEnabled
             ? (terms ?? PersonalTermsStore.shared.activeTerms)
             : []
-        let corrected = PersonalTermsCorrector.apply(activeTerms, to: text)
+        let corrected = PersonalTermsCorrector.apply(activeTerms, to: normalized)
 
         var result = corrected.text
 

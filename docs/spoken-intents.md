@@ -126,8 +126,20 @@ dictation.
 
 `SpokenTranslationTarget` carries a Chinese variant when the user named one
 (`繁體中文`, `simplified chinese`). A bare "Chinese" carries none, and the
-caller's fallback - in the app, `ChineseScriptVariant.systemPreferred` - stands
-in. The distinction is not cosmetic: it decides every character of the answer.
+caller's fallback - in the app, the user's chosen output script
+(`docs/chinese-script.md`) - stands in. The distinction is not cosmetic: it
+decides every character of the answer, and `TranslationRewrite` writes its
+accepted answer in that variant rather than trusting the model to have stayed
+in it.
+
+The transcript this router reads has already been written in that same chosen
+script, command prefix included. That is why every CJK spelling in
+`SpokenIntentGrammar` and `SpokenLanguageLexicon` is listed in **both**
+scripts: a Simplified speaker whose output is Traditional says
+"翻译成意大利语" and the router is handed "翻譯成意大利語", so a spelling
+whose counterpart were missing would turn that command back into dictation.
+`SpokenIntentRouterTests` converts every entry both ways and fails if one has no
+counterpart.
 
 ## Translation
 

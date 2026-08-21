@@ -190,6 +190,31 @@ final class SpokenIntentRouterSnippetTests: IsolatedPreferencesTestCase {
         XCTAssertEqual(styled.transcript, "insert meeting template")
     }
 
+    /// The template is the user's own text, so the Chinese script setting does
+    /// not touch it. `ChineseScriptNormalizer` converts what the recognizer
+    /// said - here, the trigger - and the template is inserted exactly as it was
+    /// stored, in the script it was typed in.
+    func testASnippetTemplateIsInsertedInTheScriptTheUserTypedIt() async throws {
+        let simplifiedTemplate = VoiceSnippet(
+            keyword: "会议记录", expansion: "会议记录\n\n出席：\n"
+        )
+        AppPreferences.shared.spokenIntentsEnabled = true
+        AppPreferences.shared.whisperLanguage = "zh"
+        AppPreferences.shared.useAsianAutocorrect = false
+        AppPreferences.shared.chineseOutputScript = .traditional
+        try VoiceSnippetStore().replaceAll([simplifiedTemplate])
+        let settings = Settings(routesSpokenIntents: true)
+
+        // The transcript stage writes what was heard in the chosen script...
+        let transcript = TextPostProcessor.process("会议记录", settings: settings, terms: [])
+        XCTAssertEqual(transcript.final, "會議記錄")
+
+        // ...and the template it fires is inserted byte for byte all the same.
+        let styled = await SpokenIntentPipeline.apply(to: transcript, settings: settings)
+        XCTAssertEqual(styled.intent, .snippet(keyword: "会议记录"))
+        XCTAssertEqual(styled.final, simplifiedTemplate.expansion)
+    }
+
     func testSnippetsRideOnSpokenCommandsAndOnTheirOwnToggle() throws {
         try VoiceSnippetStore().replaceAll(snippets)
 

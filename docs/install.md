@@ -112,11 +112,22 @@ downloads and neither is installed until you pick it.
 
 | Engine | Download | Good for | Trade-offs |
 | --- | --- | --- | --- |
-| **SenseVoice-Small** (recommended) | 240 MB | Chinese, and it also handles Cantonese, English, Japanese and Korean | Adds punctuation, and writes spoken numbers as digits: say 三點二十分 and you get 3点20分 |
+| **SenseVoice-Small** (recommended) | 240 MB | Chinese, and it also handles Cantonese, English, Japanese and Korean | Adds punctuation, and writes spoken numbers as digits: say 三點二十分 and you get 3點20分 |
 | **Paraformer-large (zh)** | 653 MB | Slightly more accurate on Mandarin characters | Mandarin only, and produces no punctuation at all |
 
-Both write **Simplified Chinese (簡體字)**, and the app does not convert the result to
-Traditional (繁體字). Paraformer refuses nothing: dictate English to it and the model
+Both models write **Simplified Chinese (简体字)**, and EchoForge writes the result in
+**Traditional Chinese (繁體字)** for you - that is the default for every engine,
+including Whisper, which otherwise mixes the two inside one sentence. To keep
+Simplified instead, open **Settings → Transcription → Chinese Output Script** and
+choose Simplified; the choice applies to whatever you dictate next and never changes
+recordings already in History.
+
+It is a setting about how Chinese is written down and nothing else. It does not change
+which language is recognised: English dictation stays English, Japanese and Korean are
+never touched, and your dictionary entries and voice snippets are inserted exactly as
+you typed them.
+
+Paraformer refuses nothing: dictate English to it and the model
 answers with garbled fragments, which EchoForge catches - the dictation fails, the
 recording is kept, and switching engine and regenerating gets you a real transcript.
 Cantonese it cannot catch (that comes back as fluent but wrong Mandarin), so leave

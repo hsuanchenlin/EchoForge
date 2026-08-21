@@ -132,6 +132,12 @@ nothing wrong reached the user - they simply never got a rewrite, which from the
 outside looks like the styles not working for Chinese. Asked in Chinese, all six
 styles came back in Chinese, repeatedly.
 
+By the time a transcript reaches this stage it has already been written in the
+user's chosen script (`docs/chinese-script.md`), so "the transcript's variant"
+below is normally that choice. The two stages reinforce each other rather than
+overlapping: normalization decides the script, and the guard below stops the
+model changing it back.
+
 The variant matters one level down, and silently. A Traditional instruction
 converts Simplified dictation to Traditional, and a Simplified one converts the
 other way - often only half of the text, so a rewrite comes back reading part in
@@ -150,8 +156,13 @@ Three pieces carry it:
   transcript decides and the dictation language only breaks ties**: English
   spoken with the language left on Chinese is asked for in English, Chinese
   spoken on auto-detect is asked for in Chinese, and Japanese or Korean - Han
-  characters and all - is ruled out by its language code. Where the transcript
-  uses only characters the two variants share, the user's own languages decide.
+  characters and all - is ruled out by its language code. It asks that question
+  with `ChineseScriptVariant.isChineseText`, the same predicate the script
+  normalizer gates on one stage earlier, because two answers to "is this
+  Chinese" is how one stage converts a script the next does not recognise.
+  Where the transcript uses only characters the two variants share, the user's
+  chosen output script decides (`docs/chinese-script.md`) - it is the script
+  that transcript was just written in.
 - A custom prompt is *wrapped*, never edited: users who dictate Chinese still
   write their prompt in English, because the pane they type it into is English,
   and an English instruction is exactly what makes the model answer in English.

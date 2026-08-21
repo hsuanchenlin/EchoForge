@@ -80,9 +80,10 @@ enum SpokenIntentRouter {
     /// Classifies one transcript.
     ///
     /// - Parameters:
-    ///   - transcript: the deterministic pipeline's output - personal terms and
-    ///     CJK spacing have already run, which is what makes a user's own
-    ///     spelling of a language name work.
+    ///   - transcript: the deterministic pipeline's output - script
+    ///     normalization, personal terms and CJK spacing have all run, which is
+    ///     what makes a user's own spelling of a language name work, and why
+    ///     every CJK spelling below is listed in both scripts.
     ///   - snippets: the user's voice snippets, already filtered to the ones
     ///     that may fire. Empty - the default - is every caller that does not
     ///     have them, and a router with no snippets behaves exactly as it did
@@ -487,6 +488,15 @@ enum SpokenLanguageLexicon {
     /// Names that carry a Chinese variant with them. Kept apart from the plain
     /// table because these are the only entries whose match says more than a
     /// language code.
+    ///
+    /// Every CJK spelling here and in `aliases` is listed in **both** scripts,
+    /// and that is now load-bearing rather than merely generous: the transcript
+    /// this router reads has already been written in the user's chosen script by
+    /// `ChineseScriptNormalizer`, so a Simplified speaker whose output is
+    /// Traditional says "翻译成意大利语" and the router is handed
+    /// "翻譯成意大利語". A spelling whose counterpart were missing would turn
+    /// that command back into dictation. `SpokenIntentRouterTests` converts
+    /// every entry both ways and fails if the result is not also an entry.
     static let variantNames: [String: ChineseScriptVariant] = [
         "traditional chinese": .traditional,
         "chinese traditional": .traditional,
@@ -496,9 +506,11 @@ enum SpokenLanguageLexicon {
         "繁体中文": .traditional,
         "繁中": .traditional,
         "正體中文": .traditional,
+        "正体中文": .traditional,
         "简体中文": .simplified,
         "簡體中文": .simplified,
         "简中": .simplified,
+        "簡中": .simplified,
     ]
 
     /// Everything else a user might say, beyond the English names the picker
@@ -544,8 +556,11 @@ enum SpokenLanguageLexicon {
         "葡萄牙语": "pt",
         "義大利文": "it",
         "意大利文": "it",
+        "义大利文": "it",
         "義大利語": "it",
+        "意大利語": "it",
         "意大利语": "it",
+        "义大利语": "it",
         "荷蘭文": "nl",
         "荷兰文": "nl",
         "阿拉伯文": "ar",
