@@ -84,7 +84,8 @@ away is one the speech engine introduced rather than the speaker:
 - **case** - "Email Signoff" in Settings answers "email signoff" spoken;
 - **surrounding punctuation** - the pause around a command comes back as a comma
   or a full stop, and quotation marks come back around a phrase;
-- **run-together spacing** - a transcript's spacing is the engine's choice;
+- **doubled-up spacing** - a run of spaces counts as one, though where a space
+  falls still has to match;
 - **Traditional against Simplified**, through `ChineseScriptFolding` - the same
   folding the personal terms dictionary uses, so a trigger typed in one script
   answers dictation in the other.

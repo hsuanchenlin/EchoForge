@@ -74,13 +74,18 @@ enum YouTubeFeedEndpoint {
     static let path = "/feeds/videos.xml"
 
     /// The feed URL for a channel id, or nil when the id is not one.
+    ///
+    /// The query is built from the trimmed id - the same value `isValid`
+    /// checks - so a whitespace-padded id in a hand-edited store cannot pass
+    /// validation and still become a `channel_id` YouTube refuses.
     static func url(forChannelID channelID: String) -> URL? {
-        guard YouTubeChannelID.isValid(channelID) else { return nil }
+        let trimmed = channelID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard YouTubeChannelID.isValid(trimmed) else { return nil }
         var components = URLComponents()
         components.scheme = "https"
         components.host = host
         components.path = path
-        components.queryItems = [URLQueryItem(name: "channel_id", value: channelID)]
+        components.queryItems = [URLQueryItem(name: "channel_id", value: trimmed)]
         return components.url
     }
 }

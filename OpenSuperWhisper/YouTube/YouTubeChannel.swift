@@ -106,10 +106,11 @@ struct YouTubeChannel: Codable, Identifiable, Equatable, Sendable {
 /// deliberately not the same function: that one is the snippet feature's
 /// comparison key and is free to change with it, and a channel name is compared
 /// for a different reason. What both fold away is what a speech engine varies on
-/// its own - case, the punctuation a pause becomes, run-together spacing, and
+/// its own - case, the punctuation a pause becomes, doubled-up whitespace, and
 /// Traditional against Simplified script - and neither folds anything that could
-/// let one entry answer for another: nothing is stemmed, nothing truncated, and
-/// a spoken name has to match a stored one in full.
+/// let one entry answer for another: nothing is stemmed, nothing truncated, a
+/// name spaced differently ("小 Lin 說" against "小Lin說") is a different name
+/// to record as an alias, and a spoken name has to match a stored one in full.
 enum YouTubeChannelAlias {
 
     private static let edgePunctuation: Set<Character> = [

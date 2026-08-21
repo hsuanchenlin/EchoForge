@@ -146,6 +146,12 @@ final class YouTubeVideoURLTests: XCTestCase {
             YouTubeFeedEndpoint.url(forChannelID: "UCHnyfMqiRRG1u-2MsSQLbXA")?.absoluteString,
             "https://www.youtube.com/feeds/videos.xml?channel_id=UCHnyfMqiRRG1u-2MsSQLbXA"
         )
+        // A padded id passes validation (which trims), so the query must be
+        // built from the trimmed value, not the padded one.
+        XCTAssertEqual(
+            YouTubeFeedEndpoint.url(forChannelID: " UCHnyfMqiRRG1u-2MsSQLbXA\n")?.absoluteString,
+            "https://www.youtube.com/feeds/videos.xml?channel_id=UCHnyfMqiRRG1u-2MsSQLbXA"
+        )
         XCTAssertNil(YouTubeFeedEndpoint.url(forChannelID: "@veritasium"))
     }
 }

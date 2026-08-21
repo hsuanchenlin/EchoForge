@@ -78,10 +78,12 @@ with no `YouTube` in it, stays dictation.
 
 What follows the marker has to name one channel **in full** - the same rule a
 voice snippet trigger and a spoken language name follow. "Veritasium please"
-names no channel. Case, surrounding punctuation, run-together spacing and
+names no channel. Case, surrounding punctuation, doubled-up whitespace and
 Traditional against Simplified script are folded away
-(`YouTubeChannelAlias.normalize`), because a speech engine varies all four on its
-own.
+(`YouTubeChannelAlias.normalize`), because a speech engine varies all of them on
+its own. Where a space falls inside a name is not: "小 Lin 說" does not match a
+stored "小Lin說", and an alias is how the user records the spelling their engine
+actually writes.
 
 The Chinese markers are matched with whitespace ignored on both sides, because a
 transcript writes "打開 YouTube 最新影片" or "打開YouTube最新影片" for the same
