@@ -915,12 +915,13 @@ struct SettingsView: View {
         // Every tab title comes from `SettingsTab`, which is also what the
         // sheet's width is measured against - see `SettingsSheetLayout`.
         //
-        // Only the selected pane is built, which is what the tab view did too:
-        // its panes appeared and disappeared as the user moved between them, so
-        // the `onAppear` refreshes several of them rely on still run exactly when
-        // they did - and a pane nobody opens is still never built, which is what
-        // keeps the Cloud pane from reading anything on a sheet that never
-        // visits it.
+        // Only the selected pane is built - stricter than the tab view, which
+        // built every tab whenever Settings opened and only deferred each
+        // pane's `onAppear` until it was displayed. That timing carries over,
+        // so the `onAppear` refreshes several panes rely on still run exactly
+        // when they did; what is new is that a pane nobody opens is never
+        // built at all, which keeps the Cloud pane from reading anything on a
+        // sheet that never visits it.
         //
         // The pane carries `.settingsPane()`, and that is not decoration: it is
         // what keeps a pane wider than the sheet from laying itself out over the

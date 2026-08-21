@@ -529,9 +529,12 @@ tabs and never revisited; by eight it was 122 pt short and every title truncated
 adding a tab or a longer title says so at test time. Tab titles live in `SettingsTab`, which is the
 list that test reads.
 
-Only the selected pane is built - the tab view was lazy the same way, so the `onAppear` refreshes
-several panes rely on still run when they did, and a pane nobody opens (the Cloud one, which reads
-the Keychain) is still never built. A pane can no longer resize the bar either, since the bar is its
+Only the selected pane is built, and that is a deliberate change: the `TabView` built every tab
+whenever Settings opened - the measured fact that kept `CloudSettingsViewModel`'s initialiser off
+the Keychain - and only deferred each pane's `onAppear` until it was displayed. That timing is what
+carries over, so the `onAppear` refreshes several panes rely on still run when they did; what is new
+is that a pane nobody opens (the Cloud one, which reads the Keychain in `onAppear`) is now never
+built at all. A pane can no longer resize the bar either, since the bar is its
 sibling with a width of its own; the segmented control *was* sized from the whole hosted tree, and at
 680 pt a 900 pt pane took it from 648 to 657 and moved every segment as the user changed tabs. What
 still contains a pane is `settingsPane()` (`SettingsSheetLayout.swift`), applied to the pane on
