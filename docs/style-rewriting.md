@@ -14,7 +14,6 @@ engine output
      │
      ▼
 TextPostProcessor.process()        deterministic, cannot fail
-     │                             personal terms → CJK spacing
      │                             ProcessedText { raw, final, mustSurviveTokens }
      ▼
 StyleRewriteService.apply()        calls the on-device model

@@ -223,7 +223,7 @@ enum TranslationPrompt {
         }
         // Cantonese is written in Traditional characters by the people who ask
         // for it, and a bare "Chinese" that reached here without a variant was
-        // already resolved against the user's own languages by
+        // already resolved against the user's chosen output script by
         // `SpokenIntentRouter`.
         return .chinese(target.chineseVariant ?? .traditional)
     }

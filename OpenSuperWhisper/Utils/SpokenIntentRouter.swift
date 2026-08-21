@@ -36,8 +36,9 @@ struct SpokenTranslationTarget: Equatable, Sendable {
     let languageCode: String
 
     /// Which Chinese the user asked for, when they said. `nil` for every other
-    /// language, and for a bare "Chinese" - `TranslationRewrite` decides that
-    /// one from the user's own languages rather than guessing here.
+    /// language, and for a bare "Chinese" - `route` resolves that one against
+    /// the caller's fallback (the user's chosen output script) rather than
+    /// guessing here.
     let chineseVariant: ChineseScriptVariant?
 
     init(languageCode: String, chineseVariant: ChineseScriptVariant? = nil) {
@@ -95,8 +96,8 @@ enum SpokenIntentRouter {
     ///     it as the command it is and reports that no channel answers - which
     ///     is what a user who has switched the feature on needs to hear.
     ///   - fallbackChineseVariant: which Chinese "翻譯成中文" means when the
-    ///     request itself does not say. Production reads the user's languages;
-    ///     a test states it.
+    ///     request itself does not say. Production passes the user's chosen
+    ///     output script; a test states it.
     static func route(
         _ transcript: String,
         snippets: [VoiceSnippet] = [],
