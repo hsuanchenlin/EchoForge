@@ -71,6 +71,14 @@ does. `OpenSuperWhisperTests/ReleaseVersionTests.swift` pins that: the two setti
 across every target and configuration, and the version the app reports has notes carrying
 its number and the Gatekeeper workaround.
 
+Publishing is the last step and it happens **on `master`**, not on the release branch. Every
+`vX.Y.Z` tag points at the squashed release commit the release PR produced, so the GitHub
+release - tag `vX.Y.Z`, name `EchoForge X.Y.Z`, body the notes file verbatim, assets
+`EchoForge.dmg` and `EchoForge.dmg.sha256` and nothing else - is created only after that PR
+is merged. The two assets are the pair from one `Scripts/build_release.sh` run and are never
+rebuilt between hashing and upload, for the reason `docs/release_build.md` measures. Older
+releases and tags are never edited, replaced or force-updated.
+
 ## Updates
 
 `OpenSuperWhisper/Updates/` is the About pane and the in-app updater. Nothing there runs on its
