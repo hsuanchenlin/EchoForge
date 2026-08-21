@@ -526,27 +526,40 @@ low.
 
 ## Settings, sheets, and shutting down
 
-Settings is a **sheet**, and `SettingsSheetLayout` owns the two things that follow from that.
+Settings is a **sheet**, it has **no `TabView`**, and `SettingsSheetLayout` owns what follows.
 
-Its width is set by the tab bar, not by any pane: macOS draws a SwiftUI `TabView` inside a sheet as
-one `NSSegmentedControl` whose intrinsic width is the sum of its titles, so the tab titles and the
-sheet's width are a single decision. The 550 pt sheet was set when there were four tabs and never
-revisited; by eight it was 122 pt short and every title truncated. `SettingsTabBarFitTests` measures
-the real control headlessly and fails when the titles stop fitting, so adding a tab or a longer
-title says so at test time. Tab titles live in `SettingsTab`, which is the list that test reads.
+The tab bar is `SettingsTabBar` (`OpenSuperWhisper/SettingsTabBar.swift`), this app's own control,
+because AppKit's was not fixable from outside: a SwiftUI `TabView` in a sheet renders its tabs as one
+`NSSegmentedControl`, and on macOS 26 that control drew its selection pill on the selected segment's
+rect and its keyboard focus ring about 6 pt wider - on every tab, at 550 pt and again at 680 pt.
+Widening the sheet did not settle it and no containment could, since both rects are produced inside
+AppKit. The owned bar derives all four - the tab's frame, the selection fill, the focus frame
+(`focusRingOutset` outside it) and the hit target - from one frame per tab, so they cannot disagree.
+`SettingsTabBarGeometryTests` reads that back out of rendered pixels; it can, because the ring is now
+an ordinary overlay rather than something only a key window draws. Do not "simplify" this back to a
+`TabView`, and do not reach for `focusEffectDisabled()` without the ring beside it - that removes the
+affordance rather than fixing it.
 
-**A pane resizing the bar is a second problem, and the width does not fix it.** It was written down
-here that only a *compressed* bar follows its displayed pane, so widening the sheet froze the
-segment rects and settled the focus ring; measuring says otherwise. At the shipped 680 pt, a
-displayed pane 900 pt wide still lays the bar out 657 pt instead of 648, and the same pane on a tab
-that is not showing changes nothing. What contains a pane is `settingsPane()`
-(`SettingsSheetLayout.swift`), applied to every tab's content: `Color.clear` takes the offered width
-and reports none of its own, so the pane is an overlay inside it and never speaks for the sheet.
-`frame(maxWidth:)` and `frame(idealWidth:)` were measured and do not contain it; `frame(width:)`
-does but clips real content; the modifier is deliberately un-clipped so nothing trims a focus ring
-at a pane's edge. Whether the focus ring and the selection pill actually agree is **still
-unverified** - that needs an interactive check on a real Mac, and constant segment geometry is only
-its precondition.
+Its width is still set by the tab bar and not by any pane: the bar is one row of titles, so the tab
+titles and the sheet's width are a single decision. The 550 pt sheet was set when there were four
+tabs and never revisited; by eight it was 122 pt short and every title truncated.
+`SettingsTabBarFitTests` lays the bar out headlessly and fails when the titles stop fitting, so
+adding a tab or a longer title says so at test time. Tab titles live in `SettingsTab`, which is the
+list that test reads.
+
+Only the selected pane is built, and that is a deliberate change: the `TabView` built every tab
+whenever Settings opened - the measured fact that kept `CloudSettingsViewModel`'s initialiser off
+the Keychain - and only deferred each pane's `onAppear` until it was displayed. That timing is what
+carries over, so the `onAppear` refreshes several panes rely on still run when they did; what is new
+is that a pane nobody opens (the Cloud one, which reads the Keychain in `onAppear`) is now never
+built at all. A pane can no longer resize the bar either, since the bar is its
+sibling with a width of its own; the segmented control *was* sized from the whole hosted tree, and at
+680 pt a 900 pt pane took it from 648 to 657 and moved every segment as the user changed tabs. What
+still contains a pane is `settingsPane()` (`SettingsSheetLayout.swift`), applied to the pane on
+screen: `Color.clear` takes the offered width and reports none of its own, so the pane is an overlay
+inside it and never speaks for the sheet. `frame(maxWidth:)` and `frame(idealWidth:)` were measured
+and do not contain it; `frame(width:)` does but clips real content; the modifier is deliberately
+un-clipped so nothing trims a focus frame at a pane's edge.
 
 A visible window-modal sheet also makes AppKit **refuse the quit Apple Event** loginwindow sends, so
 an open Settings sheet cancels the user's restart and puts up *"'EchoForge' interrupted restart"*.

@@ -266,10 +266,10 @@ final class CloudSettingsViewModel: ObservableObject {
         self.transcriptionModel = preferences.cloudTranscriptionModel
         self.translationModel = preferences.cloudTranslationModel
         self.settings = CloudSettings.current(preferences: preferences)
-        // Deliberately not read here: on macOS a `TabView` builds every tab, so
-        // reading it in the initialiser would touch the Keychain whenever anyone
-        // opened Settings at all. `onAppear` does it instead, so the first
-        // Keychain access happens when the user opens *this* pane.
+        // Deliberately not read here: reading it in the initialiser would touch
+        // the Keychain whenever anything built this pane, rather than when
+        // someone opened it. `onAppear` does it instead, so the first Keychain
+        // access happens when the user opens *this* pane.
         self.hasStoredKey = false
     }
 
