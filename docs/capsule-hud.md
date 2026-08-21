@@ -100,7 +100,8 @@ The chip names what is about to happen to the words: `Dictate`, the style the
 transcript is about to be rewritten into (`Polish`, `Formal`, `Bullets`, …), or
 - once the words exist - the spoken command they turned out to be (`Ask`,
 `Translate Spanish`, `Snippet: email signoff` - or plain `Snippet` past the
-trigger-length cap `docs/voice-snippets.md` explains). Style labels are
+trigger-length cap `docs/voice-snippets.md` explains - and `YouTube:
+Veritasium`, or plain `YouTube` past the same cap). Style labels are
 `StyleRewriteStyle.shortName` and language names come from `LanguageUtil`,
 because those files own every user-facing word about a style and a language,
 and a surface that shortens `name` itself is a second copy that drifts.
@@ -129,7 +130,9 @@ router's story.
 A dictation that turned out to be a question ends on `DictationResult.asked`,
 which the capsule shows as no badge at all: the Ask panel is on screen with the
 question and the answer on it, and a checkmark reading "Inserted" over the top
-of it would be saying something that did not happen.
+of it would be saying something that did not happen. `DictationResult.openedVideo`
+gets the same reading, for the same reason: Chrome is in front of the user with
+the video on it.
 
 ## The level meter
 

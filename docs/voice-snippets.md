@@ -18,7 +18,8 @@ SpokenIntentPipeline.apply()            two conditions, see below
      ├── .snippet ──► the stored expansion, byte for byte
      ├── .dictate ──► StyleRewriteService.apply()
      ├── .translate ► TranslationRewrite.apply()
-     └── .ask ──────► the Ask panel, nothing inserted
+     ├── .ask ──────► the Ask panel, nothing inserted
+     └── .openLatestVideo ► the caller runs it, nothing inserted
      │
      ▼
 StyledTranscript { final: the template, status: .notRequested,

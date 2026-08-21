@@ -101,8 +101,10 @@ shows the pause a real command has:
 - **`insert …`** is delimited like `問`, and carries the same constraint
   `translate to` does: a trigger the user actually stored has to follow, in
   full. "Insert a row above this one" names none and stays dictation.
-- **`open the latest YouTube video from …`** needs no delimiter of its own
-  either: the whole phrase is the constraint, and a channel the user allowlisted
+- **`open the latest YouTube video from …`** needs no punctuation of its own:
+  the English spellings end in `from`, so the word boundary a transcript puts
+  after it is delimiter enough, and the Chinese spellings need nothing behind
+  them. The whole phrase is the constraint, and a channel the user allowlisted
   has to follow it in full.
 
 The built-in markers are matched before the user's own triggers, so a snippet
