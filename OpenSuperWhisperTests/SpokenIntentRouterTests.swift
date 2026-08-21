@@ -291,6 +291,7 @@ final class SpokenIntentRouterTests: XCTestCase {
         known.formUnion(SpokenIntentGrammar.askMarkers.map(\.text))
         known.formUnion(SpokenIntentGrammar.translateMarkers.map(\.text))
         known.formUnion(SpokenIntentGrammar.snippetMarkers.map(\.text))
+        known.formUnion(SpokenIntentGrammar.openLatestVideoMarkers.map(\.text))
 
         for spelling in known where spelling.contains(where: { !$0.isASCII }) {
             for variant in [ChineseScriptVariant.traditional, .simplified] {

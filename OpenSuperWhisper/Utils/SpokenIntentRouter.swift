@@ -441,6 +441,16 @@ enum SpokenIntentGrammar {
     /// every CJK marker here does not - a Mandarin transcript has no space to
     /// require - and are matched with whitespace ignored, since an engine may
     /// write "打開 YouTube 最新影片" or "打開YouTube最新影片" for the same words.
+    ///
+    /// Every CJK spelling is listed in both scripts, closed under ICU's
+    /// per-character conversion - which is why 啓 stands beside 啟 and 視頻
+    /// beside 视频: the transcript this router reads has already been written in
+    /// the user's chosen script by `ChineseScriptNormalizer`, so a Simplified
+    /// speaker whose output is Traditional says "打开YouTube最新视频" and the
+    /// router is handed "打開YouTube最新視頻". A spelling whose converted form
+    /// were missing would turn that command back into dictation and paste it.
+    /// `SpokenIntentRouterTests` converts every entry both ways and fails if
+    /// the result is not also an entry.
     static let openLatestVideoMarkers: [SpokenIntentMarker] = [
         SpokenIntentMarker(text: "open the latest youtube video from", delimiter: .punctuationOrSpace),
         SpokenIntentMarker(text: "open the newest youtube video from", delimiter: .punctuationOrSpace),
@@ -451,12 +461,19 @@ enum SpokenIntentGrammar {
         SpokenIntentMarker(text: "open youtube latest video from", delimiter: .punctuationOrSpace),
         SpokenIntentMarker(text: "play youtube latest video from", delimiter: .punctuationOrSpace),
         SpokenIntentMarker(text: "打開YouTube最新影片", delimiter: .none),
+        SpokenIntentMarker(text: "打开YouTube最新影片", delimiter: .none),
         SpokenIntentMarker(text: "打開YouTube最新的影片", delimiter: .none),
+        SpokenIntentMarker(text: "打开YouTube最新的影片", delimiter: .none),
         SpokenIntentMarker(text: "打开YouTube最新视频", delimiter: .none),
+        SpokenIntentMarker(text: "打開YouTube最新視頻", delimiter: .none),
         SpokenIntentMarker(text: "開啟YouTube最新影片", delimiter: .none),
+        SpokenIntentMarker(text: "开启YouTube最新影片", delimiter: .none),
+        SpokenIntentMarker(text: "開啓YouTube最新影片", delimiter: .none),
         SpokenIntentMarker(text: "开启YouTube最新视频", delimiter: .none),
+        SpokenIntentMarker(text: "開啓YouTube最新視頻", delimiter: .none),
         SpokenIntentMarker(text: "播放YouTube最新影片", delimiter: .none),
         SpokenIntentMarker(text: "播放YouTube最新视频", delimiter: .none),
+        SpokenIntentMarker(text: "播放YouTube最新視頻", delimiter: .none),
     ]
 
     static let snippetMarkers: [SpokenIntentMarker] = [
