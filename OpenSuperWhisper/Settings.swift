@@ -847,6 +847,17 @@ struct Settings {
     /// regenerate from history cannot expand a macro.
     var voiceSnippets: [VoiceSnippet]
 
+    /// The YouTube channels this transcription may open a video from, or `nil`
+    /// when the command does not run on this path at all.
+    ///
+    /// `nil` and empty are deliberately different answers, which is why this is
+    /// not `[YouTubeChannel]` the way `voiceSnippets` is. `nil` means the words
+    /// are dictation whatever they say - a dropped file, a regenerate, the
+    /// feature switched off - while an empty allowlist means the user has the
+    /// command switched on and has allowlisted nothing yet, and a command they
+    /// say deserves to be told that rather than pasted into their document.
+    var youTubeChannels: YouTubeChannelAllowlist?
+
     var isAsianLanguage: Bool {
         Settings.asianLanguages.contains(selectedLanguage)
     }
@@ -870,6 +881,9 @@ struct Settings {
         self.voiceSnippets = (self.routesSpokenIntents && prefs.voiceSnippetsEnabled)
             ? VoiceSnippetStore.shared.activeSnippets
             : []
+        self.youTubeChannels = (self.routesSpokenIntents && prefs.youTubeLatestVideoEnabled)
+            ? YouTubeChannelStore.shared.allowlist
+            : nil
         self.selectedLanguage = prefs.whisperLanguage
         self.suppressBlankAudio = prefs.suppressBlankAudio
         self.showTimestamps = prefs.showTimestamps

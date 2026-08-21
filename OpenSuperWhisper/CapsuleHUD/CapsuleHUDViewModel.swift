@@ -103,6 +103,19 @@ struct CapsuleHUDMode: Equatable {
         }
         return CapsuleHUDMode(label: "Snippet: \(trimmed)")
     }
+
+    /// "YouTube: Veritasium" - or plain "YouTube" when the channel the user
+    /// named is too long for a pill, the same rule and the same reason as a
+    /// snippet trigger. The name is what was *said*, not what the allowlist
+    /// resolved, because the chip has to be honest about a name that turned out
+    /// not to be in the list.
+    static func openLatestVideo(from channel: String) -> CapsuleHUDMode {
+        let trimmed = channel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= maximumSnippetKeywordCharacters else {
+            return CapsuleHUDMode(label: "YouTube")
+        }
+        return CapsuleHUDMode(label: "YouTube: \(trimmed)")
+    }
 }
 
 /// The capsule's state machine, and the only thing that decides what it shows.
@@ -367,6 +380,10 @@ final class CapsuleHUDViewModel: ObservableObject {
         // written for these two overlays.
         case .wrongLanguage(let reason):
             fail(reason)
+        // Short by construction as well - `YouTubeLatestVideoReport` carries the
+        // pill's words and the sentence separately, and this is the pill's.
+        case .commandFailed(let reason):
+            fail(reason)
         }
     }
 
@@ -391,6 +408,11 @@ final class CapsuleHUDViewModel: ObservableObject {
         // on it, and a checkmark reading "Inserted" over the top of it would be
         // saying something that did not happen.
         case .asked:
+            endWithoutBadge()
+        // Chrome is in front of the user with the video on it, which is a
+        // clearer answer than a checkmark drawn over the top of it - the same
+        // reading `.asked` gets.
+        case .openedVideo:
             endWithoutBadge()
         case .noSpeech:
             fail("No speech detected")

@@ -189,6 +189,18 @@ final class AppPreferences {
     @UserDefault(key: "voiceSnippetsEnabled", defaultValue: true)
     var voiceSnippetsEnabled: Bool
 
+    /// Whether "open the latest YouTube video from …" opens a video from one of
+    /// the channels the user allowlisted.
+    ///
+    /// On by default for the same reason `voiceSnippetsEnabled` is, and with the
+    /// same effect on a default install: nothing here can happen until
+    /// `spokenIntentsEnabled` is switched on, and even then a fresh install has
+    /// an empty allowlist and therefore no channel any command can reach. The
+    /// switch exists so this family can be turned off without also turning off
+    /// Ask and Translate. See `docs/youtube-latest-video.md`.
+    @UserDefault(key: "youTubeLatestVideoEnabled", defaultValue: true)
+    var youTubeLatestVideoEnabled: Bool
+
     // MARK: - Cloud
 
     /// Whether the spoken `Translate to …` command is answered by the configured

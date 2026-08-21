@@ -14,7 +14,7 @@ import Foundation
 struct VoiceSnippet: Codable, Identifiable, Equatable, Sendable {
     var id: UUID
     /// What the user says. Matched through ``VoiceSnippetTrigger/normalize(_:)``,
-    /// so case, surrounding punctuation, run-together spaces and the Chinese
+    /// so case, surrounding punctuation, doubled-up spaces and the Chinese
     /// script it was written in do not have to match.
     var keyword: String
     /// The text written out, exactly as it is stored here.
@@ -65,8 +65,8 @@ struct VoiceSnippet: Codable, Identifiable, Equatable, Sendable {
 /// - **case**, so "Email Signoff" in Settings answers "email signoff" spoken;
 /// - **surrounding punctuation**, because the pause around a command comes back
 ///   as a comma or a full stop;
-/// - **run-together spacing**, because a transcript's spacing is the engine's
-///   choice rather than the speaker's;
+/// - **doubled-up spacing**, because how wide a gap is written is the engine's
+///   choice - though where a space falls still has to match;
 /// - **Traditional against Simplified**, through `ChineseScriptFolding`, so a
 ///   keyword typed in one script answers dictation in the other.
 ///

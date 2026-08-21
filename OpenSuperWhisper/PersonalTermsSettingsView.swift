@@ -87,6 +87,11 @@ struct PersonalTermsSettingsView: View {
                 // the dictionary corrects what they said, snippets replace it
                 // with what they stored. Same pane, separate stages.
                 VoiceSnippetsSettingsView()
+                // The third list of the user's own words that changes what a
+                // dictation does - and the only one that leaves the app - so it
+                // is listed beside them rather than hidden behind a tab of its
+                // own. See `docs/youtube-latest-video.md`.
+                YouTubeChannelsSettingsView()
                 fileCard
             }
             .padding()
