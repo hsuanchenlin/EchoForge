@@ -262,6 +262,26 @@ final class AppPreferences {
     @UserDefault(key: "useAsianAutocorrect", defaultValue: true)
     var useAsianAutocorrect: Bool
 
+    /// Which Chinese a Chinese transcript is written in, whichever script the
+    /// engine returned it in. See `ChineseScriptNormalizer` and
+    /// `docs/chinese-script.md`.
+    ///
+    /// **Traditional by default, and unlike every other output setting here that
+    /// default is not "leave it as it was".** There is no third "don't convert"
+    /// value on purpose: what the recognizer returns is not a choice anybody
+    /// made, it is a property of the model's training data, and it varies inside
+    /// a single sentence. "Leave it alone" would therefore mean "let the model
+    /// decide, differently each time", which is the behaviour this setting
+    /// exists to end. A user who writes Simplified picks Simplified and gets the
+    /// same consistency pointed the other way.
+    ///
+    /// Unset - every install that predates this - reads as Traditional, the same
+    /// as a fresh one, and nothing already in history is rewritten:
+    /// normalization is part of transcribing, so it applies to the next
+    /// dictation and to nothing that was stored before it.
+    @RawRepresentableUserDefault(key: "chineseOutputScript", defaultValue: ChineseScriptVariant.traditional)
+    var chineseOutputScript: ChineseScriptVariant
+
     /// Deterministic safe correction: the personal terms dictionary and the
     /// formatting passes around it.
     ///

@@ -18,8 +18,10 @@ TranscriptionService.transcribeAudio()     single choke point
         ▼
 TextPostProcessor.process()                TRANSCRIPT STAGE
         │                                  shared by every engine and caller
-        │                                  1. personal terms  (on by default)
-        │                                  2. CJK autocorrect (protected spans held out)
+        │                                  1. Chinese output script (Traditional
+        │                                     by default, Chinese text only)
+        │                                  2. personal terms  (on by default)
+        │                                  3. CJK autocorrect (protected spans held out)
         ▼
 SpokenIntentPipeline.apply()               SPOKEN-COMMAND ROUTING
         │                                  live dictation only, off by default
@@ -58,19 +60,28 @@ the text or how it will be consumed, so it runs exactly once, in
 `TranscriptionService`. Its output is what gets stored in `Recording`,
 displayed in history, and searched.
 
-It does two things, in this order:
+It does three things, in this order:
 
-1. **The personal terms dictionary**, gated on `safeCorrectionEnabled` (default
+1. **The Chinese output script**: a Chinese transcript is written in the script
+   the user chose - Traditional by default - whichever one the engine returned.
+   Deterministic ICU, no model and no network, and a no-op for every language
+   that is not Chinese. See `docs/chinese-script.md`.
+2. **The personal terms dictionary**, gated on `safeCorrectionEnabled` (default
    on) and nothing else - no language gate, no model, no network. See
    `docs/personal-terms.md`.
-2. **CJK/Latin spacing** via the vendored `autocorrect` library, gated on an
+3. **CJK/Latin spacing** via the vendored `autocorrect` library, gated on an
    Asian language being selected *and* the user preference being enabled
    (`Settings.shouldApplyAsianAutocorrect`).
 
-The order is load-bearing, and so is the interaction between the two: terms are
-applied first so they match what the user actually said, and the spans they
-marked never-correct are then held out of autocorrect so a pinned term is not
-respaced afterwards.
+The order is load-bearing all the way through. Script normalization runs first
+because it converts **the recognizer's words and never the user's**: everything
+below it splices in text the user typed themselves - a dictionary entry, and
+later a snippet template - and those are inserted in the script they were stored
+in. Terms are then applied before spacing so they match what the user actually
+said, and the spans they marked never-correct are held out of autocorrect so a
+pinned term is not respaced afterwards. A term still matches across the scripts
+either way, because the matcher compares script-folded text
+(`ChineseScriptFolding`).
 
 **Spoken-command routing** (`SpokenIntentPipeline.apply`) sits between the
 transcript stage and the rewriting stage, and is a decision rather than a stage:

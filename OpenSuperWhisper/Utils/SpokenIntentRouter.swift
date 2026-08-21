@@ -36,8 +36,9 @@ struct SpokenTranslationTarget: Equatable, Sendable {
     let languageCode: String
 
     /// Which Chinese the user asked for, when they said. `nil` for every other
-    /// language, and for a bare "Chinese" - `TranslationRewrite` decides that
-    /// one from the user's own languages rather than guessing here.
+    /// language, and for a bare "Chinese" - `route` resolves that one against
+    /// the caller's fallback (the user's chosen output script) rather than
+    /// guessing here.
     let chineseVariant: ChineseScriptVariant?
 
     init(languageCode: String, chineseVariant: ChineseScriptVariant? = nil) {
@@ -80,9 +81,10 @@ enum SpokenIntentRouter {
     /// Classifies one transcript.
     ///
     /// - Parameters:
-    ///   - transcript: the deterministic pipeline's output - personal terms and
-    ///     CJK spacing have already run, which is what makes a user's own
-    ///     spelling of a language name work.
+    ///   - transcript: the deterministic pipeline's output - script
+    ///     normalization, personal terms and CJK spacing have all run, which is
+    ///     what makes a user's own spelling of a language name work, and why
+    ///     every CJK spelling below is listed in both scripts.
     ///   - snippets: the user's voice snippets, already filtered to the ones
     ///     that may fire. Empty - the default - is every caller that does not
     ///     have them, and a router with no snippets behaves exactly as it did
@@ -94,8 +96,8 @@ enum SpokenIntentRouter {
     ///     it as the command it is and reports that no channel answers - which
     ///     is what a user who has switched the feature on needs to hear.
     ///   - fallbackChineseVariant: which Chinese "翻譯成中文" means when the
-    ///     request itself does not say. Production reads the user's languages;
-    ///     a test states it.
+    ///     request itself does not say. Production passes the user's chosen
+    ///     output script; a test states it.
     static func route(
         _ transcript: String,
         snippets: [VoiceSnippet] = [],
@@ -439,6 +441,16 @@ enum SpokenIntentGrammar {
     /// every CJK marker here does not - a Mandarin transcript has no space to
     /// require - and are matched with whitespace ignored, since an engine may
     /// write "打開 YouTube 最新影片" or "打開YouTube最新影片" for the same words.
+    ///
+    /// Every CJK spelling is listed in both scripts, closed under ICU's
+    /// per-character conversion - which is why 啓 stands beside 啟 and 視頻
+    /// beside 视频: the transcript this router reads has already been written in
+    /// the user's chosen script by `ChineseScriptNormalizer`, so a Simplified
+    /// speaker whose output is Traditional says "打开YouTube最新视频" and the
+    /// router is handed "打開YouTube最新視頻". A spelling whose converted form
+    /// were missing would turn that command back into dictation and paste it.
+    /// `SpokenIntentRouterTests` converts every entry both ways and fails if
+    /// the result is not also an entry.
     static let openLatestVideoMarkers: [SpokenIntentMarker] = [
         SpokenIntentMarker(text: "open the latest youtube video from", delimiter: .punctuationOrSpace),
         SpokenIntentMarker(text: "open the newest youtube video from", delimiter: .punctuationOrSpace),
@@ -449,12 +461,19 @@ enum SpokenIntentGrammar {
         SpokenIntentMarker(text: "open youtube latest video from", delimiter: .punctuationOrSpace),
         SpokenIntentMarker(text: "play youtube latest video from", delimiter: .punctuationOrSpace),
         SpokenIntentMarker(text: "打開YouTube最新影片", delimiter: .none),
+        SpokenIntentMarker(text: "打开YouTube最新影片", delimiter: .none),
         SpokenIntentMarker(text: "打開YouTube最新的影片", delimiter: .none),
+        SpokenIntentMarker(text: "打开YouTube最新的影片", delimiter: .none),
         SpokenIntentMarker(text: "打开YouTube最新视频", delimiter: .none),
+        SpokenIntentMarker(text: "打開YouTube最新視頻", delimiter: .none),
         SpokenIntentMarker(text: "開啟YouTube最新影片", delimiter: .none),
+        SpokenIntentMarker(text: "开启YouTube最新影片", delimiter: .none),
+        SpokenIntentMarker(text: "開啓YouTube最新影片", delimiter: .none),
         SpokenIntentMarker(text: "开启YouTube最新视频", delimiter: .none),
+        SpokenIntentMarker(text: "開啓YouTube最新視頻", delimiter: .none),
         SpokenIntentMarker(text: "播放YouTube最新影片", delimiter: .none),
         SpokenIntentMarker(text: "播放YouTube最新视频", delimiter: .none),
+        SpokenIntentMarker(text: "播放YouTube最新視頻", delimiter: .none),
     ]
 
     static let snippetMarkers: [SpokenIntentMarker] = [
@@ -487,6 +506,15 @@ enum SpokenLanguageLexicon {
     /// Names that carry a Chinese variant with them. Kept apart from the plain
     /// table because these are the only entries whose match says more than a
     /// language code.
+    ///
+    /// Every CJK spelling here and in `aliases` is listed in **both** scripts,
+    /// and that is now load-bearing rather than merely generous: the transcript
+    /// this router reads has already been written in the user's chosen script by
+    /// `ChineseScriptNormalizer`, so a Simplified speaker whose output is
+    /// Traditional says "翻译成意大利语" and the router is handed
+    /// "翻譯成意大利語". A spelling whose counterpart were missing would turn
+    /// that command back into dictation. `SpokenIntentRouterTests` converts
+    /// every entry both ways and fails if the result is not also an entry.
     static let variantNames: [String: ChineseScriptVariant] = [
         "traditional chinese": .traditional,
         "chinese traditional": .traditional,
@@ -496,9 +524,11 @@ enum SpokenLanguageLexicon {
         "繁体中文": .traditional,
         "繁中": .traditional,
         "正體中文": .traditional,
+        "正体中文": .traditional,
         "简体中文": .simplified,
         "簡體中文": .simplified,
         "简中": .simplified,
+        "簡中": .simplified,
     ]
 
     /// Everything else a user might say, beyond the English names the picker
@@ -544,8 +574,11 @@ enum SpokenLanguageLexicon {
         "葡萄牙语": "pt",
         "義大利文": "it",
         "意大利文": "it",
+        "义大利文": "it",
         "義大利語": "it",
+        "意大利語": "it",
         "意大利语": "it",
+        "义大利语": "it",
         "荷蘭文": "nl",
         "荷兰文": "nl",
         "阿拉伯文": "ar",

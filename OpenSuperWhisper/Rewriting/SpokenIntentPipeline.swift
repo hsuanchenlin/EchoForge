@@ -93,7 +93,11 @@ enum SpokenIntentPipeline {
             processed.final,
             snippets: settings.voiceSnippets,
             channels: settings.youTubeChannels,
-            fallbackChineseVariant: ChineseScriptVariant.systemPreferred
+            // A bare "翻譯成中文" means the Chinese this user writes, and they
+            // have now said which that is: the script every one of their
+            // transcripts is written in. Reading their Mac's region instead
+            // could answer a Traditional user's translation in Simplified.
+            fallbackChineseVariant: settings.chineseOutputScript
         )
         await MainActor.run { SpokenIntentActivity.shared.resolved(intent.outcome) }
 

@@ -46,13 +46,18 @@ enum StyleRewriteLanguage: Equatable, Sendable {
     ///     be rewritten.
     ///   - fallbackVariant: which variant to ask in when the transcript is
     ///     Chinese but is written entirely in characters the two share.
-    ///     Production reads the user's own languages; a test states it.
+    ///     Production passes the user's chosen output script - the script the
+    ///     transcript was just written in, which is a better answer than the one
+    ///     their Mac's region implies; a test states it.
     static func resolve(
         languageCode: String,
         transcript: String,
         fallbackVariant: ChineseScriptVariant = ChineseScriptVariant.systemPreferred
     ) -> StyleRewriteLanguage {
-        guard mayBeChinese(languageCode: languageCode), isHanDominant(transcript) else {
+        // The same predicate `ChineseScriptNormalizer` gated on, deliberately:
+        // the stage that writes the transcript's script and the stage that asks
+        // the model about it must not disagree about whether it is Chinese.
+        guard ChineseScriptVariant.isChineseText(transcript, languageCode: languageCode) else {
             return .other
         }
         return .chinese(ChineseScriptVariant.detected(in: transcript) ?? fallbackVariant)
@@ -87,48 +92,9 @@ enum StyleRewriteLanguage: Equatable, Sendable {
 
     // MARK: - Reading the transcript
 
-    /// Whether the dictation language leaves Chinese possible at all.
-    ///
-    /// Auto-detect and an unknown code both leave it open, because neither says
-    /// anything; a language this app knows and that is not Chinese closes it,
-    /// which is what keeps Japanese and Korean dictation on the English
-    /// instructions their script would otherwise be mistaken for.
-    private static func mayBeChinese(languageCode: String) -> Bool {
-        let code = languageCode.lowercased().split(separator: "-").first.map(String.init) ?? ""
-        if ChineseScriptVariant.chineseLanguageCodes.contains(code) { return true }
-        return LanguageUtil.languageNames[code] == nil || code == "auto"
-    }
-
-    /// Whether the text is written in Han characters, with no kana or Hangul in
-    /// it at all.
-    ///
-    /// The ratio matches `StyleRewriteGuard`'s script check on purpose - the two
-    /// have to agree about what "this transcript is Chinese" means, or the stage
-    /// would ask in a language its own guard then rejects. A single kana or
-    /// Hangul character is enough to rule it out: Japanese written in kanji
-    /// alone is rare, and Japanese written with kana is not Chinese however many
-    /// Han characters it also has.
-    private static func isHanDominant(_ text: String) -> Bool {
-        var letters = 0
-        var han = 0
-        for character in text where character.isLetter {
-            letters += 1
-            guard let scalar = character.unicodeScalars.first else { continue }
-            switch scalar.value {
-            case 0x3040 ... 0x30FF,     // Hiragana, Katakana
-                 0x1100 ... 0x11FF,     // Hangul jamo
-                 0xAC00 ... 0xD7AF:     // Hangul syllables
-                return false
-            case 0x3400 ... 0x4DBF,     // CJK Extension A
-                 0x4E00 ... 0x9FFF,     // CJK Unified Ideographs
-                 0xF900 ... 0xFAFF,     // CJK Compatibility Ideographs
-                 0x20000 ... 0x2FA1F:   // CJK Extensions B-F and compatibility supplement
-                han += 1
-            default:
-                break
-            }
-        }
-        guard letters > 0 else { return false }
-        return Double(han) / Double(letters) >= 0.3
-    }
+    /// Both halves of "is this transcript Chinese" live on
+    /// `ChineseScriptVariant` - `mayBeChinese(languageCode:)` and
+    /// `isHanDominant(_:)` - because `ChineseScriptNormalizer` asks the same
+    /// question about the same text one stage earlier, and two copies of that
+    /// rule would eventually answer differently.
 }

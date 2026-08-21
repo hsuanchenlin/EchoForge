@@ -148,12 +148,17 @@ enum StyleRewriteService {
     ///   it. Production never does - `StyleRewriteBudget` decides - but a test
     ///   asserting the deadline is enforced should not have to wait the several
     ///   seconds a real dictation is allowed.
+    /// - Parameter fallbackChineseVariant: which Chinese to ask in when the
+    ///   transcript is Chinese but its own characters do not say which variant.
+    ///   Production passes the user's chosen output script, which is the script
+    ///   `ChineseScriptNormalizer` just wrote the transcript in.
     static func apply(
         to processed: ProcessedText,
         configuration: StyleRewriteConfiguration,
         languageCode: String,
         availability: StyleRewriteAvailability,
         rewriter: StyleRewriting?,
+        fallbackChineseVariant: ChineseScriptVariant = ChineseScriptVariant.systemPreferred,
         budgetOverride: TimeInterval? = nil
     ) async -> StyledTranscript {
         guard configuration.isRunnable else {
@@ -181,7 +186,9 @@ enum StyleRewriteService {
         // heading all have to be written in the same language, or the model is
         // being shown two answers to "what language is this".
         let language = StyleRewriteLanguage.resolve(
-            languageCode: languageCode, transcript: processed.final
+            languageCode: languageCode,
+            transcript: processed.final,
+            fallbackVariant: fallbackChineseVariant
         )
         let request = StyleRewriteRequest(
             text: processed.final,
@@ -248,7 +255,8 @@ enum StyleRewriteService {
             configuration: settings.styleRewrite,
             languageCode: settings.selectedLanguage,
             availability: availability,
-            rewriter: StyleRewriterFactory.makeRewriter()
+            rewriter: StyleRewriterFactory.makeRewriter(),
+            fallbackChineseVariant: settings.chineseOutputScript
         )
         await MainActor.run { StyleRewriteActivity.shared.end() }
         if let explanation = result.status.explanation, !result.status.didRewrite {

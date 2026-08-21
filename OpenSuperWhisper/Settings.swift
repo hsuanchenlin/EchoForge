@@ -250,6 +250,14 @@ class SettingsViewModel: ObservableObject {
         }
     }
 
+    /// Which Chinese every Chinese transcription is written in. See
+    /// `ChineseScriptNormalizer`; it changes nothing for any other language.
+    @Published var chineseOutputScript: ChineseScriptVariant {
+        didSet {
+            AppPreferences.shared.chineseOutputScript = chineseOutputScript
+        }
+    }
+
     @Published var modifierOnlyHotkey: ModifierKey {
         didSet {
             AppPreferences.shared.modifierOnlyHotkey = modifierOnlyHotkey.rawValue
@@ -327,6 +335,7 @@ class SettingsViewModel: ObservableObject {
         self.capsuleHUDEnabled = prefs.capsuleHUDEnabled
         self.spokenIntentsEnabled = prefs.spokenIntentsEnabled
         self.useAsianAutocorrect = prefs.useAsianAutocorrect
+        self.chineseOutputScript = prefs.chineseOutputScript
         self.modifierOnlyHotkey = ModifierKey(rawValue: prefs.modifierOnlyHotkey) ?? .none
         self.mouseButtonHotkey = MouseButton(rawValue: prefs.mouseButtonHotkey) ?? .none
         self.holdToRecord = prefs.holdToRecord
@@ -820,6 +829,15 @@ struct Settings {
     var useBeamSearch: Bool
     var beamSize: Int
     var useAsianAutocorrect: Bool
+    /// Which Chinese this transcript is written in, whichever script the engine
+    /// returned. Deterministic, offline, and applied to every engine's output at
+    /// the same choke point - see `ChineseScriptNormalizer`.
+    ///
+    /// It is also the fallback the model-backed stages take when a Chinese
+    /// transcript's own characters do not say which variant it is: the script
+    /// the user chose is a better answer than the one their Mac's region
+    /// implies, and it is the script the transcript was just written in.
+    var chineseOutputScript: ChineseScriptVariant
     /// Whether the deterministic terms stage runs. Independent of every
     /// language gate and of any later style-rewriting setting.
     var safeCorrectionEnabled: Bool
@@ -893,6 +911,7 @@ struct Settings {
         self.useBeamSearch = prefs.useBeamSearch
         self.beamSize = prefs.beamSize
         self.useAsianAutocorrect = prefs.useAsianAutocorrect
+        self.chineseOutputScript = prefs.chineseOutputScript
         self.safeCorrectionEnabled = prefs.safeCorrectionEnabled
         let chosen = StyleRewriteConfiguration.resolve(
             isEnabled: prefs.styleRewriteEnabled,
@@ -1275,6 +1294,18 @@ struct SettingsView: View {
                                     .labelsHidden()
                             }
                             .padding(.top, 4)
+                        }
+
+                        // Shown for the languages this can actually change:
+                        // Chinese, and auto-detect, which may turn out to be
+                        // Chinese. `ChineseScriptVariant.mayBeChinese` is the
+                        // same test the normalizer itself applies, so the
+                        // control appears exactly when it does something.
+                        if ChineseScriptVariant.mayBeChinese(
+                            languageCode: viewModel.selectedLanguage
+                        ) {
+                            ChineseOutputScriptSetting(script: $viewModel.chineseOutputScript)
+                                .padding(.top, 8)
                         }
                     }
                 }

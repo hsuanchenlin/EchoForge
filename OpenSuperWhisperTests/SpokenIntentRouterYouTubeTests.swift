@@ -61,6 +61,20 @@ final class SpokenIntentRouterYouTubeTests: XCTestCase {
         }
     }
 
+    /// The guarantee the translate grammar carries, held here too: the command a
+    /// Simplified speaker dictates still routes after `ChineseScriptNormalizer`
+    /// has written their transcript in Traditional - marker and channel name
+    /// included. ICU writes 视频 as 視頻, which no engine spelling uses, so the
+    /// marker list has to know the converted form as its own entry.
+    func testTheCommandStillRoutesAfterTheTranscriptWasConvertedToTheOtherScript() {
+        let spoken = "打开YouTube最新视频 科技岛读"
+        let normalized = ChineseScriptNormalizer.normalized(
+            spoken, to: .traditional, languageCode: "zh"
+        )
+        XCTAssertNotEqual(normalized, spoken)
+        XCTAssertEqual(route(normalized), .openLatestVideo(.allowlisted(kejidaodu)))
+    }
+
     func testAnAliasNamesTheSameChannel() {
         XCTAssertEqual(
             route("Open the latest YouTube video from vera tasium"),

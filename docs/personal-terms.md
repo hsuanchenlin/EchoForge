@@ -45,7 +45,10 @@ Implemented in `PersonalTermsCorrector`, pinned by `PersonalTermsCorrectorTests`
   script matches dictation in the other. Folding decides *matching only*: what
   is written out is always the entry's own `replacement`, exactly as the user
   typed it - or, for `protect`, the source span exactly as spoken. Nothing here
-  converts a user's script for them.
+  converts a user's script for them, and the stage that does convert one -
+  `ChineseScriptNormalizer`, `docs/chinese-script.md` - deliberately runs
+  *before* this one, so what it rewrites is the recognizer's words and an entry
+  is still written out exactly as it was typed.
 - **Case-sensitive.** A case-insensitive dictionary could not express the
   difference between `useState` and `usestate`, which is exactly what someone
   protecting an identifier needs.

@@ -105,15 +105,21 @@ final class EngineCatalogTests: XCTestCase {
         )
     }
 
-    /// Both models write Simplified Chinese and the app does not convert it. For
-    /// a Traditional-Chinese user that is the single most surprising thing about
-    /// either engine, so neither may omit it.
-    func testBothChineseEnginesDeclareThatTheyWriteSimplifiedChinese() {
+    /// Both models write Simplified Chinese, and EchoForge writes the transcript
+    /// in the script the user chose - Traditional by default. For a Chinese user
+    /// that is the most surprising thing about either engine either way round, so
+    /// neither entry may leave out what the model does or what the app does with
+    /// it. See `docs/chinese-script.md`.
+    func testBothChineseEnginesSayWhichScriptTheyWriteAndWhichTheUserGets() {
         for kind in [EngineKind.sensevoice, .paraformer] {
             let notes = EngineCatalog.entry(for: kind).notes.joined(separator: " ")
             XCTAssertTrue(
                 notes.contains("Simplified Chinese"),
-                "\(kind) must say which script it writes: \(notes)"
+                "\(kind) must say which script the model writes: \(notes)"
+            )
+            XCTAssertTrue(
+                notes.contains("EchoForge writes your transcript"),
+                "\(kind) must say what the app writes, now that it converts: \(notes)"
             )
         }
     }

@@ -88,7 +88,12 @@ away is one the speech engine introduced rather than the speaker:
   falls still has to match;
 - **Traditional against Simplified**, through `ChineseScriptFolding` - the same
   folding the personal terms dictionary uses, so a trigger typed in one script
-  answers dictation in the other.
+  answers dictation in the other, whichever script the transcript was written in
+  (`docs/chinese-script.md`).
+
+The **template** is never folded or converted, only the trigger is: it is
+inserted byte for byte in the script the user typed it in, even when their
+Chinese output script is the other one.
 
 Nothing is stemmed and nothing is truncated: a normalized phrase has to match a
 normalized trigger in full. Two snippets that normalize onto the same trigger

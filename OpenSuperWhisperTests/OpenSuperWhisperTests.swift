@@ -1325,17 +1325,16 @@ final class KeyboardLayoutProviderTests: XCTestCase {
     }
 }
 
+/// Isolated because it writes a preference: the suite runs in several parallel
+/// host processes against one real defaults domain, so one of these clearing
+/// `addSpaceAfterSentence` while another reads it is a flake rather than a
+/// failure. It was one, intermittently.
 @MainActor
-final class AddSpaceAfterSentenceTests: XCTestCase {
-    
+final class AddSpaceAfterSentenceTests: IsolatedPreferencesTestCase {
+
     override func setUp() {
         super.setUp()
         AppPreferences.shared.addSpaceAfterSentence = true
-    }
-    
-    override func tearDown() {
-        AppPreferences.shared.addSpaceAfterSentence = true
-        super.tearDown()
     }
     
     func testApplyPostProcessing_addsSpaceWhenEndsWithPeriod() {

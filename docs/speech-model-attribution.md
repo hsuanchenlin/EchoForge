@@ -93,7 +93,7 @@ not reproduce on every machine (`docs/upstream-issues.md` has the detail). Say s
 the engine is described, without claiming it happens every time; it is an upstream defect, not
 something the app hides or patches over.
 
-It also writes **Simplified** Chinese, and the app does not convert the transcript to Traditional.
+It also writes **Simplified** Chinese; the app writes the transcript in the script the user chose - Traditional by default - which is a deterministic ICU conversion of the model's output and changes nothing about the model or how it is credited. See [chinese-script.md](chinese-script.md).
 For a Traditional-Chinese user that is the most surprising thing about the engine, so the Settings
 copy states it.
 
