@@ -906,69 +906,38 @@ struct SettingsView: View {
     private var sheetSize: CGSize { SettingsSheetLayout.current }
     
     var body: some View {
-        // Every tab item's title comes from `SettingsTab`, which is also what
-        // the sheet's width is measured against - see `SettingsSheetLayout`.
+        // The tab bar is EchoForge's own control, not the `NSSegmentedControl` a
+        // SwiftUI `TabView` renders in a sheet: that one drew its keyboard focus
+        // ring from different geometry than its selection, and no width or
+        // containment above it could make the two agree. `SettingsTabBar` draws
+        // the fill, the focus frame and the hit target from one frame per tab.
         //
-        // Every pane carries `.settingsPane()`, and that is not decoration: the
-        // displayed pane is part of the layout the tab bar is sized from, so a
-        // pane wide enough to overflow the sheet widens the bar and moves every
-        // segment as the user changes tabs. The modifier is what keeps a pane's
-        // width from reaching the bar.
-        TabView(selection: $selectedTab) {
+        // Every tab title comes from `SettingsTab`, which is also what the
+        // sheet's width is measured against - see `SettingsSheetLayout`.
+        //
+        // Only the selected pane is built, which is what the tab view did too:
+        // its panes appeared and disappeared as the user moved between them, so
+        // the `onAppear` refreshes several of them rely on still run exactly when
+        // they did - and a pane nobody opens is still never built, which is what
+        // keeps the Cloud pane from reading anything on a sheet that never
+        // visits it.
+        //
+        // The pane carries `.settingsPane()`, and that is not decoration: it is
+        // what keeps a pane wider than the sheet from laying itself out over the
+        // sheet's edge. See `SettingsSheetLayout`.
+        VStack(spacing: SettingsSheetLayout.tabBarToPaneSpacing) {
+            SettingsTabBar(selection: $selectedTab)
 
-             // Shortcut Settings
-            shortcutSettings
+            pane(for: selectedTab)
                 .settingsPane()
-                .tabItem { SettingsTab.shortcuts.label }
-                .tag(SettingsTab.shortcuts)
-
-            // Model Settings
-            modelSettings
-                .settingsPane()
-                .tabItem { SettingsTab.model.label }
-                .tag(SettingsTab.model)
-
-            // Transcription Settings
-            transcriptionSettings
-                .settingsPane()
-                .tabItem { SettingsTab.transcription.label }
-                .tag(SettingsTab.transcription)
-
-            // Personal terms dictionary, and the voice snippets beneath it
-            PersonalTermsSettingsView()
-                .settingsPane()
-                .tabItem { SettingsTab.dictionary.label }
-                .tag(SettingsTab.dictionary)
-
-            // Style rewriting - the one stage that can change what the words
-            // mean, so it gets its own pane rather than a row in Transcription.
-            StyleRewriteSettingsView()
-                .settingsPane()
-                .tabItem { SettingsTab.style.label }
-                .tag(SettingsTab.style)
-
-            // Advanced Settings
-            advancedSettings
-                .settingsPane()
-                .tabItem { SettingsTab.advanced.label }
-                .tag(SettingsTab.advanced)
-
-            // The one pane that can point anything at a provider. Absent
-            // entirely from an offline-only build, which is what makes that
-            // build's promise checkable rather than a claim about defaults.
-            if CloudBuild.isCompiledIn {
-                CloudSettingsView()
-                    .settingsPane()
-                    .tabItem { SettingsTab.cloud.label }
-                    .tag(SettingsTab.cloud)
-            }
-
-            // Which build this is, and the only place that offers to change it.
-            AboutSettingsView()
-                .settingsPane()
-                .tabItem { SettingsTab.about.label }
-                .tag(SettingsTab.about)
-            }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(
+                    RoundedRectangle(
+                        cornerRadius: SettingsSheetLayout.paneCornerRadius, style: .continuous
+                    )
+                    .fill(SettingsSheetLayout.paneBackground)
+                )
+        }
         .padding()
         .frame(width: sheetSize.width, height: sheetSize.height)
         .background(Color(.windowBackgroundColor))
@@ -1035,6 +1004,42 @@ struct SettingsView: View {
         }
     }
     
+    /// The one pane that is showing.
+    ///
+    /// The order of the cases is the order `SettingsTab` draws the tabs in, so
+    /// this list and the bar cannot drift apart without the compiler saying so.
+    @ViewBuilder private func pane(for tab: SettingsTab) -> some View {
+        switch tab {
+        case .shortcuts:
+            shortcutSettings
+        case .model:
+            modelSettings
+        case .transcription:
+            transcriptionSettings
+        case .dictionary:
+            // The personal terms dictionary, and the voice snippets beneath it.
+            PersonalTermsSettingsView()
+        case .style:
+            // Style rewriting - the one stage that can change what the words
+            // mean, so it gets its own pane rather than a row in Transcription.
+            StyleRewriteSettingsView()
+        case .advanced:
+            advancedSettings
+        case .cloud:
+            // The one pane that can point anything at a provider. Absent
+            // entirely from an offline-only build, which is what makes that
+            // build's promise checkable rather than a claim about defaults -
+            // `SettingsTab.visible` has no Cloud tab there, so this case cannot
+            // be reached either.
+            if CloudBuild.isCompiledIn {
+                CloudSettingsView()
+            }
+        case .about:
+            // Which build this is, and the only place that offers to change it.
+            AboutSettingsView()
+        }
+    }
+
     /// The catalog entry for the selected engine when that engine has exactly one
     /// set of weights, which is what decides whether the pane below the picker is
     /// a model list or a single download row.
