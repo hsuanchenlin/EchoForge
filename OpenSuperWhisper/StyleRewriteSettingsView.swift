@@ -100,7 +100,8 @@ final class StyleRewritePreviewModel: ObservableObject {
             configuration: configuration,
             languageCode: languageCode,
             availability: StyleRewriterFactory.availability(),
-            rewriter: StyleRewriterFactory.makeRewriter()
+            rewriter: StyleRewriterFactory.makeRewriter(),
+            fallbackChineseVariant: AppPreferences.shared.chineseOutputScript
         )
     }
 
