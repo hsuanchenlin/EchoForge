@@ -35,18 +35,21 @@ EchoForge's.** Retention, whether it trains a model, who can subpoena it: read
 the policy of whoever you configure. That sentence is in the consent sheet for
 the same reason it is here.
 
-### Why only translation, out of the three model features
+### Why only translation, out of the four model features
 
 Style rewriting runs on **every** dictation once it is on, whether or not you
 were thinking about it that time. The Ask panel and screen questions carry
-whatever happens to be on your screen. A translation is different in kind: you
-ask for it by name, one dictation at a time, by saying "Translate to Spanish".
-That is the one place where a per-use cloud call matches how the feature is
-actually used, so it is the only one offered.
+whatever happens to be on your screen. YouTube channel name matching is a lookup
+in a list you typed yourself, which has no business leaving your Mac at all. A
+translation is different in kind: you ask for it by name, one dictation at a
+time, by saying "Translate to Spanish". That is the one place where a per-use
+cloud call matches how the feature is actually used, so it is the only one
+offered.
 
 It is enforced in the type system rather than by convention:
-`OnDeviceModelFeature.cloudFeature` returns `nil` for rewriting and Ask, so
-neither has a reachable path to a provider. `CloudPrivacyTests` pins it.
+`OnDeviceModelFeature.cloudFeature` returns `nil` for rewriting, Ask and channel
+matching, so none of them has a reachable path to a provider.
+`CloudPrivacyTests` pins it.
 
 ---
 

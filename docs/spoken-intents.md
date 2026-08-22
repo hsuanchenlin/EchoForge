@@ -99,6 +99,7 @@ shows the pause a real command has:
 - **`insert …`** is delimited like `問`, and carries the same constraint
   `translate to` does: a trigger the user actually stored has to follow, in
   full. "Insert a row above this one" names none and stays dictation.
+
 The built-in markers are matched before the user's own triggers, so a snippet
 can never take `Ask:` or `Translate to …` away from the features that shipped
 before it.
