@@ -377,17 +377,6 @@ enum SpokenIntentGrammar {
         SpokenIntentMarker(text: "译成", delimiter: .none),
     ]
 
-    /// "Insert email signoff" - and its Chinese equivalents.
-    ///
-    /// Longest first, so "insert snippet meeting template" is not read as
-    /// "insert" followed by a snippet called "snippet meeting template".
-    ///
-    /// The English markers need a space or punctuation behind them because they
-    /// are ordinary words; the Chinese ones need nothing, for the reason every
-    /// CJK marker here does - a Mandarin transcript has no space to require. In
-    /// both cases the real constraint is the one that follows: what comes after
-    /// the marker has to be a keyword this user stored, or the words stay
-    /// dictation.
     /// "Open the latest YouTube video from [channel]" and "open the YouTube
     /// channel [channel]" - and their Chinese equivalents.
     ///
@@ -469,6 +458,17 @@ enum SpokenIntentGrammar {
         SpokenIntentMarker(text: "播放YouTube频道", delimiter: .none),
     ]
 
+    /// "Insert email signoff" - and its Chinese equivalents.
+    ///
+    /// Longest first, so "insert snippet meeting template" is not read as
+    /// "insert" followed by a snippet called "snippet meeting template".
+    ///
+    /// The English markers need a space or punctuation behind them because they
+    /// are ordinary words; the Chinese ones need nothing, for the reason every
+    /// CJK marker here does - a Mandarin transcript has no space to require. In
+    /// both cases the real constraint is the one that follows: what comes after
+    /// the marker has to be a keyword this user stored, or the words stay
+    /// dictation.
     static let snippetMarkers: [SpokenIntentMarker] = [
         SpokenIntentMarker(text: "insert snippet", delimiter: .punctuationOrSpace),
         SpokenIntentMarker(text: "insert", delimiter: .punctuationOrSpace),
