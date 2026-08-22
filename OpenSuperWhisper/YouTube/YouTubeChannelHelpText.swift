@@ -58,7 +58,15 @@ enum YouTubeChannelHelpText {
 
     /// The sentence under the list, written around a channel the user actually
     /// has - so the example is something they can say out loud right now.
+    ///
+    /// It names **both** families of the grammar, because which one a user
+    /// reaches for is not predictable: somebody who says "open YouTube channel
+    /// …" and is shown only the video wording has no way to tell whether their
+    /// phrasing is unsupported or their channel is missing, and the refusal they
+    /// get names the channel. Both are listed here for the same reason the
+    /// channel-id instruction is: it is the sentence that stops a fixable
+    /// problem looking like a broken feature.
     static func usage(exampleChannel name: String) -> String {
-        "Say “\(name)” on its own, or the whole sentence - “open the latest YouTube video from \(name)”, or in Chinese “播放YouTube最新影片\(name)”. Only the channels listed here can be opened; anything else does nothing and says so. \(autoplayNote)"
+        "Say “\(name)” on its own, or a whole sentence - “open the latest YouTube video from \(name)”, “open YouTube channel \(name)”, or in Chinese “播放YouTube最新影片\(name)” or “打開YouTube頻道\(name)”. Only the channels listed here can be opened; anything else does nothing and says so. \(autoplayNote)"
     }
 }

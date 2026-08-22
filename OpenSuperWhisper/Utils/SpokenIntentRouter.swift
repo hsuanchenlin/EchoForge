@@ -388,20 +388,39 @@ enum SpokenIntentGrammar {
     /// both cases the real constraint is the one that follows: what comes after
     /// the marker has to be a keyword this user stored, or the words stay
     /// dictation.
-    /// "Open the latest YouTube video from [channel]" - and its Chinese
-    /// equivalents.
+    /// "Open the latest YouTube video from [channel]" and "open the YouTube
+    /// channel [channel]" - and their Chinese equivalents.
     ///
-    /// Longest first, so "open the latest YouTube video from" is not read as
-    /// "open the latest YouTube video" followed by a channel called "from".
+    /// Two families, and the second one is why this table is not only about
+    /// videos. A user names the thing they have in mind, and that is as easily
+    /// the **channel** as the video: "open YouTube channel Valley 101" was said
+    /// into the command key four times running and refused every time as an
+    /// unknown channel - because with no marker matched the whole sentence
+    /// becomes the spoken name, and no allowlist has a row called "open youtube
+    /// channel valley 101". The refusal then names the allowlist, which was the
+    /// one thing that was right. Both families ask this app for the same thing,
+    /// so both are listed.
+    ///
+    /// Longest first within each family, so "open the latest YouTube video from"
+    /// is not read as "open the latest YouTube video" followed by a channel
+    /// called "from", and "open the YouTube channel" is not read as "open"
+    /// followed by one called "the YouTube channel". No marker here is a prefix
+    /// of another, which is what lets the families sit in separate blocks.
     ///
     /// Every spelling names YouTube. That is not decoration: it is what keeps
     /// this grammar from reaching a sentence anyone would dictate, and it is why
     /// this is the one command whose failures are reported instead of falling
-    /// back to dictation. The English forms end in "from" and take a space or
-    /// punctuation behind it; the Chinese ones need no delimiter, for the reason
-    /// every CJK marker here does not - a Mandarin transcript has no space to
-    /// require - and are matched with whitespace ignored, since an engine may
-    /// write "打開 YouTube 最新影片" or "打開YouTube最新影片" for the same words.
+    /// back to dictation. The English forms end in "from" or in "channel" and
+    /// take a space or punctuation behind it; the Chinese ones need no
+    /// delimiter, for the reason every CJK marker here does not - a Mandarin
+    /// transcript has no space to require - and are matched with whitespace
+    /// ignored, since an engine may write "打開 YouTube 最新影片" or
+    /// "打開YouTube最新影片" for the same words.
+    ///
+    /// Widening the *marker* is not widening the *match*: what follows still has
+    /// to be one stored spelling in full, through the same two tiers
+    /// (`YouTubeChannelAllowlist.resolve`), so "open YouTube channel Valley"
+    /// and "open YouTube channel Bali 101" reach nothing, exactly as they did.
     ///
     /// Every CJK spelling is listed in both scripts, closed under ICU's
     /// per-character conversion - which is why 啓 stands beside 啟 and 視頻
@@ -435,6 +454,19 @@ enum SpokenIntentGrammar {
         SpokenIntentMarker(text: "播放YouTube最新影片", delimiter: .none),
         SpokenIntentMarker(text: "播放YouTube最新视频", delimiter: .none),
         SpokenIntentMarker(text: "播放YouTube最新視頻", delimiter: .none),
+        // The channel family. Same command, same answer - the newest video from
+        // the named channel - said as the channel rather than as the video.
+        SpokenIntentMarker(text: "open the youtube channel", delimiter: .punctuationOrSpace),
+        SpokenIntentMarker(text: "play the youtube channel", delimiter: .punctuationOrSpace),
+        SpokenIntentMarker(text: "open youtube channel", delimiter: .punctuationOrSpace),
+        SpokenIntentMarker(text: "play youtube channel", delimiter: .punctuationOrSpace),
+        SpokenIntentMarker(text: "打開YouTube頻道", delimiter: .none),
+        SpokenIntentMarker(text: "打开YouTube频道", delimiter: .none),
+        SpokenIntentMarker(text: "開啟YouTube頻道", delimiter: .none),
+        SpokenIntentMarker(text: "開啓YouTube頻道", delimiter: .none),
+        SpokenIntentMarker(text: "开启YouTube频道", delimiter: .none),
+        SpokenIntentMarker(text: "播放YouTube頻道", delimiter: .none),
+        SpokenIntentMarker(text: "播放YouTube频道", delimiter: .none),
     ]
 
     static let snippetMarkers: [SpokenIntentMarker] = [
