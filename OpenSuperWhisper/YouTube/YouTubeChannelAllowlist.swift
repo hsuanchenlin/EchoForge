@@ -1,5 +1,38 @@
 import Foundation
 
+/// How a spoken phrase came to name one of the user's channels.
+///
+/// Carried on the resolution rather than thrown away, because the last of the
+/// three is the one thing in this feature a model touches and the user is told
+/// when it did - the same disclosure rule `StyleRewriteAvailability.cloudProvider`
+/// follows for text that leaves the Mac. The first two are pure string
+/// comparison and need no announcement.
+enum YouTubeChannelMatchSource: Equatable, Sendable {
+    /// A stored spelling, matched as `YouTubeChannelAlias.normalize` writes it.
+    case spokenName
+    /// The same spelling with its internal spaces folded away: "valley 101" for
+    /// a stored `valley101`, or "小 Lin 說" for a stored `小Lin說`. Still an
+    /// exact match of one stored name - only the spacing a speech engine
+    /// invented is ignored.
+    case spacing
+    /// The on-device model picked this row out of the user's own list, after
+    /// both deterministic tiers came back unknown or ambiguous. `spoken` is what
+    /// it was given, so a surface can quote it back.
+    case model(spoken: String)
+
+    /// Whether a model was asked. Read by the surfaces that disclose it.
+    var usedModel: Bool {
+        if case .model = self { return true }
+        return false
+    }
+
+    /// The sentence disclosing a model match, or nil when nothing was asked.
+    var disclosure: String? {
+        guard case .model(let spoken) = self else { return nil }
+        return "“\(spoken)” is not one of your stored spellings; the on-device model matched it to this channel."
+    }
+}
+
 /// What a spoken channel name turned out to be.
 ///
 /// The two failures are separate cases rather than one, because the user does
@@ -9,19 +42,29 @@ import Foundation
 /// this whole feature is arranged around: a command that cannot be carried out
 /// exactly as spoken is a command that is not carried out at all.
 enum YouTubeChannelResolution: Equatable, Sendable {
-    case allowlisted(YouTubeChannel)
+    case allowlisted(YouTubeChannel, matchedBy: YouTubeChannelMatchSource)
     /// No enabled, valid row answers to this name.
     case unknown(spoken: String)
     /// More than one does. The display names are carried so the message can name
     /// them, which is the only thing that makes it fixable.
     case ambiguous(spoken: String, matches: [String])
+    /// The command itself is switched off, so there is no list to look in.
+    ///
+    /// Its own case rather than `unknown`, because the answer is different: an
+    /// unknown name needs a row adding and this needs a switch turning on, and
+    /// sending somebody to add a channel to a feature that is off would be the
+    /// app misdirecting them. Reachable only by pressing the command hotkey
+    /// while the feature is off - the key stays bound so that press can say what
+    /// is wrong rather than doing nothing at all.
+    case disabled(spoken: String)
 
     /// What the user said, in every case, so a message can quote it back.
     var spokenName: String {
         switch self {
-        case .allowlisted(let channel): return channel.displayName
+        case .allowlisted(let channel, _): return channel.displayName
         case .unknown(let spoken): return spoken
         case .ambiguous(let spoken, _): return spoken
+        case .disabled(let spoken): return spoken
         }
     }
 }
@@ -43,33 +86,61 @@ struct YouTubeChannelAllowlist: Equatable, Sendable {
 
     var isEmpty: Bool { channels.isEmpty }
 
+    /// The channels a command may reach: enabled, and complete enough to fetch.
+    var reachable: [YouTubeChannel] {
+        channels.filter { $0.isEnabled && $0.isValid }
+    }
+
     /// Resolves what the user said after the marker.
     ///
-    /// The whole remainder has to name one channel: nothing partial matches and
-    /// nothing is stemmed, so "Veritasium please" names no channel and
-    /// "Veritasium" names one. That is the same rule a voice snippet trigger
-    /// follows, and for the same reason - a near-miss that opened *something*
-    /// would be the app choosing a channel the user did not.
+    /// Two deterministic tiers, tried in order, and a spoken name has to match
+    /// one stored name **in full** in whichever tier answers - nothing is
+    /// stemmed, nothing truncated, nothing partial. A near miss that opened
+    /// *something* would be the app choosing a channel the user did not.
+    ///
+    /// 1. The stored spelling as `YouTubeChannelAlias.normalize` writes it:
+    ///    case, edge punctuation, doubled-up whitespace and Traditional against
+    ///    Simplified script folded away, because a speech engine varies all of
+    ///    them on its own.
+    /// 2. The same comparison with **internal spaces folded away too**, so a
+    ///    stored `valley101` answers to "valley 101" and a stored `小Lin說` to
+    ///    "小 Lin 說". Where a space falls inside a name is the speech engine's
+    ///    guess rather than the user's word, and it is the one thing a user
+    ///    cannot dictate deliberately - which is what makes this tier safe where
+    ///    stemming would not be. It is still a whole-name match against one
+    ///    stored row: "valley" reaches nothing, and neither does "valley 1012".
+    ///
+    /// Ambiguity is detected in each tier separately and separately refused, so
+    /// widening the comparison can never quietly pick a winner. Two rows that
+    /// share a spoken name exactly are refused at tier 1 as they always were;
+    /// two rows that differ only in spacing - `valley101` and `valley 101` -
+    /// each still resolve from their own exact spelling at tier 1, and only a
+    /// third spelling that matches both compactly is refused as ambiguous.
     func resolve(spokenName: String) -> YouTubeChannelResolution {
         let spoken = spokenName.trimmingCharacters(in: .whitespacesAndNewlines)
         let key = YouTubeChannelAlias.normalize(spoken)
         guard !key.isEmpty else { return .unknown(spoken: spoken) }
+        let reachable = self.reachable
 
-        let matches = channels.filter { channel in
-            channel.isEnabled && channel.isValid && channel.spokenKeys.contains(key)
-        }
-
-        switch matches.count {
-        case 0:
-            return .unknown(spoken: spoken)
-        case 1:
-            return .allowlisted(matches[0])
-        default:
+        let named = reachable.filter { $0.spokenKeys.contains(key) }
+        if named.count == 1 { return .allowlisted(named[0], matchedBy: .spokenName) }
+        if named.count > 1 {
             // Two rows sharing a spoken name is refused when Settings saves, so
             // reaching here means a list that was edited before that check
             // existed or written by hand. Refusing beats picking the first: the
             // user's own list is the only thing that says which they meant.
-            return .ambiguous(spoken: spoken, matches: matches.map(\.displayName))
+            return .ambiguous(spoken: spoken, matches: named.map(\.displayName))
+        }
+
+        let compactKey = YouTubeChannelAlias.compact(key)
+        let spaced = reachable.filter { $0.compactSpokenKeys.contains(compactKey) }
+        switch spaced.count {
+        case 0:
+            return .unknown(spoken: spoken)
+        case 1:
+            return .allowlisted(spaced[0], matchedBy: .spacing)
+        default:
+            return .ambiguous(spoken: spoken, matches: spaced.map(\.displayName))
         }
     }
 }

@@ -189,17 +189,34 @@ final class AppPreferences {
     @UserDefault(key: "voiceSnippetsEnabled", defaultValue: true)
     var voiceSnippetsEnabled: Bool
 
-    /// Whether "open the latest YouTube video from …" opens a video from one of
-    /// the channels the user allowlisted.
+    /// Whether the YouTube command shortcut opens a video from one of the
+    /// channels the user allowlisted.
     ///
-    /// On by default for the same reason `voiceSnippetsEnabled` is, and with the
-    /// same effect on a default install: nothing here can happen until
-    /// `spokenIntentsEnabled` is switched on, and even then a fresh install has
-    /// an empty allowlist and therefore no channel any command can reach. The
-    /// switch exists so this family can be turned off without also turning off
-    /// Ask and Translate. See `docs/youtube-latest-video.md`.
+    /// On by default, and that is not a change to anyone's dictation: the
+    /// command has a key of its own and no wording of a dictation can reach it,
+    /// so on a fresh install this switch governs a key nobody has pressed
+    /// against an empty allowlist. Independent of `spokenIntentsEnabled` - that
+    /// one is about reading dictations, and this is not one.
+    ///
+    /// The key stays bound while this is off, so a press says the feature is
+    /// switched off rather than doing nothing at all
+    /// (`YouTubeChannelResolution.disabled`). See `docs/youtube-latest-video.md`.
     @UserDefault(key: "youTubeLatestVideoEnabled", defaultValue: true)
     var youTubeLatestVideoEnabled: Bool
+
+    /// Whether a spoken channel name neither deterministic tier could place is
+    /// handed to the on-device model to pick from the user's own allowlist.
+    ///
+    /// **Off by default**, and that is the privacy default rather than a taste:
+    /// with it off, nothing about a spoken command ever reaches a model, exactly
+    /// as before it existed. On, the model is asked one question - which of
+    /// these saved names did they say - and its only possible answers are a row
+    /// already in the list or nothing at all. It never leaves the Mac
+    /// (`OnDeviceModelFeature.channelMatching` has no cloud feature), and the
+    /// Settings pane beside the switch says all of this before it is pressed.
+    /// See `YouTubeChannelModelMatch` and `docs/youtube-latest-video.md`.
+    @UserDefault(key: "youTubeChannelModelMatchEnabled", defaultValue: false)
+    var youTubeChannelModelMatchEnabled: Bool
 
     // MARK: - Cloud
 

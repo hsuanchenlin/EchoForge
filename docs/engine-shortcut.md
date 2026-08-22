@@ -9,10 +9,10 @@ make constantly and mid-sentence: this recording is Mandarin, that one is Englis
 this one is worth sending to a provider and the next one is not. The shortcut is
 the Models pane's picker without the trip.
 
-Configurable like the other three hotkeys, in Settings → Shortcuts → Switch
-Engine. ⌥M is the default because it is free alongside ⌥` (record), ⌥A (Ask) and
-⌥S (ask about the screen) - `EngineSwitcherTests` fails if a later default
-collides.
+Configurable like the other hotkeys, in Settings → Shortcuts → Switch
+Engine. ⌥M is the default because it is free alongside ⌥` (record), ⌥A (Ask),
+⌥S (ask about the screen) and ⌥Y (the YouTube command) -
+`EngineSwitcherTests` fails if a later default collides.
 
 ## Where a user finds it
 

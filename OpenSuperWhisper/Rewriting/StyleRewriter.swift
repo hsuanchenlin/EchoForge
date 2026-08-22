@@ -155,7 +155,7 @@ enum StyleRewriteAvailability: Equatable, Sendable {
     }
 }
 
-/// Which of the three things this app asks the on-device model to do.
+/// Which of the things this app asks the on-device model to do.
 ///
 /// It exists only so an availability sentence names the right one. All of them
 /// run on the same model, so anything that decides *whether* they can run is
@@ -164,12 +164,19 @@ enum OnDeviceModelFeature: Equatable, Sendable {
     case rewriting
     case ask
     case translation
+    /// Picking one already-allowlisted YouTube channel out of the user's own
+    /// list, when neither deterministic tier could. It is the narrowest of these
+    /// by a long way - the model sees a spoken phrase and a list of names the
+    /// user typed themselves, and the only thing its answer can become is a row
+    /// that was already there. See `YouTubeChannelModelMatch`.
+    case channelMatching
 
     var name: String {
         switch self {
         case .rewriting: return "Rewriting"
         case .ask: return "The Ask panel"
         case .translation: return "Translation"
+        case .channelMatching: return "Channel name matching"
         }
     }
 
@@ -178,6 +185,7 @@ enum OnDeviceModelFeature: Equatable, Sendable {
         case .rewriting: return "rewriting"
         case .ask: return "the Ask panel"
         case .translation: return "translation"
+        case .channelMatching: return "channel name matching"
         }
     }
 
@@ -193,7 +201,7 @@ enum OnDeviceModelFeature: Equatable, Sendable {
     var cloudFeature: CloudFeature? {
         switch self {
         case .translation: return .translation
-        case .rewriting, .ask: return nil
+        case .rewriting, .ask, .channelMatching: return nil
         }
     }
 
@@ -204,6 +212,8 @@ enum OnDeviceModelFeature: Equatable, Sendable {
         case .rewriting: return "Dictation and the dictionary are unaffected."
         case .ask: return "Dictation is unaffected."
         case .translation: return "Dictation is unaffected."
+        case .channelMatching:
+            return "Dictation and the channel names you stored are unaffected."
         }
     }
 }
@@ -222,8 +232,10 @@ enum StyleRewriterFactory {
     /// `CloudFeature.translation` - and that is deliberately the only one.
     /// Rewriting replaces the user's words in every dictation whether or not they
     /// were thinking about it; the Ask panel and screen queries carry whatever is
-    /// on screen. Translation is the one the user asks for by name, one dictation
-    /// at a time, which is why it is the one with a cloud option.
+    /// on screen; channel name matching is a lookup in the user's own list that
+    /// has no business leaving the Mac at all. Translation is the one the user
+    /// asks for by name, one dictation at a time, which is why it is the one
+    /// with a cloud option.
     /// `docs/cloud-api.md` records that reasoning; `CloudPrivacyTests`
     /// pins it, so a later edit that offers a second one has to change a test
     /// that says why it should not.

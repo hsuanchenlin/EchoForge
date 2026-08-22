@@ -32,44 +32,90 @@ final class SpokenIntentPipelineTests: IsolatedPreferencesTestCase {
         XCTAssertTrue(Settings(routesSpokenIntents: true).routesSpokenIntents)
         XCTAssertFalse(Settings().routesSpokenIntents)
         XCTAssertFalse(Settings(routesSpokenIntents: false).routesSpokenIntents)
+        // The dictation path can never reach a channel, however it is
+        // configured: only the command hotkey passes `.youTubeCommand`.
+        AppPreferences.shared.youTubeLatestVideoEnabled = true
+        XCTAssertNil(Settings(routesSpokenIntents: true).youTubeChannels)
+        XCTAssertNil(Settings().youTubeChannels)
+        XCTAssertNotNil(Settings(purpose: .youTubeCommand).youTubeChannels)
     }
 
     // MARK: - What the pipeline does with each reading
 
-    func testAYouTubeCommandIsMarkedAndInsertsNothing() async throws {
-        AppPreferences.shared.spokenIntentsEnabled = true
+    func testACommandCaptureNamesAChannelAndInsertsNothing() async throws {
         let channel = YouTubeChannel(
             displayName: "Veritasium", channelID: "UCHnyfMqiRRG1u-2MsSQLbXA"
         )
         try YouTubeChannelStore().upsert(channel)
 
         let styled = await SpokenIntentPipeline.apply(
-            to: processed("Open the latest YouTube video from Veritasium"),
-            settings: Settings(routesSpokenIntents: true)
+            to: processed("Veritasium"),
+            settings: Settings(purpose: .youTubeCommand)
         )
 
-        XCTAssertEqual(styled.intent, .openLatestVideo(.allowlisted(channel)))
-        // The words were an instruction, so nothing goes into whatever the user
-        // was typing in - the same rule a spoken question follows.
+        XCTAssertEqual(
+            styled.intent, .openLatestVideo(.allowlisted(channel, matchedBy: .spokenName))
+        )
+        // A command capture never had any text to insert.
         XCTAssertFalse(styled.intent.insertsText)
         // History still keeps what was said.
-        XCTAssertEqual(styled.raw, "Open the latest YouTube video from Veritasium")
+        XCTAssertEqual(styled.raw, "Veritasium")
     }
 
-    func testTheSameWordsAreDictationWithTheYouTubeCommandSwitchedOff() async throws {
+    /// The whole separation, asserted at the stage that would otherwise blur it:
+    /// the same words, captured by the dictation key, are text. Spoken commands
+    /// are on and the channel is stored, and it is still text.
+    func testTheSameWordsFromTheDictationKeyAreTextAndOpenNothing() async throws {
         AppPreferences.shared.spokenIntentsEnabled = true
+        try YouTubeChannelStore().upsert(
+            YouTubeChannel(displayName: "Veritasium", channelID: "UCHnyfMqiRRG1u-2MsSQLbXA")
+        )
+
+        for said in ["Veritasium", "Open the latest YouTube video from Veritasium"] {
+            let styled = await SpokenIntentPipeline.apply(
+                to: processed(said),
+                settings: Settings(routesSpokenIntents: true)
+            )
+            XCTAssertEqual(styled.intent, .dictation, "expected “\(said)” to be dictation")
+            XCTAssertTrue(styled.intent.insertsText)
+            XCTAssertEqual(styled.final, said)
+        }
+    }
+
+    /// The key stays bound while the feature is off, so a press says what is
+    /// wrong instead of doing nothing at all - and it still opens nothing.
+    func testACommandCaptureWithTheFeatureOffIsRefusedRatherThanIgnored() async throws {
         AppPreferences.shared.youTubeLatestVideoEnabled = false
         try YouTubeChannelStore().upsert(
             YouTubeChannel(displayName: "Veritasium", channelID: "UCHnyfMqiRRG1u-2MsSQLbXA")
         )
 
         let styled = await SpokenIntentPipeline.apply(
-            to: processed("Open the latest YouTube video from Veritasium"),
-            settings: Settings(routesSpokenIntents: true)
+            to: processed("Veritasium"),
+            settings: Settings(purpose: .youTubeCommand)
         )
 
-        XCTAssertEqual(styled.intent, .dictation)
-        XCTAssertTrue(styled.intent.insertsText)
+        XCTAssertEqual(styled.intent, .openLatestVideo(.disabled(spoken: "Veritasium")))
+        XCTAssertFalse(styled.intent.insertsText)
+    }
+
+    /// A command capture is not a dictation and cannot become one: no style, no
+    /// question, no snippet, no translation, whatever the preferences say.
+    func testACommandCaptureRoutesNoOtherSpokenCommand() async {
+        AppPreferences.shared.spokenIntentsEnabled = true
+        AppPreferences.shared.voiceSnippetsEnabled = true
+
+        let settings = Settings(purpose: .youTubeCommand, routesSpokenIntents: true)
+        XCTAssertFalse(settings.routesSpokenIntents)
+        XCTAssertTrue(settings.voiceSnippets.isEmpty)
+
+        let styled = await SpokenIntentPipeline.apply(
+            to: processed("Ask: what is the capital of France?"), settings: settings
+        )
+        guard case .openLatestVideo = styled.intent else {
+            return XCTFail("a command capture produced \(styled.intent)")
+        }
+        XCTAssertFalse(styled.intent.insertsText)
     }
 
     func testAQuestionIsStrippedAndWithheldFromInsertion() async {

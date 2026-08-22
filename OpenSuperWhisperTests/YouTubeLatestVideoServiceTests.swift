@@ -105,9 +105,12 @@ final class YouTubeLatestVideoServiceTests: XCTestCase {
         let recorder = URLRecorder()
         let service = service(feed: .success(feedData()), opener: opener, recorder: recorder)
 
-        let report = await service.run(.allowlisted(channel))
+        let report = await service.run(.allowlisted(channel, matchedBy: .spokenName))
 
-        XCTAssertEqual(report, .opened(channel: "Veritasium", title: "The newest one"))
+        XCTAssertEqual(
+            report,
+            .opened(channel: "Veritasium", title: "The newest one", match: .spokenName)
+        )
         XCTAssertEqual(
             opener.openedURLs.map(\.absoluteString),
             ["https://www.youtube.com/watch?v=bbbbbbbbbbb"]
@@ -164,7 +167,7 @@ final class YouTubeLatestVideoServiceTests: XCTestCase {
         let service = service(feed: .success(feedData()), opener: opener, recorder: recorder)
         let broken = YouTubeChannel(displayName: "Broken", channelID: "@handle")
 
-        let report = await service.run(.allowlisted(broken))
+        let report = await service.run(.allowlisted(broken, matchedBy: .spokenName))
 
         XCTAssertFalse(report.didOpen)
         XCTAssertTrue(recorder.requested.isEmpty)
@@ -177,7 +180,7 @@ final class YouTubeLatestVideoServiceTests: XCTestCase {
         let opener = MockBrowserOpener()
         let service = service(feed: .failure(YouTubeFeedError.unreachable), opener: opener)
 
-        let report = await service.run(.allowlisted(channel))
+        let report = await service.run(.allowlisted(channel, matchedBy: .spokenName))
 
         XCTAssertEqual(
             report,
@@ -195,7 +198,7 @@ final class YouTubeLatestVideoServiceTests: XCTestCase {
             feed: .failure(URLError(.notConnectedToInternet)), opener: opener
         )
 
-        let report = await service.run(.allowlisted(channel))
+        let report = await service.run(.allowlisted(channel, matchedBy: .spokenName))
 
         guard case .refused(_, let short) = report else {
             return XCTFail("expected a refusal, got \(report)")
@@ -208,7 +211,7 @@ final class YouTubeLatestVideoServiceTests: XCTestCase {
         let opener = MockBrowserOpener()
         let service = service(feed: .failure(YouTubeFeedError.httpStatus(404)), opener: opener)
 
-        let report = await service.run(.allowlisted(channel))
+        let report = await service.run(.allowlisted(channel, matchedBy: .spokenName))
 
         guard case .refused(let message, _) = report else {
             return XCTFail("expected a refusal, got \(report)")
@@ -233,7 +236,7 @@ final class YouTubeLatestVideoServiceTests: XCTestCase {
         )
         let service = service(feed: .success(hostile), opener: opener)
 
-        let report = await service.run(.allowlisted(channel))
+        let report = await service.run(.allowlisted(channel, matchedBy: .spokenName))
 
         XCTAssertFalse(report.didOpen)
         // The whole point: a feed that named a page outside YouTube causes no
@@ -248,7 +251,7 @@ final class YouTubeLatestVideoServiceTests: XCTestCase {
         )
         let service = service(feed: .success(empty), opener: opener)
 
-        let report = await service.run(.allowlisted(channel))
+        let report = await service.run(.allowlisted(channel, matchedBy: .spokenName))
 
         guard case .refused(_, let short) = report else {
             return XCTFail("expected a refusal, got \(report)")
@@ -261,7 +264,7 @@ final class YouTubeLatestVideoServiceTests: XCTestCase {
         let opener = MockBrowserOpener(failure: .chromeNotInstalled)
         let service = service(feed: .success(feedData()), opener: opener)
 
-        let report = await service.run(.allowlisted(channel))
+        let report = await service.run(.allowlisted(channel, matchedBy: .spokenName))
 
         guard case .refused(let message, _) = report else {
             return XCTFail("expected a refusal, got \(report)")

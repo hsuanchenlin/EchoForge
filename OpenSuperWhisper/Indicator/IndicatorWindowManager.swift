@@ -22,11 +22,14 @@ class IndicatorWindowManager: IndicatorViewDelegate {
 
     /// Creates the view model without presenting the window, so recording can
     /// start immediately while the caret position is being resolved.
-    func prepare() -> IndicatorViewModel {
+    /// - Parameter purpose: what the key that started this session captures.
+    ///   Carried on the view model so the transcription it eventually runs is
+    ///   built for the right thing - see `DictationPurpose`.
+    func prepare(purpose: DictationPurpose = .dictation) -> IndicatorViewModel {
         NotificationCenter.default.post(name: .indicatorWindowWillShow, object: nil)
         KeyboardShortcuts.enable(.escape)
 
-        let newViewModel = IndicatorViewModel()
+        let newViewModel = IndicatorViewModel(purpose: purpose)
         newViewModel.delegate = self
         viewModel = newViewModel
         sessionUsesCapsule = CapsuleHUDWindowController.isEnabled

@@ -1,3 +1,4 @@
+import KeyboardShortcuts
 import SwiftUI
 
 /// Editing surface for the YouTube channel allowlist, shown under Dictionary &
@@ -16,10 +17,23 @@ final class YouTubeChannelsViewModel: ObservableObject {
         didSet { AppPreferences.shared.youTubeLatestVideoEnabled = youTubeLatestVideoEnabled }
     }
 
-    /// Whether spoken commands are on at all. The command rides on them, so a
-    /// pane that let the user build an allowlist without saying it can never
-    /// fire would be lying by omission - the same notice the snippets pane shows.
-    @Published private(set) var spokenIntentsEnabled: Bool
+    /// Whether a name neither deterministic tier could place may be handed to the
+    /// on-device model to pick from this list. Off by default; the hint beside
+    /// it says what the model is given and what it can answer.
+    @Published var channelModelMatchEnabled: Bool {
+        didSet {
+            AppPreferences.shared.youTubeChannelModelMatchEnabled = channelModelMatchEnabled
+        }
+    }
+
+    /// How the YouTube command key currently reads - "⌥Y" - or nil when the
+    /// user has cleared it, which leaves no way to use the feature at all.
+    ///
+    /// Read rather than written, the same rule `EngineShortcutHint` follows:
+    /// nothing in this pane may change a binding, and re-read whenever the pane
+    /// appears so changing the key in the Shortcuts tab and coming back here
+    /// cannot leave a stale sentence on screen.
+    @Published private(set) var commandShortcut: String?
 
     private let store: YouTubeChannelStore
 
@@ -27,7 +41,13 @@ final class YouTubeChannelsViewModel: ObservableObject {
         self.store = store
         self.channels = store.channels
         self.youTubeLatestVideoEnabled = AppPreferences.shared.youTubeLatestVideoEnabled
-        self.spokenIntentsEnabled = AppPreferences.shared.spokenIntentsEnabled
+        self.channelModelMatchEnabled = AppPreferences.shared.youTubeChannelModelMatchEnabled
+        self.commandShortcut = Self.boundShortcut()
+    }
+
+    @MainActor
+    private static func boundShortcut() -> String? {
+        KeyboardShortcuts.getShortcut(for: .youTubeCommand)?.description
     }
 
     var loadFailure: String? { store.loadFailure }
@@ -35,7 +55,8 @@ final class YouTubeChannelsViewModel: ObservableObject {
 
     func refresh() {
         channels = store.channels
-        spokenIntentsEnabled = AppPreferences.shared.spokenIntentsEnabled
+        commandShortcut = Self.boundShortcut()
+        channelModelMatchEnabled = AppPreferences.shared.youTubeChannelModelMatchEnabled
     }
 
     func upsert(_ channel: YouTubeChannel) {
@@ -90,9 +111,11 @@ struct YouTubeChannelsSettingsView: View {
             if let saveError = viewModel.saveError {
                 warning(saveError)
             }
-            if !viewModel.spokenIntentsEnabled {
-                warning(YouTubeChannelHelpText.spokenCommandsOffNotice)
-            }
+            // How the command is invoked, said before anything about the list.
+            // It is its own key, and the sentence also says what the dictation
+            // key still does - which is the distinction the whole feature rests
+            // on and the one a user is most likely to have wrong.
+            shortcutHint
 
             if viewModel.channels.isEmpty {
                 emptyState
@@ -103,6 +126,8 @@ struct YouTubeChannelsSettingsView: View {
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            modelMatchSection
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -201,6 +226,58 @@ struct YouTubeChannelsSettingsView: View {
         )
         .opacity(viewModel.youTubeLatestVideoEnabled ? 1 : 0.5)
         .accessibilityLabel("Allowlisted YouTube channels")
+    }
+
+    /// The command's own key, named from the binding actually in force.
+    private var shortcutHint: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "keyboard")
+                .foregroundColor(viewModel.commandShortcut == nil ? .orange : .accentColor)
+            Text(YouTubeChannelHelpText.shortcutWorkflow(shortcut: viewModel.commandShortcut))
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.controlBackgroundColor).opacity(0.5))
+        .cornerRadius(8)
+        .accessibilityElement(children: .combine)
+    }
+
+    /// The one setting in this pane that can put a model in the path, with the
+    /// disclosure that has to travel with it.
+    ///
+    /// Shaped as a title-plus-switch row rather than a checkbox, which is what
+    /// every other setting row in Settings looks like - and what a `.checkbox`
+    /// toggle cannot be made to look like: its AppKit label ignores `.font`, so
+    /// it draws at body size beside `.subheadline` titles everywhere else.
+    private var modelMatchSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+                .padding(.top, 2)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(YouTubeChannelHelpText.modelMatchToggleTitle)
+                        .font(.subheadline)
+                    Text(YouTubeChannelHelpText.modelMatchHint)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 12)
+                Toggle("", isOn: $viewModel.channelModelMatchEnabled)
+                    .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
+                    .labelsHidden()
+                    .disabled(!viewModel.youTubeLatestVideoEnabled)
+                    .accessibilityLabel(YouTubeChannelHelpText.modelMatchToggleTitle)
+            }
+            Text(YouTubeChannelHelpText.modelMatchDisclosure)
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .opacity(viewModel.youTubeLatestVideoEnabled ? 1 : 0.5)
     }
 
     private var emptyState: some View {

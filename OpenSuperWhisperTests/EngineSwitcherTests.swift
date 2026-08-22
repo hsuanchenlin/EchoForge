@@ -45,7 +45,7 @@ final class EngineSwitcherTests: IsolatedPreferencesTestCase {
 
     // MARK: - The default shortcut
 
-    /// ⌥M, and free: a default that collided with one of the other three would
+    /// ⌥M, and free: a default that collided with one of the other four would
     /// silently take one of them away on every existing install.
     func testTheDefaultShortcutIsFreeAlongsideTheOthers() {
         let defaults: [KeyboardShortcuts.Shortcut?] = [
@@ -53,6 +53,7 @@ final class EngineSwitcherTests: IsolatedPreferencesTestCase {
             KeyboardShortcuts.Name.askPanel.defaultShortcut,
             KeyboardShortcuts.Name.askAboutScreen.defaultShortcut,
             KeyboardShortcuts.Name.cycleEngine.defaultShortcut,
+            KeyboardShortcuts.Name.youTubeCommand.defaultShortcut,
         ]
 
         XCTAssertEqual(

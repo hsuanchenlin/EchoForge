@@ -100,8 +100,12 @@ The chip names what is about to happen to the words: `Dictate`, the style the
 transcript is about to be rewritten into (`Polish`, `Formal`, `Bullets`, …), or
 - once the words exist - the spoken command they turned out to be (`Ask`,
 `Translate Spanish`, `Snippet: email signoff` - or plain `Snippet` past the
-trigger-length cap `docs/voice-snippets.md` explains - and `YouTube:
-Veritasium`, or plain `YouTube` past the same cap). Style labels are
+trigger-length cap `docs/voice-snippets.md` explains). A session the YouTube
+command key started (`docs/youtube-latest-video.md`) is chipped `YouTube` from
+`beginSession` on - the key already said what the words are for, so the chip
+never promises a rewrite - and the channel the user named joins it during the
+decode (`YouTube: Veritasium`, or plain `YouTube` past the same
+trigger-length cap). Style labels are
 `StyleRewriteStyle.shortName` and language names come from `LanguageUtil`,
 because those files own every user-facing word about a style and a language,
 and a surface that shortens `name` itself is a second copy that drifts.

@@ -1,23 +1,50 @@
 # Opening a channel's latest video by voice
 
-One spoken command: **"open the latest YouTube video from Veritasium"** opens
-that channel's newest video in a new Chrome tab. It reaches exactly the channels
-the user typed into Settings themselves and can reach nothing else.
+One shortcut of its own - **⌥Y by default** - records a command and nothing
+else: hold it, say **"Veritasium"** (or the whole sentence, "open the latest
+YouTube video from Veritasium"), let go, and that channel's newest video opens in
+a new Chrome tab. It reaches exactly the channels the user typed into Settings
+themselves and can reach nothing else.
 
-It rides on spoken commands, which are off by default
-(`Settings → Shortcuts → Ask & Spoken Commands → Spoken commands`), and has its
-own switch beside the channel list in `Settings → Dictionary & Snippets →
-YouTube Channels`. `docs/spoken-intents.md` is the router's own story; this file
-is the command's.
+The list lives in `Settings → Dictionary & Snippets → YouTube Channels`, with the
+feature's own switch beside it; the key is bound in `Settings → Shortcuts →
+YouTube Command`.
+
+## Two keys, and why
+
+This used to ride on the dictation shortcut as a fourth spoken command, matched
+off a long marker phrase. It does not any more, and the separation is the
+feature's safety story rather than an ergonomic preference:
+
+- **The dictation key produces text and only text.** `SpokenIntentRouter` has no
+  case that opens anything - the enum literally does not have one - so no
+  transcript that key captured can reach a browser however it is worded. Saying
+  "open the latest YouTube video from Veritasium" into it types those words, the
+  way it did before this feature existed.
+- **The command key produces no text at all.** Its capture is read only as a
+  channel name (`YouTubeCommandRouter`), it never reaches the rewriting stage,
+  the Ask panel, the snippet expander or the translator, and there is no path
+  from it back into the user's document. `SpokenIntentOutcome.insertsText` is
+  false for it and `IndicatorViewModel` refuses to paste on that purpose besides.
+
+`DictationPurpose` is where that split is written down, and it is carried on
+`Settings` rather than read from preferences, so the decision belongs to the
+press that captured the words. Everything else in the app - a dropped file, a
+queued recording, a regenerate from history, the Ask panel's own follow-up - is
+`.dictation` and cannot become anything else.
+
+Because the key already says what the utterance is for, **the marker is
+optional**: saying the channel name on its own is the whole command. The marker
+is still accepted and stripped, in English and Chinese, so an existing habit
+keeps working.
 
 ## What it is not
 
 Everything this feature deliberately cannot do, because each one was a way it
 could have been built:
 
-- **No model decides anything.** The grammar is a table of prefixes in
-  `SpokenIntentGrammar.openLatestVideoMarkers`, matched by `SpokenIntentRouter`.
-  Nothing is classified, summarised or interpreted, on-device or in the cloud.
+- **No dictation can trigger it.** See above. This is the rule the whole shape
+  exists for, and `YouTubeCommandRouterTests` asserts it against every wording.
 - **No search and no handle resolution.** A channel is named by its canonical
   `UC…` id, which the user supplies. There is no step that asks YouTube who a
   spoken name means, so no spoken name can reach a channel that is not listed.
@@ -34,19 +61,35 @@ could have been built:
 - **No autoplay tricks.** Whether the video starts on its own, and whether it
   starts muted, is Chrome's autoplay policy and YouTube's. Nothing here tries to
   influence either, and the Settings pane says so.
+- **No model decides what happens.** One optional, off-by-default step lets the
+  on-device model *choose between rows the user already stored* - see the model
+  fallback below. It cannot produce anything that was not already in the list.
 
 ## The path
 
 ```
-transcript (deterministic stages already run)
+⌥Y pressed ──► IndicatorWindowManager.prepare(purpose: .youTubeCommand)
      │
      ▼
-SpokenIntentRouter                     marker table, pure string matching
-     │  names YouTube, ends in the channel the user said
-     ▼
-YouTubeChannelAllowlist.resolve        the user's own list, exact match
+recording, transcription, TextPostProcessor.process()   as any dictation
      │
-     ├── .unknown / .ambiguous ──────► nothing happens, and they are told
+     ▼
+SpokenIntentPipeline.apply()          purpose == .youTubeCommand leaves here
+     │                                before any dictation stage runs
+     ▼
+YouTubeCommandRouter.resolve          optional marker stripped, the rest is
+     │                                the channel name
+     ▼
+YouTubeChannelAllowlist.resolve       tier 1 exact, tier 2 spacing-insensitive
+     │
+     ├── .unknown / .ambiguous ─┐
+     │                          ▼
+     │            YouTubeChannelModelMatch.refine    off by default; may only
+     │                          │                    pick a row already listed
+     ├──────────────────────────┘
+     │
+     ├── still .unknown / .ambiguous / .disabled ──► nothing happens, and they
+     │                                               are told why
      ▼
 YouTubeFeedEndpoint.url                https://www.youtube.com/feeds/videos.xml
      │                                 ?channel_id=UC…
@@ -60,30 +103,78 @@ YouTubeVideoURL.validate               HTTPS, allow-listed host, video id
 ChromeBrowserOpener.openInNewTab       one URL, handed to Chrome
 ```
 
+## Matching a spoken name
+
+`YouTubeChannelAllowlist.resolve` is a pure function over the user's list, and it
+answers in two deterministic tiers before anything else is considered. A spoken
+name has to match one stored name **in full** in whichever tier answers: nothing
+is stemmed, nothing truncated, nothing partial.
+
+1. **The stored spelling**, as `YouTubeChannelAlias.normalize` writes it: case,
+   edge punctuation, doubled-up whitespace and Traditional against Simplified
+   script folded away, because a speech engine varies all of them on its own.
+2. **The same comparison with internal spaces folded away too**
+   (`YouTubeChannelAlias.compact`), so a stored `valley101` answers to
+   "valley 101" and a stored `小Lin說` to "小 Lin 說". Where a space falls inside
+   a name is the one variation a speaker cannot control - they say "valley one oh
+   one" and the engine writes it one way today and the other tomorrow - which is
+   what makes this safe where stemming would not be. `valley`, `valley 10` and
+   `valley 1012` still reach nothing.
+
+**Ambiguity is detected in each tier separately and separately refused**, so
+widening the comparison can never quietly pick a winner. Two rows sharing a
+spoken name exactly are refused at tier 1 as they always were; two rows differing
+only in spacing - `valley101` and `valley 101` - each still resolve from their
+own exact spelling at tier 1, so Settings has no reason to refuse the pair, and
+only a third spelling matching both compactly is refused as ambiguous.
+
+The resolution carries **how** it was matched (`YouTubeChannelMatchSource`),
+which is what lets the one case a model took part in say so out loud.
+
+## The model fallback
+
+`YouTubeChannelModelMatch` is the last resort when both tiers came back unknown
+or ambiguous. It is **off by default** (`youTubeChannelModelMatchEnabled`), and
+the Settings pane says what it does before it is switched on.
+
+- **It runs last and only on a failure.** A resolved channel is never re-asked,
+  so a user whose spellings match pays nothing and waits for nothing.
+- **The model is a chooser, never a resolver.** It is given the spoken phrase
+  (fenced as content in `StyleRewritePrompt`'s delimiters, the way a transcript
+  is) and a numbered list of the display names and aliases already stored -
+  **no channel ids, no URLs, no hosts**, which `YouTubeChannelModelMatchTests`
+  asserts against the prompt. Its answer is looked up in that same candidate
+  list, so a name it invented, a `UC…` id, a URL or an instruction matches
+  nothing. There is no code path from its answer to a value that was not already
+  in the list.
+- **It fails closed.** No model on this Mac, Apple Intelligence off, the model
+  still downloading, a timeout, an error, an answer that is not a candidate, an
+  answer two candidates answer to, a list longer than `maximumCandidates`, an
+  utterance longer than `maximumSpokenCharacters` - every one of them leaves the
+  original resolution untouched, which is the resolution that opens nothing and
+  tells the user why.
+- **It never leaves this Mac.** `OnDeviceModelFeature.channelMatching` returns
+  `nil` for `cloudFeature`, the same enforcement `docs/cloud-api.md` describes
+  for rewriting and the Ask panel. Translation remains the only feature with a
+  cloud path.
+- **It is disclosed when it is used.** `YouTubeChannelMatchSource.model` carries
+  the phrase it was given, and the opened report's sentence says the on-device
+  model made the match - in the log and in the VoiceOver announcement.
+
+Reading the answer (`interpret`) is deliberately strict: a 1-based index, or
+`NONE`, or one candidate's own stored spelling. Anything with a sentence around
+it is refused. The index is read off the raw answer rather than the name key,
+because that key folds edge punctuation and would turn `-1` into `1`.
+
 ## The grammar
 
-| Said | Becomes |
+| Said into ⌥Y | Becomes |
 | --- | --- |
-| `Open the latest YouTube video from [channel]` (also `newest`, `play`, `open latest`, `open YouTube latest video from`) | `.openLatestVideo(resolution)` |
-| `打開YouTube最新影片[頻道]` (also `打开…最新视频`, `播放…`, `開啟…`, with or without spaces) | `.openLatestVideo(resolution)` |
-| anything else | `.dictate` - the transcript, byte for byte |
-
-Every spelling names YouTube, and that is load-bearing. It is what keeps the
-grammar away from sentences people actually dictate, and it is why this is the
-**one** command whose failures are reported rather than falling back to
-dictation: a transcript that opens "open the latest YouTube video from …" is not
-a sentence somebody was writing, so pasting it would be no better an answer than
-saying the channel is not in the list. "Open the latest video from Veritasium",
-with no `YouTube` in it, stays dictation.
-
-What follows the marker has to name one channel **in full** - the same rule a
-voice snippet trigger and a spoken language name follow. "Veritasium please"
-names no channel. Case, surrounding punctuation, doubled-up whitespace and
-Traditional against Simplified script are folded away
-(`YouTubeChannelAlias.normalize`), because a speech engine varies all of them on
-its own. Where a space falls inside a name is not: "小 Lin 說" does not match a
-stored "小Lin說", and an alias is how the user records the spelling their engine
-actually writes.
+| `[channel]` | that channel, if the list has exactly one answering to it |
+| `Open the latest YouTube video from [channel]` (also `newest`, `play`, `open latest`, `open YouTube latest video from`) | the same |
+| `打開YouTube最新影片[頻道]` (also `打开…最新视频`, `播放…`, `開啟…`, with or without spaces) | the same |
+| a marker with nothing behind it | nothing opens; the utterance is quoted back |
+| anything the list does not answer to | nothing opens; the user is told |
 
 The Chinese markers are matched with whitespace ignored on both sides, because a
 transcript writes "打開 YouTube 最新影片" or "打開YouTube最新影片" for the same
@@ -103,8 +194,11 @@ Settings refuses, locally and with a reason
 - an id that is not `UC` plus 22 characters of the URL-safe alphabet - a
   `@handle` is not a channel id, and this app has no way to turn one into one;
 - a second row with an id another row already has;
-- a spoken name - display name or alias - that another row already answers to,
-  since a name two rows answer to is a name neither can be opened by.
+- a spoken name - display name or alias - that another row already answers to
+  **exactly**, since a name two rows answer to at tier 1 is a name neither can be
+  opened by. Two rows that differ only in spacing are not refused: each keeps its
+  own exact spelling, and the pair only collides on a third spelling, which the
+  ambiguity rule handles.
 
 Aliases are trimmed and deduplicated on the way in, including against the
 display name. A pasted `youtube.com/channel/UC…` address is accepted in the id
@@ -126,6 +220,7 @@ the same division the engine and cloud failures make.
 
 | What happened | What the user is told |
 | --- | --- |
+| The feature is switched off | That it is off, and where to turn it on |
 | The channel is not in the list | Which name was heard, and where to add it |
 | Two rows answer to that name | Which rows, and to give them different names |
 | Offline, DNS, a timeout | The lookup did not happen; nothing was opened |
@@ -135,9 +230,11 @@ the same division the engine and cloud failures make.
 | Every entry pointed off YouTube | No video link, and nothing opened |
 | Chrome is not installed | To install it, or open the video themselves |
 
-The recording is stored in history either way, so the words survive whatever
-happened next. Nothing is ever inserted into the app the user was typing in: the
-transcript was an instruction, not text.
+The command key stays bound while the feature is off, so a press says what is
+wrong rather than doing nothing at all - which is the one answer a user cannot
+act on. The recording is stored in history either way, so the words survive
+whatever happened next. Nothing is ever inserted into the app the user was typing
+in: the transcript was an instruction, not text.
 
 ## Hostile feeds
 
@@ -169,11 +266,15 @@ same rule `UpdateManifest.isAllowedRedirectHost` applies to a download.
 
 ## Tests
 
-`SpokenIntentRouterYouTubeTests` (grammar, aliases, and everything that stays
-dictation), `YouTubeChannelAllowlistTests` (resolution and the validation
-refusals), `YouTubeChannelStoreTests` (what is stored, and the two switches in
-front of it), `YouTubeFeedParserTests` (newest-entry selection, empty, malformed
-and hostile feeds), `YouTubeVideoURLTests` (every URL that is refused) and
+`YouTubeCommandRouterTests` (the command grammar, the bare channel name, and -
+the half that matters more - that no wording of a dictation can become this
+command), `YouTubeChannelAllowlistTests` (both tiers, the ambiguity rules, the
+validation refusals and the Settings copy), `YouTubeChannelModelMatchTests`
+(every fail-closed path, what the prompt is allowed to contain, and the
+disclosure), `SpokenIntentPipelineTests` (which purpose can reach a channel at
+all), `YouTubeChannelStoreTests` (what is stored, and the switches in front of
+it), `YouTubeFeedParserTests` (newest-entry selection, empty, malformed and
+hostile feeds), `YouTubeVideoURLTests` (every URL that is refused) and
 `YouTubeLatestVideoServiceTests` (the whole command against a stub feed and a
 mock browser, including offline and a missing Chrome). None of them reach the
-network, and none of them open anything.
+network, none of them reach a model, and none of them open anything.

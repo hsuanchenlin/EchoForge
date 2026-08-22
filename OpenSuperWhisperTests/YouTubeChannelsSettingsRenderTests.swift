@@ -27,14 +27,28 @@ final class YouTubeChannelsSettingsRenderTests: IsolatedPreferencesTestCase {
     /// padding and the pane's.
     private static let paneWidth: CGFloat = SettingsSheetLayout.preferredSize.width - 64
 
-    /// Taller than the section draws, so nothing is cut off the render.
-    private static let canvasHeight: CGFloat = 520
+    /// Taller than the section draws, so nothing is cut off the render. The
+    /// section grew a shortcut sentence and a model-fallback disclosure, both of
+    /// which wrap.
+    private static let canvasHeight: CGFloat = 760
 
     @MainActor
     func testTheEmptyStateExplainsWhatTheListIsFor() throws {
         try assertRenders(
             named: "empty",
-            showing: ["No channels yet", "Chrome"]
+            // The shortcut sentence is on screen in every state: how the command
+            // is invoked is the thing a user is most likely to have wrong, and a
+            // pane that only explains it once there are rows explains it too
+            // late.
+            showing: ["No channels yet", "Chrome", "shortcut"]
+        )
+    }
+
+    @MainActor
+    func testThePaneShowsTheModelFallbackAndItsDisclosure() throws {
+        try assertRenders(
+            named: "model-fallback",
+            showing: ["on-device model", "Off by default"]
         )
     }
 

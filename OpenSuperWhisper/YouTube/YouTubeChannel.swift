@@ -80,6 +80,20 @@ struct YouTubeChannel: Codable, Identifiable, Equatable, Sendable {
         return keys
     }
 
+    /// The same names with their internal spaces folded away as well, which is
+    /// what `YouTubeChannelAllowlist.resolve` compares in its second tier. See
+    /// `YouTubeChannelAlias.compact` for why spacing - and only spacing - is
+    /// safe to fold.
+    var compactSpokenKeys: [String] {
+        var keys: [String] = []
+        for key in spokenKeys {
+            let compact = YouTubeChannelAlias.compact(key)
+            guard !compact.isEmpty, !keys.contains(compact) else { continue }
+            keys.append(compact)
+        }
+        return keys
+    }
+
     /// The row with its aliases tidied: trimmed, emptied of blanks, and free of
     /// two spellings that normalize to the same thing. Applied when Settings
     /// saves, so what is stored is what the matcher will actually use.
@@ -108,15 +122,35 @@ struct YouTubeChannel: Codable, Identifiable, Equatable, Sendable {
 /// for a different reason. What both fold away is what a speech engine varies on
 /// its own - case, the punctuation a pause becomes, doubled-up whitespace, and
 /// Traditional against Simplified script - and neither folds anything that could
-/// let one entry answer for another: nothing is stemmed, nothing truncated, a
-/// name spaced differently ("小 Lin 說" against "小Lin說") is a different name
-/// to record as an alias, and a spoken name has to match a stored one in full.
+/// let one entry answer for another: nothing is stemmed, nothing truncated, and
+/// a spoken name has to match a stored one in full.
+///
+/// Where a space falls *inside* a name is the one thing this function still
+/// keeps and `compact` folds, in a separate second tier of the lookup rather
+/// than here - see `compact` and `YouTubeChannelAllowlist.resolve`.
 enum YouTubeChannelAlias {
 
     private static let edgePunctuation: Set<Character> = [
         ":", "：", ",", "，", "、", ";", "；", ".", "。", "?", "？", "!", "！",
         "-", "–", "—", "\"", "'", "“", "”", "「", "」", "『", "』",
     ]
+
+    /// A normalized key with its internal spaces removed too.
+    ///
+    /// Where a space falls inside a channel name is the one variation a speaker
+    /// cannot control: they say "valley one oh one" and the engine writes
+    /// "valley101" or "valley 101" depending on the engine, the model and the
+    /// day. Folding it is therefore not the app guessing at what somebody meant,
+    /// which is the line `normalize` is written not to cross - nothing here is
+    /// stemmed, truncated or fuzzily compared, and a compact key still has to
+    /// equal a stored compact key in full.
+    ///
+    /// It is a **second tier** rather than a change to `normalize`, so an exact
+    /// stored spelling always wins and an ambiguity is caught in whichever tier
+    /// produced it. Apply it to an already-normalized key.
+    static func compact(_ key: String) -> String {
+        String(key.filter { !$0.isWhitespace })
+    }
 
     static func normalize(_ text: String) -> String {
         let folded = String(ChineseScriptFolding.fold(text.lowercased()))

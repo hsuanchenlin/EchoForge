@@ -865,16 +865,33 @@ struct Settings {
     /// regenerate from history cannot expand a macro.
     var voiceSnippets: [VoiceSnippet]
 
-    /// The YouTube channels this transcription may open a video from, or `nil`
-    /// when the command does not run on this path at all.
+    /// What this recording session was captured for. See `DictationPurpose`.
+    ///
+    /// It is the switch the whole pipeline turns on, and the two purposes have
+    /// no path into each other: a `.dictation` session can only produce text and
+    /// a `.youTubeCommand` session can only produce a channel to open.
+    var purpose: DictationPurpose
+
+    /// The YouTube channels this utterance may open a video from, or `nil` when
+    /// it may open none.
     ///
     /// `nil` and empty are deliberately different answers, which is why this is
-    /// not `[YouTubeChannel]` the way `voiceSnippets` is. `nil` means the words
-    /// are dictation whatever they say - a dropped file, a regenerate, the
-    /// feature switched off - while an empty allowlist means the user has the
-    /// command switched on and has allowlisted nothing yet, and a command they
-    /// say deserves to be told that rather than pasted into their document.
+    /// not `[YouTubeChannel]` the way `voiceSnippets` is. `nil` means no channel
+    /// is reachable at all - every `.dictation` session, and a command session
+    /// on an install where the feature is switched off - while an empty
+    /// allowlist means the command is on and nothing has been allowlisted yet,
+    /// which the user is told rather than left to guess at.
     var youTubeChannels: YouTubeChannelAllowlist?
+
+    /// Whether a spoken channel name the deterministic tiers could not place may
+    /// be handed to the on-device model to pick from `youTubeChannels`.
+    ///
+    /// Resolved here, alongside the list itself, so both switches in front of it
+    /// - the YouTube command and this one - are answered in one place and the
+    /// stage stays a pure function of what it is given. False on every path that
+    /// is not a command capture, so no dictation, dropped file or regenerate
+    /// from history can ever ask a model about a channel name.
+    var youTubeChannelModelMatch: Bool
 
     var isAsianLanguage: Bool {
         Settings.asianLanguages.contains(selectedLanguage)
@@ -893,15 +910,33 @@ struct Settings {
     ///     use.
     ///   - routesSpokenIntents: whether this path reads the transcript for a
     ///     spoken command. Only live dictation passes `true`; see the property.
-    init(dictationTarget: DictationTargetApp? = nil, routesSpokenIntents: Bool = false) {
+    ///   - purpose: what the session was captured for. `.dictation` - the
+    ///     default - is every path in the app but one: the YouTube command
+    ///     hotkey, which is the only caller that passes `.youTubeCommand`.
+    init(
+        purpose: DictationPurpose = .dictation,
+        dictationTarget: DictationTargetApp? = nil,
+        routesSpokenIntents: Bool = false
+    ) {
         let prefs = AppPreferences.shared
-        self.routesSpokenIntents = routesSpokenIntents && prefs.spokenIntentsEnabled
+        self.purpose = purpose
+        // A command capture is never dictation and never routes one: it cannot
+        // ask, translate or expand a snippet, because none of those end anywhere
+        // but the user's document and this utterance is not going there.
+        self.routesSpokenIntents =
+            purpose == .dictation && routesSpokenIntents && prefs.spokenIntentsEnabled
         self.voiceSnippets = (self.routesSpokenIntents && prefs.voiceSnippetsEnabled)
             ? VoiceSnippetStore.shared.activeSnippets
             : []
-        self.youTubeChannels = (self.routesSpokenIntents && prefs.youTubeLatestVideoEnabled)
+        // Only the command hotkey can reach a channel, and only while the
+        // feature is on. Dictation gets `nil` on every path and in every
+        // configuration, which is what makes "normal dictation never opens a
+        // browser" a property of the type rather than of the grammar.
+        self.youTubeChannels = (purpose == .youTubeCommand && prefs.youTubeLatestVideoEnabled)
             ? YouTubeChannelStore.shared.allowlist
             : nil
+        self.youTubeChannelModelMatch =
+            self.youTubeChannels != nil && prefs.youTubeChannelModelMatchEnabled
         self.selectedLanguage = prefs.whisperLanguage
         self.suppressBlankAudio = prefs.suppressBlankAudio
         self.showTimestamps = prefs.showTimestamps
@@ -1874,7 +1909,7 @@ struct SettingsView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Spoken commands")
                                     .font(.subheadline)
-                                Text("Start a dictation with \"Ask:\" to send it to the Ask panel, or \"Translate to Spanish:\" to translate it. Anything else is dictated as usual.")
+                                Text("Start a dictation with \"Ask:\" to send it to the Ask panel, or \"Translate to Spanish:\" to translate it. Anything else is dictated as usual. Opening a YouTube video is not one of these - it has its own key below, and no dictation can trigger it.")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -1886,6 +1921,42 @@ struct SettingsView: View {
                         }
 
                         Text("Both use the same on-device model as rewriting, so they need macOS 26 with Apple Intelligence. Nothing is sent anywhere.")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(.controlBackgroundColor).opacity(0.3))
+                .cornerRadius(12)
+
+                // The YouTube command. Its own section and its own key, and
+                // that separation is the feature's safety story rather than a
+                // layout choice: this key opens a browser, the dictation key
+                // types text, and nothing either one captures can do the
+                // other's job. See `docs/youtube-latest-video.md`.
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("YouTube Command")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(YouTubeChannelHelpText.shortcutName)
+                                    .font(.subheadline)
+                                Text("Hold it, name a channel you allowlisted, and let go: its newest video opens in Chrome. This key records a command and never types anything, and your dictation shortcut never opens a browser.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer()
+                            KeyboardShortcuts.Recorder("", name: .youTubeCommand)
+                                .frame(width: 150)
+                        }
+
+                        Text("The channels it can reach are the ones you list in Dictionary & Snippets → YouTube Channels, and it can reach nothing else. \(YouTubeChannelHelpText.autoplayNote)")
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)

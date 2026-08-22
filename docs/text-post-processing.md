@@ -29,8 +29,8 @@ SpokenIntentPipeline.apply()               SPOKEN-COMMAND ROUTING
         │                                  "Ask: …" goes to the Ask panel unpasted,
         │                                  "insert [trigger]" expands a voice snippet
         │                                  and skips the stage below entirely
-        │                                  "open the latest YouTube video from …"
-        │                                  opens it in Chrome, never pasted
+        │                                  a YouTube command capture (⌥Y, its own
+        │                                  key) leaves here before any of that
         │                                  see docs/spoken-intents.md,
         │                                  docs/voice-snippets.md,
         │                                  docs/youtube-latest-video.md
@@ -91,10 +91,11 @@ the cost of a prefix comparison. A live dictation that starts with a spoken
 command runs `TranslationRewrite` instead, inserts a stored voice snippet with
 no model consulted (`docs/voice-snippets.md`), or runs nothing at all for a
 question, which `StyledTranscript.intent` marks so the text goes to the Ask
-panel and is never pasted. An "open the latest YouTube video from …" command is
-likewise never pasted: the intent carries it to the caller, which opens the
-video in Chrome or says why it could not (`docs/youtube-latest-video.md`).
-`docs/spoken-intents.md` is the whole story.
+panel and is never pasted. A capture from the **YouTube command key** is not a
+dictation at all and leaves this stage before any of that runs: nothing is
+restyled and nothing is pasted, and the intent carries the channel to the caller,
+which opens the video in Chrome or says why it could not
+(`docs/youtube-latest-video.md`). `docs/spoken-intents.md` is the whole story.
 
 **Rewriting stage** (`StyleRewriteService.apply`) calls a language model and can
 change what the words mean - a power only it and its sibling

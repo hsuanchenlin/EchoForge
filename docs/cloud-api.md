@@ -19,12 +19,14 @@ an explicit acceptance of a sheet that says what will be uploaded and where.
 | Ask panel (⌥A) | On your Mac | — never offered a cloud option | `Ask/` |
 | Screen questions (⌥S) | On your Mac | — never offered a cloud option | `Vision/` |
 | Personal terms, CJK spacing, voice snippets | On your Mac | — no model involved at all | `Utils/`, `Models/` |
-| "Open the latest YouTube video from …" | **On** once you allowlist a channel | Nothing of yours: it asks YouTube for the public feed of the channel ID you typed in, with no cookies, no account and no model anywhere in it | `YouTube/` |
+| YouTube command (⌥Y) | **On** once you allowlist a channel | Nothing of yours: it asks YouTube for the public feed of the channel ID you typed in, with no cookies and no account | `YouTube/` |
+| YouTube channel name matching | Off; on your Mac when you turn it on | — never offered a cloud option. It sees only what you said and the channel names you typed in, never an ID or a URL | `YouTube/` |
 
 Nothing else is sent: no window titles, no bundle identifiers, no history, no
-telemetry, no usage counts. The YouTube row above is the one request in this app
-that is not a model call and not an update or model download: no transcript, no
-audio and nothing about you goes with it - see `docs/youtube-latest-video.md`. EchoForge has no server of its own and never proxies
+telemetry, no usage counts. The YouTube command's feed request is the one request
+in this app that is not a model call and not an update or model download: no
+transcript, no audio and nothing about you goes with it, and the channel-name
+matching beneath it never leaves your Mac - see `docs/youtube-latest-video.md`. EchoForge has no server of its own and never proxies
 anything - requests go from your Mac straight to the address in the base-URL
 field, and your key is sent to that address and nowhere else.
 
@@ -33,18 +35,21 @@ EchoForge's.** Retention, whether it trains a model, who can subpoena it: read
 the policy of whoever you configure. That sentence is in the consent sheet for
 the same reason it is here.
 
-### Why only translation, out of the three model features
+### Why only translation, out of the four model features
 
 Style rewriting runs on **every** dictation once it is on, whether or not you
 were thinking about it that time. The Ask panel and screen questions carry
-whatever happens to be on your screen. A translation is different in kind: you
-ask for it by name, one dictation at a time, by saying "Translate to Spanish".
-That is the one place where a per-use cloud call matches how the feature is
-actually used, so it is the only one offered.
+whatever happens to be on your screen. YouTube channel name matching is a lookup
+in a list you typed yourself, which has no business leaving your Mac at all. A
+translation is different in kind: you ask for it by name, one dictation at a
+time, by saying "Translate to Spanish". That is the one place where a per-use
+cloud call matches how the feature is actually used, so it is the only one
+offered.
 
 It is enforced in the type system rather than by convention:
-`OnDeviceModelFeature.cloudFeature` returns `nil` for rewriting and Ask, so
-neither has a reachable path to a provider. `CloudPrivacyTests` pins it.
+`OnDeviceModelFeature.cloudFeature` returns `nil` for rewriting, Ask and channel
+matching, so none of them has a reachable path to a provider.
+`CloudPrivacyTests` pins it.
 
 ---
 

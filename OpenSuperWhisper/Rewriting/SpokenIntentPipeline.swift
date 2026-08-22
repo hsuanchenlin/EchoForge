@@ -22,18 +22,20 @@ enum SpokenIntentOutcome: Equatable, Sendable {
     /// A voice snippet fired. Inserted like dictation; the keyword is carried so
     /// a surface can say which template went in.
     case snippet(keyword: String)
-    /// The words asked for a channel's latest video. **Nothing is inserted** -
-    /// like `.ask`, the transcript was an instruction rather than text - and the
-    /// resolution is carried so whoever runs the command can also report the two
-    /// ways the channel can fail to be one. See `YouTubeLatestVideoService`.
+    /// The utterance the YouTube command hotkey captured, and which channel the
+    /// allowlist made of it. **Nothing is inserted** - this session never had
+    /// any text to insert - and the resolution is carried so whoever runs the
+    /// command can also report the ways the channel can fail to be one.
+    /// Only a `.youTubeCommand` session can produce it. See
+    /// `YouTubeLatestVideoService` and `DictationPurpose`.
     case openLatestVideo(YouTubeChannelResolution)
 
     /// Whether the text goes into whatever the user was typing in.
     ///
-    /// False for the two outcomes that are instructions rather than text.
-    /// Pasting "open the latest YouTube video from Veritasium" into the document
-    /// the user was writing would be the app doing the one thing they did not
-    /// ask for.
+    /// False for the two outcomes that are not text at all. A question belongs
+    /// to the Ask panel, and a command capture was never on its way to a
+    /// document: it was spoken into its own hotkey, and pasting it would be the
+    /// app doing the one thing the user did not ask for.
     var insertsText: Bool {
         switch self {
         case .ask, .openLatestVideo: return false
@@ -69,12 +71,17 @@ enum SpokenIntentOutcome: Equatable, Sendable {
 ///          ▼
 /// SpokenIntentPipeline.apply()          off unless the caller asks and the
 ///          │                            user switched it on
+///          ├── purpose == .youTubeCommand ─► the channel to open, no text
 ///          ├── .dictate ─────────► StyleRewriteService.apply()  the chosen style
 ///          ├── .translate ───────► TranslationRewrite.apply()   the spoken target
 ///          ├── .snippet ─────────► the stored template, byte for byte
-///          ├── .ask ─────────────► nothing at all, marked for the Ask panel
-///          └── .openLatestVideo ─► nothing at all, marked for the caller to run
+///          └── .ask ─────────────► nothing at all, marked for the Ask panel
 /// ```
+///
+/// The first branch leaves before any of the others are considered, and it is
+/// the only one that can produce `.openLatestVideo`. A dictation cannot reach it
+/// however it is worded, because `SpokenIntentRouter` has no case for it - see
+/// `DictationPurpose`.
 ///
 /// Only live dictation asks for routing (`Settings.routesSpokenIntents`). A
 /// dropped file, a queued recording, a regenerate from history and the Ask
@@ -85,6 +92,13 @@ enum SpokenIntentOutcome: Equatable, Sendable {
 enum SpokenIntentPipeline {
 
     static func apply(to processed: ProcessedText, settings: Settings) async -> StyledTranscript {
+        // The command hotkey's capture leaves here before anything else runs.
+        // It is not a dictation, so nothing below applies to it: no style, no
+        // question, no snippet, no translation, and no text on its way out.
+        if settings.purpose == .youTubeCommand {
+            return await youTubeCommand(to: processed, settings: settings)
+        }
+
         guard settings.routesSpokenIntents else {
             return await StyleRewriteService.apply(to: processed, settings: settings)
         }
@@ -92,7 +106,6 @@ enum SpokenIntentPipeline {
         let intent = SpokenIntentRouter.route(
             processed.final,
             snippets: settings.voiceSnippets,
-            channels: settings.youTubeChannels,
             // A bare "翻譯成中文" means the Chinese this user writes, and they
             // have now said which that is: the script every one of their
             // transcripts is written in. Reading their Mac's region instead
@@ -117,18 +130,6 @@ enum SpokenIntentPipeline {
             )
         case .translate(let target, let text):
             return await TranslationRewrite.apply(to: processed, body: text, target: target)
-        case .openLatestVideo(let resolution):
-            // Nothing is rewritten and nothing is inserted: what the transcript
-            // named is a channel, and what happens next is a feed lookup the
-            // caller runs. The transcript is still carried and still stored, so
-            // the words the user said survive in history either way.
-            return StyledTranscript(
-                raw: processed.raw,
-                transcript: processed.final,
-                final: processed.final,
-                status: .notRequested,
-                intent: .openLatestVideo(resolution)
-            )
         case .snippet(let keyword, let expansion):
             // The rewriting stage is skipped, and skipping it is the feature.
             // A template's blank lines, indentation and deliberate lack of a
@@ -143,6 +144,54 @@ enum SpokenIntentPipeline {
             )
         }
     }
+
+    /// The whole of what the YouTube command hotkey's capture becomes.
+    ///
+    /// Three steps and no others: read the words as a channel name
+    /// (`YouTubeCommandRouter`), let the on-device model choose from the user's
+    /// own list if the deterministic tiers could not and the user asked for that
+    /// (`YouTubeChannelModelMatch`), and hand the answer on for the caller to
+    /// run. The transcript is carried so the words survive in history, and
+    /// `SpokenIntentOutcome.insertsText` is false for it, so nothing downstream
+    /// can paste them.
+    private static func youTubeCommand(
+        to processed: ProcessedText, settings: Settings
+    ) async -> StyledTranscript {
+        func result(_ resolution: YouTubeChannelResolution) -> StyledTranscript {
+            StyledTranscript(
+                raw: processed.raw,
+                transcript: processed.final,
+                final: processed.final,
+                status: .notRequested,
+                intent: .openLatestVideo(resolution)
+            )
+        }
+
+        // The key stays bound while the feature is off so that a press can say
+        // so; a hotkey that silently does nothing is the one answer a user
+        // cannot act on.
+        guard let channels = settings.youTubeChannels else {
+            return result(.disabled(spoken: processed.final.trimmingCharacters(
+                in: .whitespacesAndNewlines)))
+        }
+
+        let resolution = YouTubeCommandRouter.resolve(processed.final, channels: channels)
+        await MainActor.run {
+            SpokenIntentActivity.shared.resolved(.openLatestVideo(resolution))
+        }
+
+        let resolved = await YouTubeChannelModelMatch.refine(
+            resolution,
+            in: channels,
+            isEnabled: settings.youTubeChannelModelMatch
+        )
+        if resolved != resolution {
+            await MainActor.run {
+                SpokenIntentActivity.shared.resolved(.openLatestVideo(resolved))
+            }
+        }
+        return result(resolved)
+    }
 }
 
 extension SpokenIntent {
@@ -153,7 +202,6 @@ extension SpokenIntent {
         case .ask(let query): return .ask(query: query)
         case .translate(let target, _): return .translated(target)
         case .snippet(let keyword, _): return .snippet(keyword: keyword)
-        case .openLatestVideo(let resolution): return .openLatestVideo(resolution)
         }
     }
 }
