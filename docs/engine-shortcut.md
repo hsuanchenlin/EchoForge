@@ -12,7 +12,7 @@ the Models pane's picker without the trip.
 Configurable like the other hotkeys, in Settings → Shortcuts → Switch
 Engine. ⌥M is the default because it is free alongside ⌥` (record), ⌥A (Ask),
 ⌥S (ask about the screen) and ⌥Y (the YouTube command) -
-`EngineSwitcherTests` fails if a later default collides with the first three.
+`EngineSwitcherTests` fails if a later default collides.
 
 ## Where a user finds it
 
