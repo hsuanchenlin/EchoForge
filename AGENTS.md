@@ -343,7 +343,8 @@ flattens them all into one Resources directory.
 `docs/cloud-api.md` is its whole story - including the table of exactly what leaves the device
 and what never does. Everything else in this app is on-device and stays that way; the one
 other request that carries anything the user configured is the YouTube channel feed below, which
-carries a channel id and nothing about them.
+carries a channel id and nothing about them. That feature's optional model step is on-device only,
+for the same reason rewriting and Ask are.
 
 **`CloudAccess.resolve` is the only way a request can exist.** Nothing can build one without a
 `CloudCall` and only that function produces one, after checking in order: compiled in
@@ -354,9 +355,10 @@ sends nothing at all. `CloudEndpoint` is the security boundary the way `UpdateMa
 HTTPS or loopback (a local Ollama is a legitimate provider), no credentials, no query.
 
 Two features and no more: transcription (`EngineKind.cloud` behind `TranscriptionEngine`) and
-translation (`CloudStyleRewriter` behind `StyleRewriting`). Rewriting, Ask and screen queries have
-**no** cloud path, enforced by `OnDeviceModelFeature.cloudFeature` returning `nil` rather than by
-convention. Transcription's on/off is `selectedEngine == .cloud` and there is deliberately no
+translation (`CloudStyleRewriter` behind `StyleRewriting`). Rewriting, Ask, screen queries and
+YouTube channel-name matching have **no** cloud path, enforced by
+`OnDeviceModelFeature.cloudFeature` returning `nil` rather than by convention.
+Transcription's on/off is `selectedEngine == .cloud` and there is deliberately no
 second preference beside it; translation, which has no engine, gets `cloudTranslationEnabled`.
 Consent is separate from both (`CloudConsent`) because "the toggle was on" and "the person agreed"
 are different states.
@@ -449,21 +451,34 @@ dictionary is a file to be hand-edited and this is not; `Settings.voiceSnippets`
 resolves the three gates (`spokenIntentsEnabled`, `routesSpokenIntents`,
 `voiceSnippetsEnabled`) in one place.
 
-The fourth is an **action**: `OpenSuperWhisper/YouTube/` opens the newest video
-from a channel the user allowlisted - "open the latest YouTube video from
-Veritasium" - and `docs/youtube-latest-video.md` is its whole story. Three things
-carry it. The allowlist is the security model: a channel is named by the
-canonical `UC…` id its owner typed into Settings, nothing resolves a handle or
-searches, and no spoken name can reach a channel that is not listed. It is the
-one command whose marker, once matched, does **not** fall back to dictation -
-every spelling names YouTube *and* says which video is wanted, so a transcript
-that begins with it is not a sentence anyone was writing, and an unknown or
-ambiguous channel does nothing and says so rather than being pasted. And what
+`OpenSuperWhisper/YouTube/` is an **action** rather than a fourth thing a
+dictation can be, and it has a **hotkey of its own** (⌥Y): hold it, name a
+channel from the allowlist, and its newest video opens in Chrome.
+`docs/youtube-latest-video.md` is its whole story. Four things carry it.
+`DictationPurpose` is the first and the others rest on it: two keys, two
+purposes, nothing crossing between them - `SpokenIntentRouter` has no case that
+opens anything, so no wording of a dictation can reach a browser, and a
+`.youTubeCommand` capture never reaches the rewriting, Ask, snippet or
+translation stages and has no path back into the user's document. The allowlist
+is the security model: a channel is named by the canonical `UC…` id its owner
+typed into Settings, nothing resolves a handle or searches, and no spoken name
+can reach a channel that is not listed. Matching is two deterministic tiers -
+exact stored spelling, then the same comparison with internal spaces folded away
+("valley 101" finds `valley101`) - with **ambiguity detected in each tier
+separately**, so widening the comparison never quietly picks a winner. And what
 leaves the app is one documented feed request and one validated video URL handed
 to Chrome by `NSWorkspace`: no scraping, no automation, no login, no injected
 script, and no existing tab touched. `YouTubeVideoURL` is the boundary the way
 `UpdateManifest` is, and `YouTubeFeedParser` refuses a feed that declares
 entities rather than parsing it carefully.
+
+`YouTubeChannelModelMatch` is the one place a model touches that path, off by
+default, and it is a **chooser rather than a resolver**: given the spoken phrase
+and the stored names - never an id, a URL or a host - it may return one row that
+was already in the list or nothing, and every other outcome (no model, a timeout,
+an invented name, an answer two rows answer to) leaves the refusal exactly as it
+was. It is on-device only, enforced by `OnDeviceModelFeature.channelMatching`
+having no `cloudFeature`, and a match it made is disclosed in the report.
 
 `OpenSuperWhisper/Ask/` is the floating Ask panel (⌥A, or a spoken question) and
 `docs/ask-panel.md` is its story. It runs the same on-device model as rewriting

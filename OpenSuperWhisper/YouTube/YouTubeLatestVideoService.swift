@@ -7,8 +7,10 @@ import Foundation
 /// command that cannot be carried out exactly as spoken does nothing at all.
 enum YouTubeLatestVideoReport: Equatable, Sendable {
     /// The video is open in Chrome. The channel is named as the user's own list
-    /// names it, and the title is what the feed called the video.
-    case opened(channel: String, title: String)
+    /// names it, and the title is what the feed called the video. `match` is how
+    /// the spoken words reached that channel, carried so the one case a model
+    /// took part in says so out loud.
+    case opened(channel: String, title: String, match: YouTubeChannelMatchSource)
     /// Nothing was opened. `message` is the sentence for a surface with room and
     /// `shortMessage` the few words a dictation overlay has.
     case refused(message: String, shortMessage: String)
@@ -23,10 +25,15 @@ enum YouTubeLatestVideoReport: Equatable, Sendable {
     /// user is looking at another app.
     var spokenSummary: String {
         switch self {
-        case .opened(let channel, let title):
-            return title.isEmpty
+        case .opened(let channel, let title, let match):
+            let opened = title.isEmpty
                 ? "Opened the latest video from \(channel) in Chrome."
                 : "Opened “\(title)” from \(channel) in Chrome."
+            // Disclosed at the moment it happened, not only in Settings: the
+            // one thing a user cannot see from the result is that a model chose
+            // which of their channels this was.
+            guard let disclosure = match.disclosure else { return opened }
+            return "\(opened) \(disclosure)"
         case .refused(let message, _):
             return message
         }
@@ -72,12 +79,19 @@ struct YouTubeLatestVideoService: Sendable {
                 message: "“\(spoken)” answers for more than one channel (\(matches.joined(separator: ", "))). Give them different spoken names in Settings → Dictionary & Snippets → YouTube Channels.",
                 shortMessage: "Two channels answer to that"
             )
-        case .allowlisted(let channel):
-            return await open(latestFrom: channel)
+        case .disabled:
+            return .refused(
+                message: "The YouTube command is switched off, so nothing was opened. Turn it on in Settings → Dictionary & Snippets → YouTube Channels.",
+                shortMessage: "YouTube command is off"
+            )
+        case .allowlisted(let channel, let match):
+            return await open(latestFrom: channel, match: match)
         }
     }
 
-    private func open(latestFrom channel: YouTubeChannel) async -> YouTubeLatestVideoReport {
+    private func open(
+        latestFrom channel: YouTubeChannel, match: YouTubeChannelMatchSource
+    ) async -> YouTubeLatestVideoReport {
         guard let feedURL = YouTubeFeedEndpoint.url(forChannelID: channel.channelID) else {
             // Only reachable for a row stored before the id was validated, which
             // is why it is a message about the id rather than an assertion.
@@ -118,6 +132,6 @@ struct YouTubeLatestVideoService: Sendable {
             )
         }
 
-        return .opened(channel: channel.displayName, title: video.title)
+        return .opened(channel: channel.displayName, title: video.title, match: match)
     }
 }

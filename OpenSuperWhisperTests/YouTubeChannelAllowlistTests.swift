@@ -27,14 +27,14 @@ final class YouTubeChannelAllowlistTests: XCTestCase {
 
     func testTheDisplayNameResolvesWithoutBeingListedAsAnAlias() {
         let resolution = allowlist(veritasium).resolve(spokenName: "Veritasium")
-        XCTAssertEqual(resolution, .allowlisted(veritasium))
+        XCTAssertEqual(resolution, .allowlisted(veritasium, matchedBy: .spokenName))
     }
 
     func testCasePunctuationAndSpacingDoNotHaveToMatch() {
         for spoken in ["veritasium", "VERITASIUM.", "  Veritasium  ", "veritasium,"] {
             XCTAssertEqual(
                 allowlist(veritasium).resolve(spokenName: spoken),
-                .allowlisted(veritasium),
+                .allowlisted(veritasium, matchedBy: .spokenName),
                 "expected “\(spoken)” to resolve"
             )
         }
@@ -43,14 +43,14 @@ final class YouTubeChannelAllowlistTests: XCTestCase {
     func testAnAliasResolvesToTheChannelItBelongsTo() {
         XCTAssertEqual(
             allowlist(veritasium).resolve(spokenName: "Vera Tasium"),
-            .allowlisted(veritasium)
+            .allowlisted(veritasium, matchedBy: .spokenName)
         )
     }
 
     func testTraditionalAndSimplifiedAnswerForEachOther() {
         XCTAssertEqual(
             allowlist(kejidaodu).resolve(spokenName: "科技岛读"),
-            .allowlisted(kejidaodu)
+            .allowlisted(kejidaodu, matchedBy: .spokenName)
         )
     }
 
@@ -107,6 +107,85 @@ final class YouTubeChannelAllowlistTests: XCTestCase {
         XCTAssertEqual(
             allowlist(veritasium, clash).resolve(spokenName: "Veritasium"),
             .ambiguous(spoken: "Veritasium", matches: ["Veritasium", "Veritasium Clips"])
+        )
+    }
+
+    // MARK: - Spacing inside the name
+
+    /// Stored rather than computed: `YouTubeChannel` carries a `UUID` and is
+    /// `Equatable` over it, so a fresh one per access would never equal itself.
+    private let valley = YouTubeChannel(
+        displayName: "valley101", channelID: "UCvalley101aaaaaaaaaaaaa"
+    )
+
+    /// The second tier. Where a space falls inside a name is the one variation a
+    /// speaker cannot control, so it is folded - and folded in a tier of its own,
+    /// so an exact stored spelling always wins first.
+    func testASpacedSpellingFindsAChannelStoredWithoutSpaces() {
+        XCTAssertEqual(
+            allowlist(valley).resolve(spokenName: "valley 101"),
+            .allowlisted(valley, matchedBy: .spacing)
+        )
+        XCTAssertEqual(
+            allowlist(valley).resolve(spokenName: "Valley 101."),
+            .allowlisted(valley, matchedBy: .spacing)
+        )
+    }
+
+    func testASpacedStoredNameIsFoundBySayingItWithoutSpaces() {
+        let spaced = YouTubeChannel(displayName: "小 Lin 說", channelID: "UCxiaolinaaaaaaaaaaaaaaa")
+        XCTAssertEqual(
+            allowlist(spaced).resolve(spokenName: "小Lin說"),
+            .allowlisted(spaced, matchedBy: .spacing)
+        )
+        // Its own spelling is still the exact tier.
+        XCTAssertEqual(
+            allowlist(spaced).resolve(spokenName: "小 Lin 說"),
+            .allowlisted(spaced, matchedBy: .spokenName)
+        )
+    }
+
+    func testFoldingSpacingIsNotFoldingAnythingElse() {
+        // Still a whole-name match: nothing is stemmed, truncated or joined to
+        // a neighbour.
+        for spoken in ["valley", "valley 1012", "valley 10", "the valley 101"] {
+            XCTAssertEqual(
+                allowlist(valley).resolve(spokenName: spoken),
+                .unknown(spoken: spoken),
+                "expected “\(spoken)” to name nothing"
+            )
+        }
+    }
+
+    /// Two rows that differ only in spacing keep their own exact spellings and
+    /// only collide on a third spelling that matches both - which is refused,
+    /// not guessed.
+    func testTwoRowsDifferingOnlyInSpacingStayIndividuallyReachable() {
+        let spaced = YouTubeChannel(displayName: "valley 101", channelID: "UCzzzzzzzzzzzzzzzzzzzzzz")
+        let list = allowlist(valley, spaced)
+
+        XCTAssertEqual(list.resolve(spokenName: "valley101"), .allowlisted(valley, matchedBy: .spokenName))
+        XCTAssertEqual(list.resolve(spokenName: "valley 101"), .allowlisted(spaced, matchedBy: .spokenName))
+        XCTAssertEqual(
+            list.resolve(spokenName: "valley  1 0 1"),
+            .ambiguous(spoken: "valley  1 0 1", matches: ["valley101", "valley 101"])
+        )
+    }
+
+    func testAnExactMatchBeatsASpacingMatchOnAnotherRow() {
+        let other = YouTubeChannel(
+            displayName: "Valley One", aliases: ["valley101"],
+            channelID: "UCzzzzzzzzzzzzzzzzzzzzzz"
+        )
+        XCTAssertEqual(
+            allowlist(valley, other).resolve(spokenName: "valley 101"),
+            // Two rows carry the compact key, so the spacing tier refuses - the
+            // exact tier had no answer for this spelling at all.
+            .ambiguous(spoken: "valley 101", matches: ["valley101", "Valley One"])
+        )
+        XCTAssertEqual(
+            allowlist(valley, other).resolve(spokenName: "Valley One"),
+            .allowlisted(other, matchedBy: .spokenName)
         )
     }
 
@@ -192,6 +271,28 @@ final class YouTubeChannelAllowlistTests: XCTestCase {
     }
 
     // MARK: - What Settings has to say
+
+    func testThePaneSaysTheCommandHasItsOwnKeyAndDictationIsUnchanged() {
+        // The distinction the whole feature rests on, and the one a user is most
+        // likely to have wrong: shortening it away fails here.
+        let sentence = YouTubeChannelHelpText.shortcutWorkflow(shortcut: "⌥Y")
+        XCTAssertTrue(sentence.contains("⌥Y"))
+        XCTAssertTrue(sentence.contains("dictation shortcut"))
+        XCTAssertTrue(sentence.contains("never types"))
+
+        // A cleared binding leaves no way to use the feature, and says so.
+        let unbound = YouTubeChannelHelpText.shortcutWorkflow(shortcut: nil)
+        XCTAssertTrue(unbound.contains("not set"))
+        XCTAssertTrue(unbound.contains("Shortcuts"))
+    }
+
+    func testThePaneDisclosesWhatTheModelIsGivenAndWhereItRuns() {
+        let hint = YouTubeChannelHelpText.modelMatchHint
+        XCTAssertTrue(hint.contains("Off by default"))
+        XCTAssertTrue(hint.contains("on-device"))
+        XCTAssertTrue(hint.contains("never leaves this Mac"))
+        XCTAssertTrue(YouTubeChannelHelpText.modelMatchDisclosure.contains("dictation never reaches it"))
+    }
 
     func testThePaneSaysWhereToFindAChannelID() {
         // The one thing a user cannot guess, so the instruction is an obligation

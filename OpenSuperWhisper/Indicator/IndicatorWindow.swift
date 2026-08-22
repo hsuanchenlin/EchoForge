@@ -163,6 +163,15 @@ class IndicatorViewModel: ObservableObject {
     /// promised and what the pipeline did cannot disagree.
     let dictationTarget: DictationTargetApp?
 
+    /// What the key that started this session captures.
+    ///
+    /// Read once, at the start, for the same reason `dictationTarget` is: what
+    /// happens to the words has to be decided by the press that captured them.
+    /// A `.youTubeCommand` session never inserts anything into
+    /// `dictationTarget`; the app is still captured because the session's other
+    /// machinery is shared, and it is simply not used.
+    let purpose: DictationPurpose
+
     /// What this dictation produced, once it is known. Read by whoever is showing
     /// the session when it ends; `nil` while it is still running, and left `nil`
     /// for an ending that speaks for itself.
@@ -184,7 +193,11 @@ class IndicatorViewModel: ObservableObject {
     private let transcriptionService: TranscriptionService
     private let transcriptionQueue: TranscriptionQueue
     
-    init(dictationTarget: DictationTargetApp? = AppDetector.currentTarget()) {
+    init(
+        purpose: DictationPurpose = .dictation,
+        dictationTarget: DictationTargetApp? = AppDetector.currentTarget()
+    ) {
+        self.purpose = purpose
         self.dictationTarget = dictationTarget
         self.recordingStore = RecordingStore.shared
         self.transcriptionService = TranscriptionService.shared
@@ -316,9 +329,12 @@ class IndicatorViewModel: ObservableObject {
                     let styled = try await transcriptionService.transcribeAudio(
                         url: tempURL,
                         settings: Settings(
+                            purpose: self.purpose,
                             dictationTarget: self.dictationTarget,
                             // Live dictation is the one path where a spoken
-                            // command means anything - see `Settings`.
+                            // command means anything - see `Settings`. A
+                            // `.youTubeCommand` capture is not one, and
+                            // `Settings` refuses it there whatever is passed.
                             routesSpokenIntents: true
                         )
                     )
@@ -359,23 +375,33 @@ class IndicatorViewModel: ObservableObject {
                         // - the user asked it out loud and may want it back -
                         // but nothing is pasted into the app they were typing
                         // in, because they did not ask for that.
-                        if case .ask(let query) = styled.intent {
-                            AskPanelWindowController.shared.present(query: query)
-                            self.result = .asked
-                            print("Ask: \(query)")
-                        } else if case .openLatestVideo(let resolution) = styled.intent {
-                            // Nothing is pasted either way. The command is run
-                            // here, beside the Ask panel and for the same
-                            // reason: the pipeline reads the words, and what is
-                            // done about them belongs to the session that heard
-                            // them. The recording is already stored, so the
-                            // words survive whether or not the video opens.
+                        if case .openLatestVideo(let resolution) = styled.intent {
+                            // Nothing is pasted. The command is run here, beside
+                            // the Ask panel and for the same reason: the pipeline
+                            // reads the words, and what is done about them
+                            // belongs to the session that heard them. The
+                            // recording is already stored, so the words survive
+                            // whether or not the video opens.
                             //
                             // A refusal puts its own message up on its own
                             // timer, so the session ends there rather than
                             // falling through to the hide below - the same shape
                             // the kept-recording failures take.
                             if await self.runOpenLatestVideo(resolution) { return }
+                        } else if self.purpose == .youTubeCommand {
+                            // Unreachable: a command capture's pipeline produces
+                            // exactly the outcome above. It is written out anyway
+                            // because the branch below this one **pastes**, and
+                            // the one thing this session must never do is fall
+                            // into it.
+                            self.result = nil
+                            self.showAutoDismissingMessage(
+                                .commandFailed("That was not a channel name"))
+                            return
+                        } else if case .ask(let query) = styled.intent {
+                            AskPanelWindowController.shared.present(query: query)
+                            self.result = .asked
+                            print("Ask: \(query)")
                         } else {
                             insertText(text)
                             self.result = .inserted(styleNotice: styled.statusExplanation)
@@ -443,7 +469,7 @@ class IndicatorViewModel: ObservableObject {
         print("YouTube command: \(report.spokenSummary)")
 
         switch report {
-        case .opened(let channel, _):
+        case .opened(let channel, _, _):
             self.result = .openedVideo(channel: channel)
             return false
         case .refused(_, let shortMessage):

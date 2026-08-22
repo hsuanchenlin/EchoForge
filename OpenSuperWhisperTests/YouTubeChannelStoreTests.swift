@@ -146,21 +146,23 @@ final class YouTubeChannelStoreTests: IsolatedPreferencesTestCase {
         XCTAssertNil(Settings(routesSpokenIntents: true).youTubeChannels)
     }
 
-    func testTheAllowlistReachesTheDictationPathOnlyWithBothSwitchesOn() throws {
+    func testTheAllowlistReachesTheCommandPathAndNoOther() throws {
         try makeStore().upsert(channel())
         AppPreferences.shared.spokenIntentsEnabled = true
 
         AppPreferences.shared.youTubeLatestVideoEnabled = false
-        XCTAssertNil(Settings(routesSpokenIntents: true).youTubeChannels)
+        XCTAssertNil(Settings(purpose: .youTubeCommand).youTubeChannels)
 
         AppPreferences.shared.youTubeLatestVideoEnabled = true
         XCTAssertEqual(
-            Settings(routesSpokenIntents: true).youTubeChannels?.channels.map(\.displayName),
+            Settings(purpose: .youTubeCommand).youTubeChannels?.channels.map(\.displayName),
             ["Veritasium"]
         )
 
-        // A dropped file, a queued recording or a regenerate from history never
-        // routes, whatever the preferences say.
+        // No dictation path can reach a channel at all - not live dictation with
+        // every switch on, and not a dropped file, a queued recording or a
+        // regenerate from history.
+        XCTAssertNil(Settings(routesSpokenIntents: true).youTubeChannels)
         XCTAssertNil(Settings().youTubeChannels)
     }
 }

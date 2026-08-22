@@ -37,12 +37,33 @@ extension KeyboardShortcuts.Name {
     /// exactly when opening Settings to change engine costs more than the switch is
     /// worth. See `EngineSwitcher` and `docs/engine-shortcut.md`.
     static let cycleEngine = Self("cycleEngine", default: .init(.m, modifiers: .option))
+
+    /// Records a **YouTube command** and nothing else: hold it, name a channel
+    /// from the allowlist, let go, and that channel's newest video opens in
+    /// Chrome.
+    ///
+    /// Its own key rather than a phrase the dictation shortcut listens for, and
+    /// that is the security boundary rather than an ergonomic preference. A
+    /// dictation is words on their way into somebody's document; this is an
+    /// instruction that opens a browser. Sharing one key meant every dictation
+    /// had to be read for a command first, and a mis-read one would have opened
+    /// a video instead of typing what was said. With two keys the app never has
+    /// to guess: what this key captures can only ever open an allowlisted
+    /// channel, and what the dictation key captures can only ever be typed.
+    /// ⌥Y by default, free alongside ⌥`, ⌥A, ⌥S and ⌥M.
+    /// See `DictationPurpose` and `docs/youtube-latest-video.md`.
+    static let youTubeCommand = Self("youTubeCommand", default: .init(.y, modifiers: .option))
 }
 
 class ShortcutManager {
     static let shared = ShortcutManager()
 
     private var activeVm: IndicatorViewModel?
+    /// Which key started the session `activeVm` belongs to, so a second press
+    /// stops the session it actually started and a double-press has to be two
+    /// presses of the same key.
+    private var activePurpose: DictationPurpose = .dictation
+    private var pendingPressPurpose: DictationPurpose = .dictation
     private var holdWorkItem: DispatchWorkItem?
     private let holdThreshold: TimeInterval = 0.3
     private var holdMode = false
@@ -83,10 +104,25 @@ class ShortcutManager {
     
     private func setupKeyboardShortcuts() {
         KeyboardShortcuts.onKeyDown(for: .toggleRecord) { [weak self] in
-            self?.handleKeyDown()
+            self?.handleKeyDown(purpose: .dictation)
         }
 
         KeyboardShortcuts.onKeyUp(for: .toggleRecord) { [weak self] in
+            self?.handleKeyUp()
+        }
+
+        // The YouTube command key, driven by the same press/hold machinery as
+        // dictation so it behaves the way the user's hands already expect - and
+        // carrying `.youTubeCommand` all the way to `Settings`, which is what
+        // makes the two captures different things rather than one thing with a
+        // flag. Independent of the three exclusive trigger modes below, like ⌥A
+        // and ⌥S: it is reached the same way whether dictation is on a key, a
+        // modifier or a mouse button.
+        KeyboardShortcuts.onKeyDown(for: .youTubeCommand) { [weak self] in
+            self?.handleKeyDown(purpose: .youTubeCommand)
+        }
+
+        KeyboardShortcuts.onKeyUp(for: .youTubeCommand) { [weak self] in
             self?.handleKeyUp()
         }
 
@@ -147,7 +183,7 @@ class ShortcutManager {
             KeyboardShortcuts.disable(.toggleRecord)
 
             MouseButtonMonitor.shared.onButtonDown = { [weak self] in
-                self?.handleKeyDown()
+                self?.handleKeyDown(purpose: .dictation)
             }
 
             MouseButtonMonitor.shared.onButtonUp = { [weak self] in
@@ -162,7 +198,7 @@ class ShortcutManager {
             KeyboardShortcuts.disable(.toggleRecord)
 
             ModifierKeyMonitor.shared.onKeyDown = { [weak self] in
-                self?.handleKeyDown()
+                self?.handleKeyDown(purpose: .dictation)
             }
 
             ModifierKeyMonitor.shared.onKeyUp = { [weak self] in
@@ -181,7 +217,11 @@ class ShortcutManager {
         }
     }
     
-    private func handleKeyDown() {
+    /// - Parameter purpose: what a session this press *starts* is for. A press
+    ///   that stops a session in flight stops whatever is running, whichever key
+    ///   it came from: there is one recording at a time, and the alternative -
+    ///   refusing the other key - would leave a session nothing could stop.
+    private func handleKeyDown(purpose: DictationPurpose) {
         holdWorkItem?.cancel()
         holdMode = false
 
@@ -190,10 +230,15 @@ class ShortcutManager {
         if AppPreferences.shared.doublePressToTrigger && activeVm == nil {
             let now = CFAbsoluteTimeGetCurrent()
             let threshold = NSEvent.doubleClickInterval
-            if lastPressDownTime > 0 && now - lastPressDownTime <= threshold {
+            // Two presses of *different* keys are not a double-press: ⌥` then
+            // ⌥Y is somebody changing their mind, and treating it as a trigger
+            // would start the wrong kind of session.
+            if lastPressDownTime > 0, now - lastPressDownTime <= threshold,
+               pendingPressPurpose == purpose {
                 lastPressDownTime = 0
             } else {
                 lastPressDownTime = now
+                pendingPressPurpose = purpose
                 pressConsumed = false
                 return
             }
@@ -208,9 +253,10 @@ class ShortcutManager {
                 // Start recording immediately: resolving the caret position talks to
                 // the focused app via AX IPC and can hang for seconds if that app
                 // is busy - the first words must not be lost because of it.
-                let vm = IndicatorWindowManager.shared.prepare()
+                let vm = IndicatorWindowManager.shared.prepare(purpose: purpose)
                 vm.startRecording()
                 self.activeVm = vm
+                self.activePurpose = purpose
                 
                 let cursorPosition = FocusUtils.getCurrentCursorPosition()
                 let anchorPoint = await Self.resolveAnchorPoint(timeoutNanoseconds: 150_000_000)

@@ -92,8 +92,20 @@ final class CapsuleHUDWindowController {
         // itself takes when the audio stops - and against the same app the
         // session captured, so an app-matched style is named on the chip rather
         // than arriving unannounced.
-        let settings = Settings(dictationTarget: indicatorViewModel.dictationTarget)
-        viewModel.beginSession(mode: CapsuleHUDMode.forStyleRewrite(settings.styleRewrite))
+        // A YouTube command capture is the one session whose chip is known for
+        // certain at the start: the key that started it said what it is for, so
+        // the capsule says "YouTube" rather than promising a rewrite that is
+        // never going to run. The channel is filled in later, once the words
+        // exist (`SpokenIntentActivity`).
+        let mode: CapsuleHUDMode
+        switch indicatorViewModel.purpose {
+        case .youTubeCommand:
+            mode = CapsuleHUDMode.openLatestVideo(from: "")
+        case .dictation:
+            let settings = Settings(dictationTarget: indicatorViewModel.dictationTarget)
+            mode = CapsuleHUDMode.forStyleRewrite(settings.styleRewrite)
+        }
+        viewModel.beginSession(mode: mode)
         viewModel.onCancel = { IndicatorWindowManager.shared.cancelWorkInFlight() }
 
         // Built now, while the caret position is still being resolved: the panel,
