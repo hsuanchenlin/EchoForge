@@ -1,9 +1,9 @@
 # Opening a channel's latest video by voice
 
 One shortcut of its own - **⌥Y by default** - records a command and nothing
-else: hold it, say **"Veritasium"** (or the whole sentence, "open the latest
-YouTube video from Veritasium"), let go, and that channel's newest video opens in
-a new Chrome tab. It reaches exactly the channels the user typed into Settings
+else: hold it, say **"Veritasium"** (or a whole sentence - "open the latest
+YouTube video from Veritasium", "open YouTube channel Veritasium"), let go, and
+that channel's newest video opens in a new Chrome tab. It reaches exactly the channels the user typed into Settings
 themselves and can reach nothing else.
 
 The list lives in `Settings → Dictionary & Snippets → YouTube Channels`, with the
@@ -34,9 +34,11 @@ queued recording, a regenerate from history, the Ask panel's own follow-up - is
 `.dictation` and cannot become anything else.
 
 Because the key already says what the utterance is for, **the marker is
-optional**: saying the channel name on its own is the whole command. The marker
-is still accepted and stripped, in English and Chinese, so an existing habit
-keeps working.
+optional**: saying the channel name on its own is the whole command. A marker is
+still accepted and stripped, in English and Chinese, whether it names the video
+("open the latest YouTube video from …") or the channel ("open YouTube channel
+…"), so an existing habit keeps working - and a habit the grammar has not been
+taught does not silently become an unknown channel. See "The grammar" below.
 
 ## What it is not
 
@@ -172,13 +174,30 @@ because that key folds edge punctuation and would turn `-1` into `1`.
 | --- | --- |
 | `[channel]` | that channel, if the list has exactly one answering to it |
 | `Open the latest YouTube video from [channel]` (also `newest`, `play`, `open latest`, `open YouTube latest video from`) | the same |
+| `Open the YouTube channel [channel]` (also `play`, and without `the`) | the same |
 | `打開YouTube最新影片[頻道]` (also `打开…最新视频`, `播放…`, `開啟…`, with or without spaces) | the same |
+| `打開YouTube頻道[頻道]` (also `打开…频道`, `播放…`, `開啟…`) | the same |
 | a marker with nothing behind it | nothing opens; the utterance is quoted back |
 | anything the list does not answer to | nothing opens; the user is told |
 
+The markers come in two families - one naming the **video**, one naming the
+**channel** - because both are what people say, and a phrasing the table does not
+know is not a near miss: with no marker matched the whole sentence becomes the
+spoken name, so "open YouTube channel Valley 101" asked the allowlist for a
+channel by that entire name and was refused as one that is not in the list. That
+refusal names the allowlist, which is the one thing that was right, so the
+missing family cost a user four attempts before it was found.
+
+Widening the marker table is not widening the match. What follows a marker still
+has to be one stored spelling **in full**, through the same two tiers below:
+`open YouTube channel Valley` and `open YouTube channel Bali 101` still reach
+nothing.
+
 The Chinese markers are matched with whitespace ignored on both sides, because a
 transcript writes "打開 YouTube 最新影片" or "打開YouTube最新影片" for the same
-words depending on the engine.
+words depending on the engine. Every CJK spelling is listed in both scripts,
+including 頻道 beside 频道, for the reason `SpokenIntentGrammar` records: the
+transcript has already been written in the user's own script.
 
 ## The allowlist
 

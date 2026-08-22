@@ -56,12 +56,33 @@ final class YouTubeCommandRouterTests: XCTestCase {
             "play latest youtube video from Veritasium",
             "Open YouTube latest video from Veritasium",
             "play youtube latest video from: Veritasium",
+            "Open the YouTube channel Veritasium",
+            "play the youtube channel Veritasium",
+            "Open YouTube channel: Veritasium",
+            "play youtube channel Veritasium",
         ] {
             XCTAssertEqual(
                 resolve(said), .allowlisted(veritasium, matchedBy: .spokenName),
                 "expected “\(said)” to name Veritasium"
             )
         }
+    }
+
+    /// The regression this family was added for: what a user actually said into
+    /// the command key, four times, every one of them refused as a channel that
+    /// was in their list all along. Naming the channel is the same command as
+    /// naming its latest video.
+    func testNamingTheChannelRatherThanTheVideoIsTheSameCommand() {
+        XCTAssertEqual(
+            resolve("open YouTube channel valley101"),
+            .allowlisted(valley, matchedBy: .spokenName)
+        )
+        // And the spacing tier still answers behind the marker, which is the
+        // half a speech engine varies on its own.
+        XCTAssertEqual(
+            resolve("Open the YouTube channel valley 101"),
+            .allowlisted(valley, matchedBy: .spacing)
+        )
     }
 
     func testTheChineseCommandIsAcceptedWithOrWithoutSpaces() {
@@ -71,6 +92,10 @@ final class YouTubeCommandRouterTests: XCTestCase {
             "播放YouTube最新影片：科技島讀",
             "打开YouTube最新视频 科技岛读",
             "播放 youtube 最新影片 科技島讀",
+            "打開YouTube頻道科技島讀",
+            "打开YouTube频道 科技岛读",
+            "播放 YouTube 頻道 科技島讀",
+            "開啟YouTube頻道：科技島讀",
         ] {
             XCTAssertEqual(
                 resolve(said), .allowlisted(kejidaodu, matchedBy: .spokenName),
@@ -89,6 +114,15 @@ final class YouTubeCommandRouterTests: XCTestCase {
         )
         XCTAssertNotEqual(normalized, spoken)
         XCTAssertEqual(resolve(normalized), .allowlisted(kejidaodu, matchedBy: .spokenName))
+
+        let channelForm = "打开YouTube频道 科技岛读"
+        let convertedChannelForm = ChineseScriptNormalizer.normalized(
+            channelForm, to: .traditional, languageCode: "zh"
+        )
+        XCTAssertNotEqual(convertedChannelForm, channelForm)
+        XCTAssertEqual(
+            resolve(convertedChannelForm), .allowlisted(kejidaodu, matchedBy: .spokenName)
+        )
     }
 
     func testAMarkerWithNoChannelBehindItQuotesTheWholeUtteranceBack() {
@@ -97,6 +131,14 @@ final class YouTubeCommandRouterTests: XCTestCase {
         XCTAssertEqual(
             resolve("Open the latest YouTube video from"),
             .unknown(spoken: "Open the latest YouTube video from")
+        )
+        XCTAssertEqual(
+            resolve("open YouTube channel"),
+            .unknown(spoken: "open YouTube channel")
+        )
+        XCTAssertEqual(
+            resolve("打開YouTube頻道"),
+            .unknown(spoken: "打開YouTube頻道")
         )
     }
 
@@ -114,12 +156,31 @@ final class YouTubeCommandRouterTests: XCTestCase {
             resolve("Open the latest YouTube video from Some Other Channel"),
             .unknown(spoken: "Some Other Channel")
         )
+        XCTAssertEqual(
+            resolve("open YouTube channel Some Other Channel"),
+            .unknown(spoken: "Some Other Channel")
+        )
+        // A name the engine misheard - "valley 101" written as "Bali 101" - is
+        // still nobody's channel, and the marker being stripped is what lets the
+        // message quote back the two words the user can act on rather than the
+        // whole sentence they said.
+        XCTAssertEqual(
+            resolve("Open the YouTube channel Bali 101"), .unknown(spoken: "Bali 101")
+        )
     }
 
     func testAPartialNameNamesNothing() {
         // Nothing is stemmed and nothing truncated, on this path either.
         XCTAssertEqual(resolve("Verita"), .unknown(spoken: "Verita"))
         XCTAssertEqual(resolve("Veritasium please"), .unknown(spoken: "Veritasium please"))
+        // Widening the marker did not widen the match: what follows one still
+        // has to be a stored spelling in full.
+        XCTAssertEqual(
+            resolve("open YouTube channel valley"), .unknown(spoken: "valley")
+        )
+        XCTAssertEqual(
+            resolve("open YouTube channel valley 1012"), .unknown(spoken: "valley 1012")
+        )
     }
 
     func testAnAmbiguousChannelIsRefusedRatherThanGuessed() {
@@ -169,6 +230,9 @@ final class YouTubeCommandRouterTests: XCTestCase {
             "open the newest youtube video from valley 101",
             "Play the latest YouTube video from Veritasium.",
             "Veritasium",
+            "open YouTube channel valley101",
+            "Open the YouTube channel Veritasium",
+            "打開YouTube頻道科技島讀",
         ] {
             XCTAssertEqual(
                 SpokenIntentRouter.route(said), .dictate(said),

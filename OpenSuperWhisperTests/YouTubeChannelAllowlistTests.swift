@@ -317,6 +317,37 @@ final class YouTubeChannelAllowlistTests: XCTestCase {
         )
     }
 
+    /// Both families of the grammar are named, and each example is one the
+    /// router actually accepts. A pane that taught only the video wording is how
+    /// "open YouTube channel …" looked like a missing channel rather than an
+    /// unsupported sentence.
+    func testTheUsageSentenceTeachesBothWaysOfNamingTheCommand() {
+        let sentence = YouTubeChannelHelpText.usage(exampleChannel: "Veritasium")
+        XCTAssertTrue(sentence.contains("open the latest YouTube video from Veritasium"))
+        XCTAssertTrue(sentence.contains("open YouTube channel Veritasium"))
+
+        for taught in [
+            "open the latest YouTube video from Veritasium",
+            "open YouTube channel Veritasium",
+        ] {
+            XCTAssertEqual(
+                YouTubeCommandRouter.resolve(taught, channels: allowlist(veritasium)),
+                .allowlisted(veritasium, matchedBy: .spokenName),
+                "the pane teaches “\(taught)”, so the router has to accept it"
+            )
+        }
+
+        let chinese = YouTubeChannelHelpText.usage(exampleChannel: "科技島讀")
+        for taught in ["播放YouTube最新影片科技島讀", "打開YouTube頻道科技島讀"] {
+            XCTAssertTrue(chinese.contains(taught))
+            XCTAssertEqual(
+                YouTubeCommandRouter.resolve(taught, channels: allowlist(kejidaodu)),
+                .allowlisted(kejidaodu, matchedBy: .spokenName),
+                "the pane teaches “\(taught)”, so the router has to accept it"
+            )
+        }
+    }
+
     func testSpokenKeysIncludeTheNameAndEveryDistinctAlias() {
         XCTAssertEqual(
             veritasium.spokenKeys, ["veritasium", "vera tasium", "verita zium"]
