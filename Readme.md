@@ -39,6 +39,7 @@ instead of replacing it.
 - ☁️ Optional cloud transcription and translation - use an OpenAI-compatible provider with your own API key, kept in your Keychain, with a per-feature Local/Cloud choice and a one-time consent sheet. Off by default; everything else always stays on your Mac ([details](docs/cloud-api.md))
 - 📋 Voice snippets - save the boilerplate you retype (an email signoff, a meeting template) and say "insert email signoff" / "插入會議記錄", or the trigger alone, to type it exactly as stored - never rewritten. Part of spoken commands, so off until those are on ([details](docs/voice-snippets.md))
 - ▶️ Open a channel's latest YouTube video by voice - allowlist channels by their canonical channel ID in Settings, then hold the YouTube command shortcut (⌥Y) and say the channel's name. It can reach only the channels you listed, and the one request it makes is that channel's public feed - no account, no cookies, nothing of yours sent. It is its own key on purpose: your dictation shortcut only ever types text and can never open a browser ([details](docs/youtube-latest-video.md))
+- 🏷️ History says what each entry was - Dictation, Ask, YouTube command opened, YouTube command not opened - with the reason under any command that opened nothing, and a filter to show one kind at a time. Entries made before this shipped are labelled "Older recording" rather than relabelled as a guess ([details](docs/history-provenance.md))
 
 ## Installation
 

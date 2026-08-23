@@ -175,6 +175,30 @@ enum YouTubeChannelModelMatch {
         rewriter: StyleRewriting?,
         budgetOverride: TimeInterval? = nil
     ) async -> YouTubeChannelResolution {
+        await attempt(
+            resolution, in: allowlist, availability: availability,
+            rewriter: rewriter, budgetOverride: budgetOverride
+        ).resolution
+    }
+
+    /// The same decision, reporting what it did.
+    ///
+    /// Every early return above is a different answer to "was a model asked, and
+    /// what did it say?" - a question the user has no other way to answer about
+    /// their own failed command - so the fail-closed paths are classified rather
+    /// than collapsed. Nothing branches on the report: `refine` above is the
+    /// whole behaviour and returns exactly what it always did.
+    static func attempt(
+        _ resolution: YouTubeChannelResolution,
+        in allowlist: YouTubeChannelAllowlist,
+        availability: StyleRewriteAvailability,
+        rewriter: StyleRewriting?,
+        budgetOverride: TimeInterval? = nil
+    ) async -> YouTubeCommandResolution {
+        func unchanged(_ attempt: YouTubeChannelModelMatchAttempt) -> YouTubeCommandResolution {
+            YouTubeCommandResolution(resolution: resolution, modelMatch: attempt)
+        }
+
         // Exactly two resolutions are the model's to look at. A resolved channel
         // is never re-asked - the user's own spelling is the answer - and a
         // switched-off command is not a name that could not be placed, so there
@@ -183,14 +207,18 @@ enum YouTubeChannelModelMatch {
         switch resolution {
         case .unknown(let said): spoken = said
         case .ambiguous(let said, _): spoken = said
-        case .allowlisted, .disabled: return resolution
+        case .allowlisted, .disabled: return unchanged(.notNeeded)
         }
 
-        guard !spoken.isEmpty, spoken.count <= maximumSpokenCharacters else { return resolution }
-        guard availability.canRun, let rewriter else { return resolution }
+        guard !spoken.isEmpty, spoken.count <= maximumSpokenCharacters else {
+            return unchanged(.unavailable)
+        }
+        guard availability.canRun, let rewriter else { return unchanged(.unavailable) }
 
         let candidates = allowlist.reachable
-        guard !candidates.isEmpty, candidates.count <= maximumCandidates else { return resolution }
+        guard !candidates.isEmpty, candidates.count <= maximumCandidates else {
+            return unchanged(.unavailable)
+        }
 
         let answer: String
         do {
@@ -202,11 +230,16 @@ enum YouTubeChannelModelMatch {
         } catch {
             // Timed out, cancelled, or the model refused. All of them mean the
             // command is not carried out, which is where it already was.
-            return resolution
+            return unchanged(.rejected)
         }
 
-        guard let chosen = interpret(answer, candidates: candidates) else { return resolution }
-        return .allowlisted(chosen, matchedBy: .model(spoken: spoken))
+        guard let chosen = interpret(answer, candidates: candidates) else {
+            return unchanged(.rejected)
+        }
+        return YouTubeCommandResolution(
+            resolution: .allowlisted(chosen, matchedBy: .model(spoken: spoken)),
+            modelMatch: .matched
+        )
     }
 
     /// The production entry point: reads what this Mac can do, then runs it.
@@ -220,18 +253,27 @@ enum YouTubeChannelModelMatch {
         _ resolution: YouTubeChannelResolution,
         in allowlist: YouTubeChannelAllowlist,
         isEnabled: Bool
-    ) async -> YouTubeChannelResolution {
-        guard isEnabled, resolution.couldNotBePlaced else { return resolution }
+    ) async -> YouTubeCommandResolution {
+        guard resolution.couldNotBePlaced else {
+            return YouTubeCommandResolution(resolution: resolution, modelMatch: .notNeeded)
+        }
+        // Off is its own answer, not an unavailability: it is the default, it is
+        // the one the user can change, and history says which of the two it was.
+        guard isEnabled else {
+            return YouTubeCommandResolution(resolution: resolution, modelMatch: .off)
+        }
         let isRunningTests = await MainActor.run { OpenSuperWhisperApp.isRunningTests }
-        guard !isRunningTests else { return resolution }
+        guard !isRunningTests else {
+            return YouTubeCommandResolution(resolution: resolution, modelMatch: .unavailable)
+        }
 
-        let refined = await refine(
+        let refined = await attempt(
             resolution,
             in: allowlist,
             availability: StyleRewriterFactory.availability(for: .channelMatching),
             rewriter: StyleRewriterFactory.makeRewriter(for: .channelMatching)
         )
-        if case .allowlisted(let channel, let source) = refined, source.usedModel {
+        if case .allowlisted(let channel, let source) = refined.resolution, source.usedModel {
             print("YouTube channel match: the on-device model chose “\(channel.displayName)”.")
         }
         return refined

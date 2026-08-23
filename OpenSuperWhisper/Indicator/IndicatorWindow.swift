@@ -310,7 +310,12 @@ class IndicatorViewModel: ObservableObject {
             Task { [weak self] in
                 guard let self = self else { return }
                 if let tempURL = await self.recorder.stopRecording() {
-                    await self.transcriptionQueue.addFileToQueue(url: tempURL)
+                    // The queue transcribes and never routes, so a command
+                    // capture that lands here is transcribed as text and the
+                    // command never runs. History says exactly that rather than
+                    // filing it as an ordinary dictation.
+                    await self.transcriptionQueue.addFileToQueue(
+                        url: tempURL, provenance: .queued(for: self.purpose))
                 }
             }
             showBusyMessage(.audioQueued)
@@ -348,7 +353,7 @@ class IndicatorViewModel: ObservableObject {
                         let timestamp = Date()
                         let fileName = "\(Int(timestamp.timeIntervalSince1970)).wav"
                         let recordingId = UUID()
-                        let newRecording = Recording(
+                        var newRecording = Recording(
                             id: recordingId,
                             timestamp: timestamp,
                             fileName: fileName,
@@ -363,6 +368,12 @@ class IndicatorViewModel: ObservableObject {
                             // the only surviving copy of what was said.
                             rawTranscription: styled.originalWorthKeeping
                         )
+                        // Written with the words rather than after them, so a
+                        // row is never briefly indistinguishable from an
+                        // ordinary dictation - and so a quit or a crash between
+                        // here and the browser leaves a record saying nothing
+                        // was opened, which is the true thing to have recorded.
+                        newRecording.provenance = styled.intent.provenance
 
                         try recorder.moveTemporaryRecording(from: tempURL, to: newRecording.url)
                         
@@ -375,7 +386,7 @@ class IndicatorViewModel: ObservableObject {
                         // - the user asked it out loud and may want it back -
                         // but nothing is pasted into the app they were typing
                         // in, because they did not ask for that.
-                        if case .openLatestVideo(let resolution) = styled.intent {
+                        if case .openLatestVideo(let command) = styled.intent {
                             // Nothing is pasted. The command is run here, beside
                             // the Ask panel and for the same reason: the pipeline
                             // reads the words, and what is done about them
@@ -387,7 +398,9 @@ class IndicatorViewModel: ObservableObject {
                             // timer, so the session ends there rather than
                             // falling through to the hide below - the same shape
                             // the kept-recording failures take.
-                            if await self.runOpenLatestVideo(resolution) { return }
+                            if await self.runOpenLatestVideo(command, storedAs: recordingId) {
+                                return
+                            }
                         } else if self.purpose == .youTubeCommand {
                             // Unreachable: a command capture's pipeline produces
                             // exactly the outcome above. It is written out anyway
@@ -395,6 +408,13 @@ class IndicatorViewModel: ObservableObject {
                             // the one thing this session must never do is fall
                             // into it.
                             self.result = nil
+                            await self.recordingStore.updateProvenance(
+                                recordingId,
+                                to: .youTubeCommandNotOpened(
+                                    reason: .notRecognised,
+                                    message: "That capture was not read as a channel name, so nothing was opened."
+                                )
+                            )
                             self.showAutoDismissingMessage(
                                 .commandFailed("That was not a channel name"))
                             return
@@ -430,7 +450,8 @@ class IndicatorViewModel: ObservableObject {
                             self.recordingStore.keepFailedDictation(
                                 temporaryURL: tempURL,
                                 duration: duration,
-                                reason: reason
+                                reason: reason,
+                                provenance: .notTranscribed(for: self.purpose, reason: reason)
                             )
                             self.showAutoDismissingMessage(indicatorState)
                         }
@@ -461,18 +482,27 @@ class IndicatorViewModel: ObservableObject {
     ///
     /// - Returns: whether it put a message on screen and so owns the end of the
     ///   session, exactly as `DictationFailureOutcome.keep` does.
-    private func runOpenLatestVideo(_ resolution: YouTubeChannelResolution) async -> Bool {
-        let report = await Self.youTubeService.run(resolution)
+    private func runOpenLatestVideo(
+        _ command: YouTubeCommandResolution, storedAs recordingId: UUID
+    ) async -> Bool {
+        let report = await Self.youTubeService.run(command.resolution)
         // The full sentence, for the users the two-second card cannot reach and
         // for anyone reading the log afterwards.
         YouTubeCommandAccessibility.announce(report)
         print("YouTube command: \(report.spokenSummary)")
+        // And the one surface that is still there tomorrow. The row already
+        // says the command did not open anything; this replaces that with what
+        // actually happened, including the model disclosure.
+        await self.recordingStore.updateProvenance(
+            recordingId,
+            to: .command(report, modelMatch: command.modelMatch)
+        )
 
         switch report {
         case .opened(let channel, _, _):
             self.result = .openedVideo(channel: channel)
             return false
-        case .refused(_, let shortMessage):
+        case .refused(_, _, let shortMessage):
             // Said on screen already, so there is no outcome left to report -
             // the same division the kept-recording failures make. Both overlays
             // follow `state`, so one message reaches the card and the capsule.
@@ -485,6 +515,7 @@ class IndicatorViewModel: ObservableObject {
     /// The service spoken YouTube commands run through: the real feed fetcher
     /// and the real browser opener, built once.
     private static let youTubeService: YouTubeLatestVideoService = .live
+
 
     /// One sentence for a failed dictation, on the surface that has room for one.
     ///

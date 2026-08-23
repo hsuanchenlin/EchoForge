@@ -40,9 +40,14 @@ class ContentViewModel: ObservableObject {
     @Published var modelPreparation: ModelPreparation?
     @Published var preparationFailure: String?
 
+    /// Which kinds the list is showing. Applied in SQL by `RecordingStore`, not
+    /// to the loaded page, so it reaches rows paging has not fetched yet.
+    @Published var provenanceFilter: HistoryProvenanceFilter = .all
+
     private var currentPage = 0
     private let pageSize = 100
     private var currentSearchQuery = ""
+    private var currentFilter: HistoryProvenanceFilter = .all
     private var blinkTimer: Timer?
     private var recordingStartTime: Date?
     private var durationTimer: Timer?
@@ -110,6 +115,20 @@ class ContentViewModel: ObservableObject {
     
     func loadInitialData() {
         currentSearchQuery = ""
+        currentFilter = provenanceFilter
+        currentPage = 0
+        canLoadMore = true
+        recordings = []
+        loadMore()
+    }
+
+    /// Reloads from the top under a new filter.
+    ///
+    /// The same reset `search(query:)` does, and for the same reason: page,
+    /// contents and the "there is more" flag all describe the previous query.
+    func applyFilter(_ filter: HistoryProvenanceFilter) {
+        provenanceFilter = filter
+        currentFilter = filter
         currentPage = 0
         canLoadMore = true
         recordings = []
@@ -124,26 +143,29 @@ class ContentViewModel: ObservableObject {
         let page = currentPage
         let limit = pageSize
         let query = currentSearchQuery
+        let filter = currentFilter
         let offset = page * limit
-        
-        
+
+
         Task {
             let newRecordings: [Recording]
             if query.isEmpty {
-                newRecordings = try await recordingStore.fetchRecordings(limit: limit, offset: offset)
+                newRecordings = try await recordingStore.fetchRecordings(
+                    limit: limit, offset: offset, filter: filter)
             } else {
-                newRecordings = await recordingStore.searchRecordingsAsync(query: query, limit: limit, offset: offset)
+                newRecordings = await recordingStore.searchRecordingsAsync(
+                    query: query, limit: limit, offset: offset, filter: filter)
             }
-            
-            
+
+
             await MainActor.run {
                 defer {
                     self.isLoadingMore = false
                 }
-                
+
                 // Ensure we are still consistent with the request (basic check)
-                guard self.currentSearchQuery == query else { 
-                    return 
+                guard self.currentSearchQuery == query, self.currentFilter == filter else {
+                    return
                 }
                 
                 if page == 0 {
@@ -163,6 +185,7 @@ class ContentViewModel: ObservableObject {
     
     func search(query: String) {
         currentSearchQuery = query
+        currentFilter = provenanceFilter
         currentPage = 0
         canLoadMore = true
         recordings = []
@@ -186,6 +209,17 @@ class ContentViewModel: ObservableObject {
         }
     }
     
+    /// Relabels one loaded row.
+    ///
+    /// A row the current filter no longer admits is left where it is rather than
+    /// removed: it is the row the user just spoke, and having it vanish from
+    /// under them the moment its outcome is known would hide the answer they
+    /// were waiting for. The next reload applies the filter.
+    func handleProvenanceUpdate(id: UUID, provenance: RecordingProvenance) {
+        guard let index = recordings.firstIndex(where: { $0.id == id }) else { return }
+        recordings[index].provenance = provenance
+    }
+
     func deleteRecording(_ recording: Recording) {
         recordingStore.deleteRecording(recording)
         if let index = recordings.firstIndex(where: { $0.id == recording.id }) {
@@ -423,6 +457,16 @@ struct ContentView: View {
                             }
                             .buttonStyle(.plain)
                         }
+
+                        Divider()
+                            .frame(height: 16)
+
+                        HistoryProvenanceFilterMenu(
+                            selection: Binding(
+                                get: { viewModel.provenanceFilter },
+                                set: { viewModel.applyFilter($0) }
+                            )
+                        )
                     }
                     .padding(10)
                     .background(ThemePalette.panelSurface(colorScheme))
@@ -436,7 +480,7 @@ struct ContentView: View {
                     ScrollView(showsIndicators: false) {
                         if viewModel.recordings.isEmpty {
                             VStack(spacing: 16) {
-                                if !debouncedSearchText.isEmpty {
+                                if !debouncedSearchText.isEmpty || viewModel.provenanceFilter != .all {
                                     // Show "no results" for search
                                     Image(systemName: "magnifyingglass")
                                         .font(.system(size: 40))
@@ -447,7 +491,13 @@ struct ContentView: View {
                                         .font(.headline)
                                         .foregroundColor(.secondary)
 
-                                    Text("Try different search terms")
+                                    // A filtered list that is empty must say it
+                                    // is filtered. "No recordings yet" over a
+                                    // history full of recordings is the app
+                                    // telling the user something untrue.
+                                    Text(viewModel.provenanceFilter == .all
+                                         ? "Try different search terms"
+                                         : "No “\(viewModel.provenanceFilter.title)” entries\(debouncedSearchText.isEmpty ? "" : " match that search"). Choose All to see everything.")
                                         .font(.subheadline)
                                         .foregroundColor(.secondary)
                                         .multilineTextAlignment(.center)
@@ -719,6 +769,15 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: RecordingStore.recordingsDidUpdateNotification)) { _ in
             viewModel.loadInitialData()
+        }
+        // A command's outcome lands a second or two after its words, so the row
+        // the user is already looking at is relabelled in place rather than on
+        // the next reload.
+        .onReceive(NotificationCenter.default.publisher(for: RecordingStore.recordingProvenanceDidUpdateNotification)) { notification in
+            guard let userInfo = notification.userInfo,
+                  let id = userInfo["id"] as? UUID,
+                  let provenance = userInfo["provenance"] as? RecordingProvenance else { return }
+            viewModel.handleProvenanceUpdate(id: id, provenance: provenance)
         }
         // There used to be a full-window scrim here whenever a model was
         // loading - "Loading Whisper Model..." over a dimmed, unusable history.
@@ -1163,6 +1222,13 @@ struct RecordingRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // First, and above everything: what this row is. A transcript on its
+            // own cannot say whether the words were typed into another app, sent
+            // to the Ask panel, or read as a command that opened nothing.
+            HistoryProvenanceBadge(provenance: recording.provenance)
+                .padding(.horizontal, 12)
+                .padding(.top, 10)
+
             if isPending && !isRegenerating {
                 VStack(alignment: .leading, spacing: 4) {
                     if let sourceFileName = recording.sourceFileName {

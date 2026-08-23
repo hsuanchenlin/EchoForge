@@ -132,9 +132,12 @@ final class YouTubeLatestVideoServiceTests: XCTestCase {
 
         let report = await service.run(.unknown(spoken: "some other channel"))
 
-        guard case .refused(let message, let short) = report else {
+        guard case .refused(let reason, let message, let short) = report else {
             return XCTFail("expected a refusal, got \(report)")
         }
+        // The class travels with the sentence, so history can group this
+        // without matching on wording that is free to change.
+        XCTAssertEqual(reason, .channelUnknown)
         XCTAssertTrue(message.contains("some other channel"))
         XCTAssertTrue(message.contains("Settings"))
         XCTAssertFalse(short.isEmpty)
@@ -153,7 +156,7 @@ final class YouTubeLatestVideoServiceTests: XCTestCase {
             .ambiguous(spoken: "veritasium", matches: ["Veritasium", "Veritasium Clips"])
         )
 
-        guard case .refused(let message, _) = report else {
+        guard case .refused(_, let message, _) = report else {
             return XCTFail("expected a refusal, got \(report)")
         }
         XCTAssertTrue(message.contains("Veritasium Clips"))
@@ -185,6 +188,7 @@ final class YouTubeLatestVideoServiceTests: XCTestCase {
         XCTAssertEqual(
             report,
             .refused(
+                reason: .feedUnavailable,
                 message: YouTubeFeedError.unreachable.errorDescription ?? "",
                 shortMessage: YouTubeFeedError.unreachable.shortMessage
             )
@@ -200,7 +204,7 @@ final class YouTubeLatestVideoServiceTests: XCTestCase {
 
         let report = await service.run(.allowlisted(channel, matchedBy: .spokenName))
 
-        guard case .refused(_, let short) = report else {
+        guard case .refused(_, _, let short) = report else {
             return XCTFail("expected a refusal, got \(report)")
         }
         XCTAssertEqual(short, YouTubeFeedError.unreachable.shortMessage)
@@ -213,7 +217,7 @@ final class YouTubeLatestVideoServiceTests: XCTestCase {
 
         let report = await service.run(.allowlisted(channel, matchedBy: .spokenName))
 
-        guard case .refused(let message, _) = report else {
+        guard case .refused(_, let message, _) = report else {
             return XCTFail("expected a refusal, got \(report)")
         }
         XCTAssertTrue(message.contains("404"))
@@ -253,7 +257,7 @@ final class YouTubeLatestVideoServiceTests: XCTestCase {
 
         let report = await service.run(.allowlisted(channel, matchedBy: .spokenName))
 
-        guard case .refused(_, let short) = report else {
+        guard case .refused(_, _, let short) = report else {
             return XCTFail("expected a refusal, got \(report)")
         }
         XCTAssertEqual(short, YouTubeFeedError.noEntries.shortMessage)
@@ -266,7 +270,7 @@ final class YouTubeLatestVideoServiceTests: XCTestCase {
 
         let report = await service.run(.allowlisted(channel, matchedBy: .spokenName))
 
-        guard case .refused(let message, _) = report else {
+        guard case .refused(_, let message, _) = report else {
             return XCTFail("expected a refusal, got \(report)")
         }
         XCTAssertTrue(message.contains("Chrome"))

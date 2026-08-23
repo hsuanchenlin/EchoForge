@@ -159,9 +159,16 @@ the Settings pane says what it does before it is switched on.
   `nil` for `cloudFeature`, the same enforcement `docs/cloud-api.md` describes
   for rewriting and the Ask panel. Translation remains the only feature with a
   cloud path.
-- **It is disclosed when it is used.** `YouTubeChannelMatchSource.model` carries
-  the phrase it was given, and the opened report's sentence says the on-device
-  model made the match - in the log and in the VoiceOver announcement.
+- **It is disclosed when it is used, and when it was not.**
+  `YouTubeChannelMatchSource.model` carries the phrase it was given, and the
+  opened report's sentence says the on-device model made the match - in the log,
+  in the VoiceOver announcement and in History. The other four outcomes are
+  disclosed too (`YouTubeChannelModelMatchAttempt`): off, could not run, asked
+  and gave nothing, or never needed. All of them leave the same refusal behind,
+  which is correct and, on its own, invisible - "no channel answers to that"
+  reads identically whichever it was - so History says which. It is a report and
+  never an input: nothing branches on it, and no value of it can turn a refusal
+  into an opened video.
 
 Reading the answer (`interpret`) is deliberately strict: a 1-based index, or
 `NONE`, or one candidate's own stored spelling. Anything with a sentence around
@@ -232,10 +239,31 @@ channel ID*; or open its about page and copy the `UC…` part of a
 
 Nothing is opened unless the whole path succeeded, and every failure has a
 sentence naming what to do about it (`YouTubeLatestVideoReport`,
-`YouTubeFeedError`, `BrowserOpenError`). Two surfaces carry them: the dictation
-overlay shows the few words it has room for, and the whole sentence is posted as
-a VoiceOver announcement (`YouTubeCommandAccessibility`) and printed to the log -
-the same division the engine and cloud failures make.
+`YouTubeFeedError`, `BrowserOpenError`). **Three** surfaces carry them, and the
+third is the one that is still there tomorrow:
+
+- the dictation overlay shows the few words it has room for, for two seconds;
+- the whole sentence is posted as a VoiceOver announcement
+  (`YouTubeCommandAccessibility`) and printed to the log - the same division the
+  engine and cloud failures make;
+- and it is **written into History**, on the recording the command was spoken
+  into, as `RecordingProvenance` - the label, the class
+  (`YouTubeCommandRefusal`) and the sentence.
+
+That third one exists because the first two reach nobody after the fact. `print`
+goes to a stdout a shipped app does not have, the overlay is gone in two seconds
+while the user is looking at another app, and the announcement reaches nobody
+with VoiceOver off - so a command that opened nothing left a history row
+indistinguishable from a dictation, and four different causes were one symptom.
+`docs/history-provenance.md` is the whole story, including which class each
+failure below is filed as.
+
+`YouTubeLatestVideoReport.refusal(for:)` is the pure half of the table: every
+resolution that is not `.allowlisted` is already decided before anything is
+fetched, so History records the right answer the instant the words are stored
+rather than after a round trip that was never going to happen. An allowlisted
+channel is stored as *not opened* until the report replaces it, so a quit or a
+crash mid-command leaves a row saying nothing was opened - which is true.
 
 | What happened | What the user is told |
 | --- | --- |
@@ -251,9 +279,16 @@ the same division the engine and cloud failures make.
 
 The command key stays bound while the feature is off, so a press says what is
 wrong rather than doing nothing at all - which is the one answer a user cannot
-act on. The recording is stored in history either way, so the words survive
-whatever happened next. Nothing is ever inserted into the app the user was typing
-in: the transcript was an instruction, not text.
+act on. The recording is stored in history either way, labelled with what became
+of it, so both the words and the answer survive whatever happened next. Nothing
+is ever inserted into the app the user was typing in: the transcript was an
+instruction, not text.
+
+Two presses never reach the command at all and are recorded as their own
+refusals rather than as ordinary transcriptions: one made while the engine was
+busy with another transcription, which the queue transcribes as plain text
+without routing anything (`.engineBusy`), and one the engine could not
+transcribe (`.notTranscribed`).
 
 ## Hostile feeds
 
@@ -295,5 +330,10 @@ all), `YouTubeChannelStoreTests` (what is stored, and the switches in front of
 it), `YouTubeFeedParserTests` (newest-entry selection, empty, malformed and
 hostile feeds), `YouTubeVideoURLTests` (every URL that is refused) and
 `YouTubeLatestVideoServiceTests` (the whole command against a stub feed and a
-mock browser, including offline and a missing Chrome). None of them reach the
-network, none of them reach a model, and none of them open anything.
+mock browser, including offline and a missing Chrome).
+`YouTubeCommandHistoryRegressionTests` is the one that holds the whole thing
+together in the configuration it actually failed in: which spellings reach a
+stored `valley101`, which correctly reach nothing, what History records for each
+outcome, and that the same words through the dictation key are still only text.
+None of them reach the network, none of them reach a model, and none of them
+open anything.

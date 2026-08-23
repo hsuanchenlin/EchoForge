@@ -28,7 +28,12 @@ enum SpokenIntentOutcome: Equatable, Sendable {
     /// command can also report the ways the channel can fail to be one.
     /// Only a `.youTubeCommand` session can produce it. See
     /// `YouTubeLatestVideoService` and `DictationPurpose`.
-    case openLatestVideo(YouTubeChannelResolution)
+    ///
+    /// It carries `YouTubeCommandResolution` rather than the bare resolution so
+    /// what the optional on-device chooser did travels with the answer as far as
+    /// history, which is the only durable surface that can tell the user a model
+    /// was - or was not - consulted about their failed command.
+    case openLatestVideo(YouTubeCommandResolution)
 
     /// Whether the text goes into whatever the user was typing in.
     ///
@@ -51,9 +56,38 @@ enum SpokenIntentOutcome: Equatable, Sendable {
         case .ask: return .ask
         case .translated(let target): return .translate(to: target)
         case .snippet(let keyword): return .snippet(named: keyword)
-        case .openLatestVideo(let resolution):
-            return .openLatestVideo(from: resolution.spokenName)
+        case .openLatestVideo(let command):
+            return .openLatestVideo(from: command.spokenName)
         }
+    }
+
+    /// What this outcome puts in history.
+    ///
+    /// A command's provenance is provisional here - the feed has not been
+    /// fetched and Chrome has not been asked for anything - so it says "not
+    /// opened" until the report replaces it. See
+    /// `RecordingProvenance.pendingCommand`.
+    var provenance: RecordingProvenance {
+        switch self {
+        case .dictation, .translated, .snippet: return .dictation
+        case .ask: return .ask
+        case .openLatestVideo(let command): return .pendingCommand(command)
+        }
+    }
+}
+
+extension SpokenIntentOutcome {
+    /// The command outcome, spelled with a bare resolution.
+    ///
+    /// Kept so every caller that has no model attempt to report - which is every
+    /// caller but the pipeline - reads exactly as it did before the attempt
+    /// existed.
+    static func openLatestVideo(
+        _ resolution: YouTubeChannelResolution,
+        modelMatch: YouTubeChannelModelMatchAttempt = .notNeeded
+    ) -> SpokenIntentOutcome {
+        .openLatestVideo(
+            YouTubeCommandResolution(resolution: resolution, modelMatch: modelMatch))
     }
 }
 
@@ -157,13 +191,13 @@ enum SpokenIntentPipeline {
     private static func youTubeCommand(
         to processed: ProcessedText, settings: Settings
     ) async -> StyledTranscript {
-        func result(_ resolution: YouTubeChannelResolution) -> StyledTranscript {
+        func result(_ command: YouTubeCommandResolution) -> StyledTranscript {
             StyledTranscript(
                 raw: processed.raw,
                 transcript: processed.final,
                 final: processed.final,
                 status: .notRequested,
-                intent: .openLatestVideo(resolution)
+                intent: .openLatestVideo(command)
             )
         }
 
@@ -171,8 +205,9 @@ enum SpokenIntentPipeline {
         // so; a hotkey that silently does nothing is the one answer a user
         // cannot act on.
         guard let channels = settings.youTubeChannels else {
-            return result(.disabled(spoken: processed.final.trimmingCharacters(
-                in: .whitespacesAndNewlines)))
+            return result(YouTubeCommandResolution(
+                resolution: .disabled(spoken: processed.final.trimmingCharacters(
+                    in: .whitespacesAndNewlines))))
         }
 
         let resolution = YouTubeCommandRouter.resolve(processed.final, channels: channels)
@@ -185,7 +220,7 @@ enum SpokenIntentPipeline {
             in: channels,
             isEnabled: settings.youTubeChannelModelMatch
         )
-        if resolved != resolution {
+        if resolved.resolution != resolution {
             await MainActor.run {
                 SpokenIntentActivity.shared.resolved(.openLatestVideo(resolved))
             }

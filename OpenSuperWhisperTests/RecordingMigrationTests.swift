@@ -34,7 +34,7 @@ final class RecordingMigrationTests: XCTestCase {
     func testMigrationOrderIsStable() {
         XCTAssertEqual(
             RecordingStore.makeMigrator().migrations,
-            ["v1", "v2_add_status", "v3_add_raw_transcription"],
+            ["v1", "v2_add_status", "v3_add_raw_transcription", "v4_add_provenance"],
             "Migrations are identified by name and applied in order; renaming or reordering one re-runs it on databases that already have it."
         )
     }
@@ -55,7 +55,8 @@ final class RecordingMigrationTests: XCTestCase {
         XCTAssertEqual(
             Set(names),
             ["id", "timestamp", "fileName", "transcription", "duration",
-             "status", "progress", "sourceFileURL", "rawTranscription"]
+             "status", "progress", "sourceFileURL", "rawTranscription",
+             "provenanceKind", "provenanceReason", "provenanceDetail"]
         )
     }
 
@@ -127,7 +128,9 @@ final class RecordingMigrationTests: XCTestCase {
         try migrator.migrate(dbQueue)
 
         let applied = try dbQueue.read { try migrator.appliedIdentifiers($0) }
-        XCTAssertEqual(applied, ["v1", "v2_add_status", "v3_add_raw_transcription"])
+        XCTAssertEqual(
+            applied,
+            ["v1", "v2_add_status", "v3_add_raw_transcription", "v4_add_provenance"])
         XCTAssertNotNil(try columnInfo(named: "rawTranscription"))
     }
 

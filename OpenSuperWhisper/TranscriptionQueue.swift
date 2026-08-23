@@ -93,7 +93,15 @@ class TranscriptionQueue: ObservableObject {
         }
     }
 
-    func addFileToQueue(url: URL) async {
+    /// - Parameter provenance: what this audio is. A dropped file, an
+    ///   open-with and a file the user pointed at are `.fileTranscription`; the
+    ///   one caller with something else to say is the live session whose audio
+    ///   was queued because the engine was busy
+    ///   (`IndicatorViewModel.queuedProvenance`). Nothing here routes a spoken
+    ///   intent, so nothing queued can become a command however it is worded.
+    func addFileToQueue(
+        url: URL, provenance: RecordingProvenance = .fileTranscription
+    ) async {
         do {
             let durationInSeconds = await AudioUtil.audioDuration(url: url)
 
@@ -101,7 +109,7 @@ class TranscriptionQueue: ObservableObject {
             let fileName = "\(Int(timestamp.timeIntervalSince1970)).wav"
             let id = UUID()
 
-            let recording = Recording(
+            var recording = Recording(
                 id: id,
                 timestamp: timestamp,
                 fileName: fileName,
@@ -111,6 +119,7 @@ class TranscriptionQueue: ObservableObject {
                 progress: 0.0,
                 sourceFileURL: url.path
             )
+            recording.provenance = provenance
 
             try await recordingStore.addRecordingSync(recording)
 
@@ -148,6 +157,13 @@ class TranscriptionQueue: ObservableObject {
             status: .pending,
             isRegeneration: true
         )
+
+        // A command row is about to get a different transcript, and its stored
+        // sentence quotes the old one. See `RecordingProvenance.reTranscribed`.
+        let reTranscribed = recording.provenance.reTranscribed()
+        if reTranscribed != recording.provenance {
+            await recordingStore.updateProvenance(recording.id, to: reTranscribed)
+        }
 
         do {
             try await recordingStore.updateSourceFileURL(recording.id, sourceURL: sourceURL.path)
