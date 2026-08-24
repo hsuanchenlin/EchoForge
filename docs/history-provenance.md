@@ -43,6 +43,7 @@ short version and what to do:
 | The transcription engine was busy | The audio was queued as a plain transcription, so the command never ran at all. | Try the shortcut again once the queue is clear. |
 | This command could not be transcribed | There were never any words to read as a channel name. | The sentence carries the engine's own reason. |
 | This command had not finished | EchoForge quit or was interrupted between hearing the words and finishing the command. | Try it again. |
+| This recording was transcribed again from History | You pressed the row's Regenerate transcription button. The label and the outcome stay what that press actually did, but the old sentence quoted the old transcript, so it is replaced. Regenerating never re-runs the command. | Press the YouTube command shortcut to run the command again. |
 
 ### "It heard the name wrong"
 
