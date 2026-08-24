@@ -279,7 +279,7 @@ class ContentViewModel: ObservableObject {
                         let timestamp = Date()
                         let fileName = "\(Int(timestamp.timeIntervalSince1970)).wav"
                         let recordingId = UUID()
-                        let newRecording = Recording(
+                        var newRecording = Recording(
                             id: recordingId,
                             timestamp: timestamp,
                             fileName: fileName,
@@ -290,6 +290,7 @@ class ContentViewModel: ObservableObject {
                             sourceFileURL: nil,
                             rawTranscription: styled.originalWorthKeeping
                         )
+                        newRecording.provenance = .dictation
 
                         try recorder.moveTemporaryRecording(from: tempURL, to: newRecording.url)
 
