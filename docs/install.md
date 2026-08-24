@@ -216,6 +216,18 @@ Two things are worth knowing before you rely on it:
   it declines - you get your transcript exactly as it was transcribed. **Try it** in the
   Style pane shows you the result and, when one is refused, the reason.
 
+## Reading your history
+
+Every entry in the main window carries a label saying which key produced it and what
+became of the words: **Dictation**, **Ask**, **YouTube command - opened**, or
+**YouTube command - not opened**. A command that opened nothing shows the reason right
+under the label - which spelling was heard, and what to change - and the filter beside
+the search box narrows the list to one kind at a time. Entries recorded before this
+existed say **Older recording**: EchoForge does not guess what they were.
+
+That is where to look first when a shortcut seemed to do nothing
+([details](history-provenance.md)).
+
 ## Using a cloud provider instead (optional)
 
 Everything above happens on your Mac. If you would rather have your speech transcribed by

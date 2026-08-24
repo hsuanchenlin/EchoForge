@@ -11,13 +11,27 @@ enum YouTubeLatestVideoReport: Equatable, Sendable {
     /// the spoken words reached that channel, carried so the one case a model
     /// took part in says so out loud.
     case opened(channel: String, title: String, match: YouTubeChannelMatchSource)
-    /// Nothing was opened. `message` is the sentence for a surface with room and
-    /// `shortMessage` the few words a dictation overlay has.
-    case refused(message: String, shortMessage: String)
+    /// Nothing was opened. `reason` classifies it for history and for tests,
+    /// `message` is the sentence for a surface with room, and `shortMessage` the
+    /// few words a dictation overlay has.
+    ///
+    /// The class is carried rather than derived from the message because the
+    /// message is copy - free to be reworded without relabelling every row a
+    /// user already has - and because a surface that grouped failures by
+    /// matching on their wording would be a surface that mis-groups them the
+    /// first time one is rewritten.
+    case refused(reason: YouTubeCommandRefusal, message: String, shortMessage: String)
 
     var didOpen: Bool {
         if case .opened = self { return true }
         return false
+    }
+
+    /// The few words a dictation overlay has room for, or nil when the command
+    /// opened.
+    var shortMessage: String? {
+        guard case .refused(_, _, let short) = self else { return nil }
+        return short
     }
 
     /// The full sentence in both cases, for the log and for the VoiceOver
@@ -34,8 +48,55 @@ enum YouTubeLatestVideoReport: Equatable, Sendable {
             // which of their channels this was.
             guard let disclosure = match.disclosure else { return opened }
             return "\(opened) \(disclosure)"
-        case .refused(let message, _):
+        case .refused(_, let message, _):
             return message
+        }
+    }
+}
+
+extension YouTubeLatestVideoReport {
+
+    /// The refusal a resolution determines on its own, before anything is
+    /// fetched and before Chrome is asked for anything - or nil for an
+    /// allowlisted channel, which needs the feed and the browser to know.
+    ///
+    /// Pure and separate from `run` so the two callers cannot disagree: the
+    /// service answers with it, and history writes it the moment the words are
+    /// stored, which is what keeps the row the user is most likely to be
+    /// reading - "that name is not in your list" - correct from the instant it
+    /// appears rather than after a round trip that was never going to happen.
+    static func refusal(for resolution: YouTubeChannelResolution) -> YouTubeLatestVideoReport? {
+        switch resolution {
+        case .allowlisted:
+            return nil
+        case .unknown(let spoken):
+            // A marker with nothing behind it, or nothing heard at all: there
+            // was never a name to look up, which is a different thing to tell
+            // somebody than "that channel is not in your list".
+            guard !spoken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return .refused(
+                    reason: .notRecognised,
+                    message: "No channel name was heard, so nothing was opened. Hold the YouTube command shortcut and say a channel name from Settings → Dictionary & Snippets → YouTube Channels.",
+                    shortMessage: YouTubeCommandRefusal.notRecognised.shortLabel
+                )
+            }
+            return .refused(
+                reason: .channelUnknown,
+                message: "No allowlisted YouTube channel answers to “\(spoken)”. Add it in Settings → Dictionary & Snippets → YouTube Channels, or add that spelling as a spoken name on the channel you meant.",
+                shortMessage: "Channel not in your list"
+            )
+        case .ambiguous(let spoken, let matches):
+            return .refused(
+                reason: .channelAmbiguous,
+                message: "“\(spoken)” answers for more than one channel (\(matches.joined(separator: ", "))). Give them different spoken names in Settings → Dictionary & Snippets → YouTube Channels.",
+                shortMessage: "Two channels answer to that"
+            )
+        case .disabled:
+            return .refused(
+                reason: .commandDisabled,
+                message: "The YouTube command is switched off, so nothing was opened. Turn it on in Settings → Dictionary & Snippets → YouTube Channels.",
+                shortMessage: "YouTube command is off"
+            )
         }
     }
 }
@@ -68,25 +129,18 @@ struct YouTubeLatestVideoService: Sendable {
     /// look like a failure to the user and are in fact the allowlist doing its
     /// job, and both must reach a surface instead of being dropped silently.
     func run(_ resolution: YouTubeChannelResolution) async -> YouTubeLatestVideoReport {
-        switch resolution {
-        case .unknown(let spoken):
+        if let refusal = YouTubeLatestVideoReport.refusal(for: resolution) { return refusal }
+        guard case .allowlisted(let channel, let match) = resolution else {
+            // Unreachable: `refusal(for:)` answers every other case. Written out
+            // so a case added to the resolution without a refusal beside it
+            // fails closed here rather than opening something.
             return .refused(
-                message: "No allowlisted YouTube channel answers to “\(spoken)”. Add it in Settings → Dictionary & Snippets → YouTube Channels.",
-                shortMessage: "Channel not in your list"
+                reason: .notRecognised,
+                message: "That command could not be read, so nothing was opened.",
+                shortMessage: YouTubeCommandRefusal.notRecognised.shortLabel
             )
-        case .ambiguous(let spoken, let matches):
-            return .refused(
-                message: "“\(spoken)” answers for more than one channel (\(matches.joined(separator: ", "))). Give them different spoken names in Settings → Dictionary & Snippets → YouTube Channels.",
-                shortMessage: "Two channels answer to that"
-            )
-        case .disabled:
-            return .refused(
-                message: "The YouTube command is switched off, so nothing was opened. Turn it on in Settings → Dictionary & Snippets → YouTube Channels.",
-                shortMessage: "YouTube command is off"
-            )
-        case .allowlisted(let channel, let match):
-            return await open(latestFrom: channel, match: match)
         }
+        return await open(latestFrom: channel, match: match)
     }
 
     private func open(
@@ -96,6 +150,7 @@ struct YouTubeLatestVideoService: Sendable {
             // Only reachable for a row stored before the id was validated, which
             // is why it is a message about the id rather than an assertion.
             return .refused(
+                reason: .channelIDUnusable,
                 message: "“\(channel.displayName)” has no usable channel ID, so nothing was opened. Fix it in Settings → Dictionary & Snippets → YouTube Channels.",
                 shortMessage: "That channel ID is not valid"
             )
@@ -107,11 +162,13 @@ struct YouTubeLatestVideoService: Sendable {
             video = try YouTubeFeedParser.newestVideo(in: data)
         } catch let error as YouTubeFeedError {
             return .refused(
+                reason: error.refusal,
                 message: error.errorDescription ?? error.shortMessage,
                 shortMessage: error.shortMessage
             )
         } catch {
             return .refused(
+                reason: YouTubeFeedError.unreachable.refusal,
                 message: YouTubeFeedError.unreachable.errorDescription ?? "",
                 shortMessage: YouTubeFeedError.unreachable.shortMessage
             )
@@ -121,12 +178,14 @@ struct YouTubeLatestVideoService: Sendable {
             try await opener.openInNewTab(video.url)
         } catch let error as BrowserOpenError {
             return .refused(
+                reason: .browserUnavailable,
                 message: error.errorDescription ?? error.shortMessage,
                 shortMessage: error.shortMessage
             )
         } catch {
             let failure = BrowserOpenError.launchFailed(error.localizedDescription)
             return .refused(
+                reason: .browserUnavailable,
                 message: failure.errorDescription ?? failure.shortMessage,
                 shortMessage: failure.shortMessage
             )

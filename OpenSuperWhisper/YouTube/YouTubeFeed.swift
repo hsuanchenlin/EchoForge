@@ -61,6 +61,19 @@ enum YouTubeFeedError: LocalizedError, Equatable {
         case .noUsableVideo: return "No video link in that feed"
         }
     }
+
+    /// How history files this failure.
+    ///
+    /// Two classes and not six, because the user does two different things:
+    /// a lookup that never happened is a connection or an id to check, and a
+    /// feed that arrived carrying nothing openable is that channel's own state.
+    /// The sentence stored beside the class still says which of the six it was.
+    var refusal: YouTubeCommandRefusal {
+        switch self {
+        case .unreachable, .httpStatus: return .feedUnavailable
+        case .tooLarge, .malformed, .noEntries, .noUsableVideo: return .feedUnusable
+        }
+    }
 }
 
 /// Where a channel's videos are listed.

@@ -25,19 +25,56 @@ struct Recording: Identifiable, Codable, FetchableRecord, PersistableRecord, Equ
     /// user originally said when post-processing turns out to be wrong.
     var rawTranscription: String?
 
+    /// Which of the app's ways of listening produced this row, as the stored
+    /// discriminator. Nil for every row written before provenance existed, and
+    /// read back as `RecordingProvenance.unknown` rather than guessed at.
+    var provenanceKind: String?
+
+    /// The refusal class of a YouTube command that opened nothing. Nil for every
+    /// other kind.
+    var provenanceReason: String?
+
+    /// The sentence shown under the label: what was opened, or what to do about
+    /// a command that opened nothing. Never a URL, a channel id or a credential
+    /// - `HistoryProvenancePrivacyTests` holds that.
+    var provenanceDetail: String?
+
     var isRegeneration: Bool = false
+
+    /// The three columns read back as one value.
+    ///
+    /// Every surface goes through here rather than at the columns, so "a kind
+    /// this build does not know is an older recording" is decided once. See
+    /// `RecordingProvenance.stored`.
+    var provenance: RecordingProvenance {
+        get {
+            RecordingProvenance.stored(
+                kind: provenanceKind, reason: provenanceReason, detail: provenanceDetail)
+        }
+        set {
+            (provenanceKind, provenanceReason, provenanceDetail) = newValue.columns
+        }
+    }
 
     enum CodingKeys: String, CodingKey {
         case id, timestamp, fileName, transcription, duration, status, progress, sourceFileURL
         case rawTranscription
+        case provenanceKind, provenanceReason, provenanceDetail
     }
 
+    /// Equality over the fields a row is *redrawn* for, which is what this is
+    /// for. Provenance is one of them: a command's outcome lands a second after
+    /// its words, and a row that compares equal to its own previous self would
+    /// keep showing "did not finish" over a video that opened.
     static func == (lhs: Recording, rhs: Recording) -> Bool {
         return lhs.id == rhs.id &&
                lhs.status == rhs.status &&
                lhs.progress == rhs.progress &&
                lhs.transcription == rhs.transcription &&
-               lhs.isRegeneration == rhs.isRegeneration
+               lhs.isRegeneration == rhs.isRegeneration &&
+               lhs.provenanceKind == rhs.provenanceKind &&
+               lhs.provenanceReason == rhs.provenanceReason &&
+               lhs.provenanceDetail == rhs.provenanceDetail
     }
 
     static var recordingsDirectory: URL {
@@ -73,6 +110,9 @@ struct Recording: Identifiable, Codable, FetchableRecord, PersistableRecord, Equ
         static let progress = Column(CodingKeys.progress)
         static let sourceFileURL = Column(CodingKeys.sourceFileURL)
         static let rawTranscription = Column(CodingKeys.rawTranscription)
+        static let provenanceKind = Column(CodingKeys.provenanceKind)
+        static let provenanceReason = Column(CodingKeys.provenanceReason)
+        static let provenanceDetail = Column(CodingKeys.provenanceDetail)
     }
 }
 
@@ -154,6 +194,27 @@ class RecordingStore: ObservableObject {
             }
         }
 
+        /// Provenance: what kind of session produced a row, and what became of
+        /// it (`RecordingProvenance`).
+        ///
+        /// All three columns are nullable with no default, and that is the
+        /// migration's whole safety story: every recording a user already has
+        /// gets NULL, reads back as `.unknown`, and is shown as "Older
+        /// recording". Back-filling them with `'dictation'` would have been one
+        /// `UPDATE` and would have written the app's guess into the user's
+        /// record - including onto every YouTube command they ran before this
+        /// existed, which is exactly the history they are trying to read.
+        migrator.registerMigration("v4_add_provenance") { db in
+            let columnNames = try db.columns(in: Recording.databaseTableName).map { $0.name }
+
+            for column in ["provenanceKind", "provenanceReason", "provenanceDetail"]
+            where !columnNames.contains(column) {
+                try db.alter(table: Recording.databaseTableName) { t in
+                    t.add(column: column, .text)
+                }
+            }
+        }
+
         return migrator
     }
 
@@ -165,13 +226,37 @@ class RecordingStore: ObservableObject {
         }
     }
     
-    nonisolated func fetchRecordings(limit: Int, offset: Int) async throws -> [Recording] {
+    nonisolated func fetchRecordings(
+        limit: Int, offset: Int, filter: HistoryProvenanceFilter = .all
+    ) async throws -> [Recording] {
         try await dbQueue.read { db in
-            try Recording
+            try Self.query(matching: filter)
                 .order(Recording.Columns.timestamp.desc)
                 .limit(limit, offset: offset)
                 .fetchAll(db)
         }
+    }
+
+    /// The history query for one filter.
+    ///
+    /// In SQL rather than over the loaded page, because history is paged: a
+    /// filter applied to the hundred rows that happen to be in memory would
+    /// quietly hide every older row that matches, which is the opposite of what
+    /// somebody looking for a command that failed last week is asking for.
+    ///
+    /// The NULL arm is the load-bearing part. Every recording made before
+    /// provenance existed has no kind stored, and `provenanceKind IN (...)` is
+    /// false for NULL in SQL - so "Older recording" has to ask for the NULL
+    /// explicitly, and every other filter has to leave it out.
+    nonisolated static func query(
+        matching filter: HistoryProvenanceFilter
+    ) -> QueryInterfaceRequest<Recording> {
+        guard let kinds = filter.kinds else { return Recording.all() }
+        let raw = kinds.map(\.rawValue)
+        let named = raw.contains(Recording.Columns.provenanceKind)
+        return Recording.filter(
+            filter.includesUnrecorded ? (named || Recording.Columns.provenanceKind == nil) : named
+        )
     }
 
     func getPendingRecordings() -> [Recording] {
@@ -229,10 +314,18 @@ class RecordingStore: ObservableObject {
     /// Returns `nil` only if the audio could not be moved into place, in which
     /// case there is nothing to show and the caller has already reported the
     /// failure itself.
+    /// - Parameter provenance: what the press was for. A failed **command**
+    ///   capture is filed as a command that opened nothing rather than as a
+    ///   failed dictation, because "I pressed the YouTube key and nothing
+    ///   happened" and "my dictation did not transcribe" are the same row
+    ///   otherwise.
     @discardableResult
-    func keepFailedDictation(temporaryURL: URL, duration: TimeInterval, reason: String) -> Recording? {
+    func keepFailedDictation(
+        temporaryURL: URL, duration: TimeInterval, reason: String,
+        provenance: RecordingProvenance = .dictation
+    ) -> Recording? {
         let timestamp = Date()
-        let recording = Recording(
+        var recording = Recording(
             id: UUID(),
             timestamp: timestamp,
             fileName: "\(Int(timestamp.timeIntervalSince1970)).wav",
@@ -242,6 +335,7 @@ class RecordingStore: ObservableObject {
             progress: 0.0,
             sourceFileURL: nil
         )
+        recording.provenance = provenance
 
         do {
             try AudioRecorder.shared.moveTemporaryRecording(from: temporaryURL, to: recording.url)
@@ -575,10 +669,13 @@ class RecordingStore: ObservableObject {
         }
     }
     
-    nonisolated func searchRecordingsAsync(query: String, limit: Int = 100, offset: Int = 0) async -> [Recording] {
+    nonisolated func searchRecordingsAsync(
+        query: String, limit: Int = 100, offset: Int = 0,
+        filter: HistoryProvenanceFilter = .all
+    ) async -> [Recording] {
         do {
             return try await dbQueue.read { db in
-                try Recording
+                try Self.query(matching: filter)
                     .filter(Recording.Columns.transcription.like("%\(query)%").collating(.nocase))
                     .order(Recording.Columns.timestamp.desc)
                     .limit(limit, offset: offset)
@@ -589,4 +686,45 @@ class RecordingStore: ObservableObject {
             return []
         }
     }
+
+    /// Records what became of a command whose words were already stored.
+    ///
+    /// Its own method rather than a whole-row `update`, for the reason
+    /// `updateRecordingProgressOnlySync` is: the row may be being written by the
+    /// queue at the same moment, and this must replace three columns without
+    /// carrying a stale transcript back over the top of it.
+    ///
+    /// The in-memory copy and the notification follow, so an open History window
+    /// re-labels the row the user is already looking at rather than waiting for
+    /// the next reload.
+    func updateProvenance(_ id: UUID, to provenance: RecordingProvenance) async {
+        let (kind, reason, detail) = provenance.columns
+
+        do {
+            _ = try await dbQueue.write { db -> Int in
+                try Recording
+                    .filter(Recording.Columns.id == id)
+                    .updateAll(db, [
+                        Recording.Columns.provenanceKind.set(to: kind),
+                        Recording.Columns.provenanceReason.set(to: reason),
+                        Recording.Columns.provenanceDetail.set(to: detail),
+                    ])
+            }
+        } catch {
+            print("Failed to update recording provenance: \(error)")
+            return
+        }
+
+        if let index = recordings.firstIndex(where: { $0.id == id }) {
+            recordings[index].provenance = provenance
+        }
+        NotificationCenter.default.post(
+            name: Self.recordingProvenanceDidUpdateNotification,
+            object: nil,
+            userInfo: ["id": id, "provenance": provenance]
+        )
+    }
+
+    static let recordingProvenanceDidUpdateNotification = Notification.Name(
+        "RecordingStore.recordingProvenanceDidUpdate")
 }

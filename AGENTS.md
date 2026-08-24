@@ -529,6 +529,25 @@ The recordings database is GRDB, with its full schema history in `RecordingStore
 (`OpenSuperWhisper/Models/Recording.swift`). Schema changes go in a new named migration; never
 edit an applied one, since the identifier is what decides whether a user's database already ran it.
 
+Every row also records **what produced it and what became of it** -
+`RecordingProvenance` (`Models/RecordingProvenance.swift`), three nullable columns, and
+`docs/history-provenance.md` is the whole story. It exists because History was the app's
+only durable surface and said nothing: `print` goes to a stdout a shipped app does not
+have, the dictation overlay carries four words for two seconds while the user is looking
+at another app, and the VoiceOver announcement reaches nobody with VoiceOver off - so a
+YouTube command that opened nothing, a question that went to the Ask panel and a sentence
+pasted into a document all left the same row, and four causes were one symptom. Three
+rules carry it. It is **written, never guessed**: a row from before the feature is
+`.unknown` ("Older recording"), and the migration back-fills nothing - an `UPDATE` setting
+`'dictation'` would have relabelled every command the user ran before it shipped. It
+**fails closed** like the command it describes: a command capture is stored as *not*
+opened until a report says otherwise, so no crash can leave a row claiming a video
+opened. And it carries **no id, URL or credential** - `HistoryProvenancePrivacyTests`
+holds that, plus a source scan that keeps `RecordingProvenance` the only writer of those
+columns. The history list filters in **SQL** (`RecordingStore.query(matching:)`), not over
+the loaded page, because history is paged; `provenanceKind IN (…)` is false for NULL, so
+the legacy filter asks for the NULL and every other filter must not.
+
 `terms.json` beside it is the second store: the personal terms dictionary, deliberately a plain
 hand-editable file outside the database because it has a different lifecycle and must not be
 touched by the recordings retention policy. See `docs/personal-terms.md`.
