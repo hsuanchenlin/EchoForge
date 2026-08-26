@@ -233,7 +233,8 @@ has the user-facing half; four things carry it here.
   typing into an address.
 - **Ranking is a hint and never a decision.** `YouTubeChannelSuggestions` scores
   the stored **display names and aliases** - never an id, a URL or a host - and
-  orders the list by score, then by the user's own list order, quantized so the
+  puts suggestions first, best first; every row below the suggestion threshold
+  keeps the user's own list order, and scores are compared quantized, so the
   order is reproducible on every Mac. The best row starts highlighted and is
   badged; opening it still takes Return. This is the one inexact comparison in
   the feature, and it is safe here precisely because nothing acts on it.
@@ -326,9 +327,9 @@ crash mid-command leaves a row saying nothing was opened - which is true.
 | --- | --- |
 | The feature is switched off | That it is off, and where to turn it on |
 | The channel is not in the list | The picker, if one can be offered; otherwise which name was heard, and where to add it |
-| The picker was closed without choosing | That nothing was opened, and which spelling to add so it opens directly |
+| The picker was closed without choosing | That nothing was opened, and the fix that opens it directly next time - a spelling to add, or two rows to rename |
 | Nothing is in the list at all | That there is no channel stored yet, and where to add the first |
-| Two rows answer to that name | Which rows, and to give them different names |
+| Two rows answer to that name | The picker, if one can be offered; otherwise which rows, and to give them different names |
 | Offline, DNS, a timeout | The lookup did not happen; nothing was opened |
 | YouTube answered with a status | The status, and to check the id |
 | The feed lists no videos | That channel has published nothing |

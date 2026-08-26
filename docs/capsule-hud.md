@@ -57,8 +57,15 @@ work the capsule is currently reporting on.
 | `.recording` + confirmation | mode chip, "Press Esc to cancel", countdown bar | when the window lapses |
 | `.polishing(.transcribing)` | mode chip, spinner, "Transcribing…", cancel | when the text arrives |
 | `.polishing(.rewriting)` | mode chip, spinner, "Polishing…", cancel | when the text arrives |
+| `.awaitingChannelChoice` | mode chip, list icon, "Choose a channel" | when the channel picker resolves |
 | `.complete` | green checkmark, "Inserted" | after 1.5 s |
 | `.error(message)` | orange badge, one sentence | after 3.0 s |
+
+`.awaitingChannelChoice` is the YouTube command whose spoken name missed and put
+the channel picker up (`docs/youtube-latest-video.md`): the decode is over and
+the wait is the user's, so the pill shows no spinner and no timer - the picker's
+own outcome ends the session, and `complete()` is refused there because a picker
+wait has no text to claim was inserted.
 
 `CapsuleHUDViewModel` is the whole state machine and holds no AppKit: the panel,
 the dictation and the clock are all outside it, which is what makes the badge

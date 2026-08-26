@@ -532,10 +532,11 @@ users type Chinese.
 `docs/ask-panel.md` is its story. It runs the same on-device model as rewriting
 and has deliberately **no `StyleRewriteGuard`**: a guard exists because a rewrite
 replaces the user's words unread, and an answer is read before it goes anywhere.
-It is also the one HUD that *takes* focus - a question box has to - which is why
-the app to paste into is captured before the panel opens rather than read at
-insertion time. `TranslationRewrite` is a sibling of `StyleRewriteService`, not a
-style inside it, because that stage's rules say "never translate this"; the one
+It also *takes* focus, as only it and the channel picker do - a question box has
+to - which is why the app to paste into is captured before the panel opens
+rather than read at insertion time. `TranslationRewrite` is a sibling of
+`StyleRewriteService`, not a style inside it, because that stage's rules say
+"never translate this"; the one
 guard rule it relaxes is `StyleRewriteShape.translating`, and it relaxes it in
 that one place. `AsyncDeadline` (`Utils/`) is the shared hard budget both model
 callers use and documents why it is not a task group.
