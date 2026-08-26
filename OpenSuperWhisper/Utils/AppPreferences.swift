@@ -218,6 +218,24 @@ final class AppPreferences {
     @UserDefault(key: "youTubeChannelModelMatchEnabled", defaultValue: false)
     var youTubeChannelModelMatchEnabled: Bool
 
+    /// Whether a spoken channel name nothing could place puts the user's own
+    /// channel list on screen to choose from.
+    ///
+    /// **On by default**, and unlike the switch above that is not a privacy
+    /// decision to weigh: the picker asks nobody and nothing, sends nothing
+    /// anywhere, and can only contain rows the user typed into Settings
+    /// themselves. What it changes is what a near miss costs - a speech engine
+    /// writing "Vali101" for a stored `valley101` used to end the press with a
+    /// two-second refusal and no way back.
+    ///
+    /// It is still a switch, because it is the one thing in this feature that
+    /// *takes focus*: a picker appears in front of whatever the user was doing.
+    /// Off restores exactly the behaviour that shipped before it existed - the
+    /// refusal, its sentence, and its history row. See
+    /// `YouTubeChannelPickerOffer` and `docs/youtube-latest-video.md`.
+    @UserDefault(key: "youTubeChannelPickerEnabled", defaultValue: true)
+    var youTubeChannelPickerEnabled: Bool
+
     // MARK: - Cloud
 
     /// Whether the spoken `Translate to …` command is answered by the configured

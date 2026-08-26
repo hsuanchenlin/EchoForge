@@ -384,6 +384,12 @@ final class CapsuleHUDViewModel: ObservableObject {
         // pill's words and the sentence separately, and this is the pill's.
         case .commandFailed(let reason):
             fail(reason)
+        // Not a failure and not a finished session: the words were read and the
+        // user is being asked which of their channels they meant. The pill says
+        // so rather than ending, because `complete()` on a session that has not
+        // finished is exactly what `CapsuleHUDViewModel` refuses elsewhere.
+        case .awaitingChannelChoice:
+            beginPolishing(.transcribing)
         }
     }
 

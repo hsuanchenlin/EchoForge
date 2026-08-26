@@ -893,6 +893,15 @@ struct Settings {
     /// from history can ever ask a model about a channel name.
     var youTubeChannelModelMatch: Bool
 
+    /// Whether a spoken channel name nothing could place may offer the user
+    /// their own list to choose from.
+    ///
+    /// Resolved here beside the allowlist for the same reason as the switch
+    /// above: false on every path that is not a command capture, so nothing but
+    /// a press of the command key can raise a picker - not a dictation however
+    /// worded, not a dropped file, and not a regenerate from History.
+    var youTubeChannelPicker: Bool
+
     var isAsianLanguage: Bool {
         Settings.asianLanguages.contains(selectedLanguage)
     }
@@ -937,6 +946,8 @@ struct Settings {
             : nil
         self.youTubeChannelModelMatch =
             self.youTubeChannels != nil && prefs.youTubeChannelModelMatchEnabled
+        self.youTubeChannelPicker =
+            self.youTubeChannels != nil && prefs.youTubeChannelPickerEnabled
         self.selectedLanguage = prefs.whisperLanguage
         self.suppressBlankAudio = prefs.suppressBlankAudio
         self.showTimestamps = prefs.showTimestamps

@@ -43,20 +43,48 @@ short version and what to do:
 | The transcription engine was busy | The audio was queued as a plain transcription, so the command never ran at all. | Try the shortcut again once the queue is clear. |
 | This command could not be transcribed | There were never any words to read as a channel name. | The sentence carries the engine's own reason. |
 | This command had not finished | Kongweh quit or was interrupted between hearing the words and finishing the command. | Try it again. |
+| Kongweh offered your own channel list to choose from | The name was not recognised, so the channel picker was put on screen. This entry is what a press looks like while the picker is still up - or if Kongweh quit with it open. | Nothing; the entry is replaced by whatever you chose. |
+| You closed the channel picker without choosing | The picker was up and you pressed Escape. Nothing was opened, on purpose. | Nothing, unless you want that spelling to open directly next time - then add it as a spoken name. |
+| … there is no YouTube channel in your list yet | The name was not recognised and there was no channel to offer instead. | Add your first channel in Settings → Dictionary & Snippets → YouTube Channels. |
 | This recording was transcribed again from History | You pressed the row's Regenerate transcription button. The label and the outcome stay what that press actually did, but the old sentence quoted the old transcript, so it is replaced. Regenerating never re-runs the command. | Press the YouTube command shortcut to run the command again. |
 
 ### "It heard the name wrong"
 
-This is the common one, and the entry is what makes it fixable: the name in
-quotes is what the speech engine actually wrote. A stored `valley101` is matched
-case-insensitively and with spacing ignored, so "Valley 101" and "valley101"
-both reach it - but "Vali101" is a different name, and Kongweh will not guess
-that one name means another. That refusal is deliberate: a near miss that opened
-*something* would be the app choosing a channel you did not.
+This is the common one, and it now has an answer on the spot as well as one in
+History.
 
-The fix takes one paste. Copy the spelling out of the History entry and add it as
-a spoken name (an alias) on that channel in Settings. From then on both
-spellings reach it.
+The name in quotes is what the speech engine actually wrote. A stored `valley101`
+is matched case-insensitively and with spacing ignored, so "Valley 101" and
+"valley101" both reach it - but "Vali101" is a different name, and Kongweh will
+not guess that one name means another. That refusal is deliberate: a near miss
+that opened *something* would be the app choosing a channel you did not.
+
+**What happens instead is that your own channel list appears.** Kongweh shows
+what it heard, lists the channels you added - the closest spelling first - and
+waits:
+
+- **↑ / ↓** move through the list, and it wraps at either end.
+- **Type** to narrow it; the box matches part of a name, ignoring case and
+  spacing.
+- **Return** opens the highlighted channel's newest video.
+- **Escape** closes it and opens nothing.
+
+The list contains your configured channels and nothing else. There is no search,
+no place to type a channel name that is not yours, and nothing is opened until
+you press Return - the picker is a way of *choosing*, not a looser match. If you
+have no channels stored yet, no picker appears; the entry says to add one.
+
+Both halves are recorded: History shows the picker going up, and then either the
+video that opened - saying you chose it yourself - or that you closed it without
+choosing.
+
+If you would rather a command that misses simply say so, as it did before, turn
+off **"Let me pick from my channels when a name is not recognised"** in Settings
+→ Dictionary & Snippets → YouTube Channels.
+
+**To stop being asked at all**, teach Kongweh the spelling. It takes one paste:
+copy the spelling out of the History entry and add it as a spoken name (an alias)
+on that channel in Settings. From then on both spellings open it directly.
 
 If you would rather not collect spellings by hand, there is an off-by-default
 on-device matcher in the same pane that can pick between channels you have

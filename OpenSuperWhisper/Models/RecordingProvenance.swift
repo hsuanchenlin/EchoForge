@@ -218,6 +218,20 @@ enum YouTubeCommandRefusal: String, CaseIterable, Sendable {
     case feedUnusable
     /// Chrome could not open the video.
     case browserUnavailable
+    /// The spoken name missed and the channel picker was put on screen. Written
+    /// the moment it opens and replaced by whatever the user does about it, so a
+    /// quit or a crash with the picker still up leaves a row saying a choice was
+    /// offered and nothing was opened - which is true.
+    case pickerShown
+    /// The picker was up and the user dismissed it without choosing. Its own
+    /// class rather than `channelUnknown`, because it is the one refusal the
+    /// user made on purpose and there is nothing for them to fix.
+    case pickerCancelled
+    /// The spoken name missed and there was no channel to offer instead: the
+    /// allowlist holds nothing a command could reach. Distinct from
+    /// `channelUnknown`, which is a list that has rows and none of them
+    /// answering.
+    case noChannelsConfigured
     /// Written when the words are stored and the command has not finished. It
     /// survives only when the app never got to replace it - a quit or a crash
     /// mid-command - which is exactly when "nothing was opened" is the true
@@ -239,6 +253,9 @@ enum YouTubeCommandRefusal: String, CaseIterable, Sendable {
         case .feedUnusable: return "Feed had no video"
         case .browserUnavailable: return "Chrome could not open it"
         case .didNotFinish: return "Command did not finish"
+        case .pickerShown: return "Waiting on your choice"
+        case .pickerCancelled: return "You cancelled the choice"
+        case .noChannelsConfigured: return "No channels in your list"
         }
     }
 }
@@ -285,6 +302,20 @@ extension RecordingProvenance {
             return .youTubeCommandNotOpened(
                 reason: reason, message: joined(message, modelMatch.disclosure))
         }
+    }
+
+    /// The provenance of a command that missed and put the channel picker up.
+    ///
+    /// Written when the panel opens rather than when it closes, and it says
+    /// nothing was opened - the same fail-closed rule `pendingCommand` follows.
+    /// A picker can be left on screen for as long as the user likes, and a quit
+    /// while it is up must leave a row saying they were offered a choice and no
+    /// video was opened.
+    static func pickerShown(_ request: YouTubeChannelPickerRequest) -> RecordingProvenance {
+        .youTubeCommandNotOpened(
+            reason: .pickerShown,
+            message: "No channel is stored under “\(request.spokenName)”, so Kongweh offered your own channel list to choose from. Nothing has been opened."
+        )
     }
 
     /// What a row says after the user transcribed it again from History.

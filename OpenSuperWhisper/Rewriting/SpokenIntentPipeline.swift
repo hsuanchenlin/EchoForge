@@ -84,10 +84,12 @@ extension SpokenIntentOutcome {
     /// existed.
     static func openLatestVideo(
         _ resolution: YouTubeChannelResolution,
-        modelMatch: YouTubeChannelModelMatchAttempt = .notNeeded
+        modelMatch: YouTubeChannelModelMatchAttempt = .notNeeded,
+        candidates: [YouTubeChannel] = []
     ) -> SpokenIntentOutcome {
         .openLatestVideo(
-            YouTubeCommandResolution(resolution: resolution, modelMatch: modelMatch))
+            YouTubeCommandResolution(
+                resolution: resolution, modelMatch: modelMatch, candidates: candidates))
     }
 }
 
@@ -215,11 +217,15 @@ enum SpokenIntentPipeline {
             SpokenIntentActivity.shared.resolved(.openLatestVideo(resolution))
         }
 
+        // The list the lookup was made against travels with the answer, so the
+        // recovery picker can only ever offer rows this command itself could
+        // have reached. Re-reading the store when the picker opens would let a
+        // Settings edit made in between widen what one press can do.
         let resolved = await YouTubeChannelModelMatch.refine(
             resolution,
             in: channels,
             isEnabled: settings.youTubeChannelModelMatch
-        )
+        ).withCandidates(channels.reachable)
         if resolved.resolution != resolution {
             await MainActor.run {
                 SpokenIntentActivity.shared.resolved(.openLatestVideo(resolved))

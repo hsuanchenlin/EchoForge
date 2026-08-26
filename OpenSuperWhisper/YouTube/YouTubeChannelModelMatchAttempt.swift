@@ -59,15 +59,38 @@ enum YouTubeChannelModelMatchAttempt: String, Equatable, Sendable, CaseIterable 
 struct YouTubeCommandResolution: Equatable, Sendable {
     let resolution: YouTubeChannelResolution
     let modelMatch: YouTubeChannelModelMatchAttempt
+    /// The channels this press could have reached: the allowlist snapshot the
+    /// lookup was made against.
+    ///
+    /// Carried rather than re-read later, so the recovery picker offers exactly
+    /// the rows the command itself was resolved against. Reading the store again
+    /// at the moment the picker opens would let a Settings edit made in between
+    /// put a row in front of the user that this command never had access to.
+    /// Empty on every path that had no allowlist at all - which is every
+    /// dictation, and a command capture made while the feature is off.
+    let candidates: [YouTubeChannel]
 
     init(
         resolution: YouTubeChannelResolution,
-        modelMatch: YouTubeChannelModelMatchAttempt = .notNeeded
+        modelMatch: YouTubeChannelModelMatchAttempt = .notNeeded,
+        candidates: [YouTubeChannel] = []
     ) {
         self.resolution = resolution
         self.modelMatch = modelMatch
+        self.candidates = candidates
     }
 
     /// What the user said, in every case, so a message can quote it back.
     var spokenName: String { resolution.spokenName }
+
+    /// The same answer, remembering which channels it was reached among.
+    ///
+    /// Attached by the stage that owns the allowlist rather than passed through
+    /// every step that does not, so the on-device chooser keeps returning
+    /// exactly what it always did and cannot be the thing that decides which
+    /// rows a later surface may show.
+    func withCandidates(_ candidates: [YouTubeChannel]) -> YouTubeCommandResolution {
+        YouTubeCommandResolution(
+            resolution: resolution, modelMatch: modelMatch, candidates: candidates)
+    }
 }

@@ -54,7 +54,10 @@ final class SpokenIntentPipelineTests: IsolatedPreferencesTestCase {
         )
 
         XCTAssertEqual(
-            styled.intent, .openLatestVideo(.allowlisted(channel, matchedBy: .spokenName))
+            styled.intent,
+            .openLatestVideo(
+                .allowlisted(channel, matchedBy: .spokenName), candidates: [channel]),
+            "The answer carries the list it was reached among, so the recovery picker can only offer rows this press could have opened."
         )
         // A command capture never had any text to insert.
         XCTAssertFalse(styled.intent.insertsText)
