@@ -526,7 +526,7 @@ callers use and documents why it is not a task group.
 takes the shot and `Vision/` reads and answers it, with `docs/screen-context.md`
 as the whole story. Three things there are absolute. The frontmost app is read
 and the capture started **before** the panel opens, because opening it makes
-EchoForge frontmost - and this app is never in the picture either way. Screen
+Kongweh frontmost - and this app is never in the picture either way. Screen
 Recording is **conditional** like Input Monitoring: read when ⌥S runs, never
 polled, never part of `isMissingRequiredPermission`. And what is on the screen is
 *data* - `ScreenQueryPrompt` fences the text read off it the way
@@ -651,7 +651,7 @@ and do not contain it; `frame(width:)` does but clips real content; the modifier
 un-clipped so nothing trims a focus frame at a pane's edge.
 
 A visible window-modal sheet also makes AppKit **refuse the quit Apple Event** loginwindow sends, so
-an open Settings sheet cancels the user's restart and puts up *"'EchoForge' interrupted restart"*.
+an open Settings sheet cancels the user's restart and puts up *"'Kongweh' interrupted restart"*.
 `Utils/PowerOffPresentationGuard.swift` is the one owner of that: it reads
 `NSWorkspace.willPowerOffNotification` and broadcasts `.dismissModalPresentations`, and
 `.dismissesOnPowerOff($binding)` takes each presentation down. Two things there are absolute and

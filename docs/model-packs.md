@@ -18,7 +18,7 @@ Measured across a real release pair, by mounting both published disk images and 
 ```
 files: v0.5.1=45  v0.5.2=45
 identical bytes carried over: 246,124,050 (93.98%)
-changed files: 2  -  Contents/MacOS/Kongweh (15,763,024 B), Contents/Info.plist (2,179 B)
+changed files: 2  -  Contents/MacOS/EchoForge (15,763,024 B), Contents/Info.plist (2,179 B)
 StarterModel: 9 files, 239,913,642 bytes, changed between the two releases: 0
 ```
 
