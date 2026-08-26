@@ -116,6 +116,18 @@ struct CapsuleHUDView: View {
                 cancelButton
             }
 
+        case .awaitingChannelChoice:
+            row {
+                // The chip stays up, as it does through the decode: it names
+                // the channel that was heard, which is what the picker in
+                // front is asking about. No spinner - the wait is the user's.
+                modeChip
+                Image(systemName: "list.bullet.rectangle")
+                    .foregroundStyle(Color.accentColor)
+                    .font(.system(size: 13, weight: .semibold))
+                label("Choose a channel", color: .primary)
+            }
+
         case .complete:
             row {
                 Image(systemName: "checkmark.circle.fill")

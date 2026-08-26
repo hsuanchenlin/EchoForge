@@ -232,6 +232,54 @@ final class YouTubeChannelPickerCommandTests: IsolatedPreferencesTestCase {
             "The spelling is named, because adding it is what stops the picker next time.")
     }
 
+    // MARK: - The ambiguous name
+
+    /// Two rows answering to one name is the other cause a picker is offered
+    /// for, and History must not borrow the unknown wording for it: the phrase
+    /// *is* a stored spelling - of both rows - and adding another one cannot
+    /// split the tie.
+    @MainActor
+    func testAnAmbiguousNameIsDescribedAsAmbiguousInHistory() async throws {
+        let first = YouTubeChannel(
+            displayName: "Twin Peaks", aliases: ["twin"], channelID: "UCdddddddddddddddddddddd")
+        let second = YouTubeChannel(
+            displayName: "Twin Falls", aliases: ["twin"], channelID: "UCeeeeeeeeeeeeeeeeeeeeee")
+        let twins = YouTubeChannelAllowlist(channels: [first, second])
+        let ambiguous = YouTubeCommandResolution(
+            resolution: YouTubeCommandRouter.resolve("Open YouTube channel twin", channels: twins),
+            candidates: twins.reachable
+        )
+        guard case .ambiguous(_, let matches) = ambiguous.resolution else {
+            return XCTFail("“twin” is a stored spelling of both rows, so it must be refused as ambiguous")
+        }
+
+        let runner = YouTubeCommandRunner(
+            service: YouTubeLatestVideoService(
+                fetcher: StubFetcher(result: .success(feedData())), opener: MockBrowserOpener()),
+            chooser: StubChooser(choosing: nil)
+        )
+        var history: [RecordingProvenance] = []
+        let outcome = await runner.run(ambiguous, isPickerEnabled: true) { history.append($0) }
+
+        XCTAssertFalse(outcome.report.didOpen)
+        XCTAssertEqual(history.map(\.refusal), [.pickerShown, .pickerCancelled])
+
+        let shown = try XCTUnwrap(history.first?.detail)
+        XCTAssertFalse(
+            shown.contains("No channel is stored under"),
+            "The phrase is a stored spelling of two rows; saying it is not one is a lie")
+        XCTAssertTrue(shown.contains(matches.joined(separator: ", ")))
+        XCTAssertTrue(shown.contains("Nothing has been opened"))
+
+        let cancelled = try XCTUnwrap(history.last?.detail)
+        XCTAssertFalse(
+            cancelled.contains("is still not one of your stored spellings"),
+            "Adding a third spelling of the same name cannot split the tie")
+        XCTAssertTrue(
+            cancelled.contains("different spoken names"),
+            "Telling the two rows apart is the fix an ambiguous name actually has")
+    }
+
     // MARK: - The refusals that stay refusals
 
     @MainActor

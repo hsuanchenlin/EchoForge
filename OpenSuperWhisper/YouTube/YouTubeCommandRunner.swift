@@ -81,7 +81,8 @@ struct YouTubeCommandRunner: Sendable {
             await record(.pickerShown(request))
             willShowPicker(request)
             guard let chosen = await chooser.chooseChannel(request) else {
-                let report = YouTubeLatestVideoReport.pickerCancelled(spoken: request.spokenName)
+                let report = YouTubeLatestVideoReport.pickerCancelled(
+                    spoken: request.spokenName, cause: request.cause)
                 await record(.command(report, modelMatch: command.modelMatch))
                 return Outcome(report: report, match: nil, showedPicker: true)
             }

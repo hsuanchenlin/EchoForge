@@ -39,6 +39,11 @@ final class YouTubeChannelPickerWindowController {
     /// The application that was frontmost when the picker opened, so closing it
     /// hands focus back rather than leaving the user's next keystrokes nowhere.
     private var previousApplication: NSRunningApplication?
+    /// Which presentation the pending fade-out belongs to. A `present` can land
+    /// inside a `dismiss`'s fade - a second command press while a picker is up
+    /// is exactly that - and the stale completion must not order out the panel
+    /// the newer presentation has just re-shown.
+    private var presentationGeneration = 0
 
     private init() {}
 
@@ -48,11 +53,16 @@ final class YouTubeChannelPickerWindowController {
     /// the first, because two panels asking "which channel did you mean" about
     /// two different utterances is a question nobody can answer.
     func choose(_ request: YouTubeChannelPickerRequest) async -> YouTubeChannel? {
+        // The hand-back target is read *before* a picker already up is
+        // cancelled, and kept across the replacement: by the time a second
+        // picker opens this app is the frontmost one, and capturing then would
+        // aim the eventual hand-back at Kongweh itself.
+        let handBack = previousApplication
         if viewModel != nil { finish(nil) }
 
         let model = YouTubeChannelPickerViewModel(request: request)
         viewModel = model
-        previousApplication = NSWorkspace.shared.frontmostApplication
+        previousApplication = handBack ?? NSWorkspace.shared.frontmostApplication
         present(model)
 
         return await withCheckedContinuation { continuation in
@@ -80,6 +90,7 @@ final class YouTubeChannelPickerWindowController {
     // MARK: - The window
 
     private func present(_ model: YouTubeChannelPickerViewModel) {
+        presentationGeneration += 1
         let created = panel ?? makePanel()
         panel = created
 
@@ -171,11 +182,16 @@ final class YouTubeChannelPickerWindowController {
         // holds focus: if they have already clicked into another app, yanking it
         // back from there would be worse than leaving it.
         if NSApplication.shared.isActive { previous?.activate() }
+        presentationGeneration += 1
+        let generation = presentationGeneration
         NSAnimationContext.runAnimationGroup { context in
             context.duration = Self.fadeDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().alphaValue = 0
-        } completionHandler: { panel.orderOut(nil) }
+        } completionHandler: { [weak self] in
+            guard let self, self.presentationGeneration == generation else { return }
+            panel.orderOut(nil)
+        }
     }
 
     // MARK: - Keys

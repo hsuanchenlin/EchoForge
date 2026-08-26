@@ -346,6 +346,68 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         )
     }
 
+    // MARK: - The channel picker's wait
+
+    /// The card and the capsule are two presentations of one session, and the
+    /// card stops showing a spinner while the picker waits on the user. The
+    /// capsule must not keep claiming the engine is still running either.
+    func testThePickersWaitIsNotShownAsTranscribing() {
+        let viewModel = makeViewModel()
+        viewModel.beginSession(mode: .dictate)
+        viewModel.beginRecording()
+        viewModel.follow(.decoding)
+        XCTAssertEqual(viewModel.state, .polishing(.transcribing))
+
+        viewModel.follow(.awaitingChannelChoice)
+
+        XCTAssertEqual(
+            viewModel.state, .awaitingChannelChoice,
+            "The picker waits on the user, so \"Transcribing…\" would be a lie about the wait"
+        )
+    }
+
+    /// The wait is not a failure and not an ending: the session is still in
+    /// flight and finishes on whatever the user chooses in the picker.
+    func testTheSessionStillFinishesFromThePickersWait() {
+        let viewModel = makeViewModel()
+        viewModel.beginSession(mode: .dictate)
+        viewModel.beginRecording()
+        viewModel.follow(.awaitingChannelChoice)
+
+        // Chosen, and the video opened: Chrome is in front of the user, which
+        // is a clearer answer than a checkmark drawn over the top of it.
+        viewModel.finish(result: .openedVideo(channel: "valley101"))
+        XCTAssertEqual(viewModel.state, .idle)
+    }
+
+    func testARefusalAfterThePickerReplacesTheWait() {
+        let viewModel = makeViewModel()
+        viewModel.beginSession(mode: .dictate)
+        viewModel.beginRecording()
+        viewModel.follow(.awaitingChannelChoice)
+
+        viewModel.follow(.commandFailed("You cancelled the choice"))
+
+        XCTAssertEqual(viewModel.state, .error("You cancelled the choice"))
+        XCTAssertEqual(scheduled.map(\.delay), [CapsuleHUDViewModel.errorVisibleDuration])
+    }
+
+    /// The same guards `beginPolishing` carries: a picker announced for a
+    /// session that has already ended must not reopen the capsule or take a
+    /// badge down before it was read.
+    func testThePickersWaitDoesNotReopenAnIdleCapsuleOrReplaceABadge() {
+        let idle = makeViewModel()
+        idle.follow(.awaitingChannelChoice)
+        XCTAssertEqual(idle.state, .idle)
+
+        let done = makeViewModel()
+        done.beginSession(mode: .dictate)
+        done.beginRecording()
+        done.complete()
+        done.follow(.awaitingChannelChoice)
+        XCTAssertEqual(done.state, .complete)
+    }
+
     // MARK: - The Esc confirmation
 
     func testTheFirstEscIsVisiblyAcknowledgedWhileRecording() {

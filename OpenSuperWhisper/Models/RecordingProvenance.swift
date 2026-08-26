@@ -312,10 +312,17 @@ extension RecordingProvenance {
     /// while it is up must leave a row saying they were offered a choice and no
     /// video was opened.
     static func pickerShown(_ request: YouTubeChannelPickerRequest) -> RecordingProvenance {
-        .youTubeCommandNotOpened(
-            reason: .pickerShown,
-            message: "No channel is stored under “\(request.spokenName)”, so Kongweh offered your own channel list to choose from. Nothing has been opened."
-        )
+        let message: String
+        switch request.cause {
+        case .unknown:
+            message = "No channel is stored under “\(request.spokenName)”, so Kongweh offered your own channel list to choose from. Nothing has been opened."
+        case .ambiguous(let matches):
+            // The phrase *is* a stored spelling - of every one of these rows -
+            // so the unknown wording would be a lie, and the fix it implies is
+            // not one that exists: adding another spelling cannot split a tie.
+            message = "“\(request.spokenName)” answers to more than one of your channels (\(matches.joined(separator: ", "))), so Kongweh offered your channel list to choose between them. Nothing has been opened."
+        }
+        return .youTubeCommandNotOpened(reason: .pickerShown, message: message)
     }
 
     /// What a row says after the user transcribed it again from History.

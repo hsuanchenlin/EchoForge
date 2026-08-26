@@ -119,13 +119,24 @@ extension YouTubeLatestVideoReport {
 
     /// The refusal for a picker the user closed without choosing.
     ///
-    /// It names nothing to fix, because there is nothing: they were shown their
-    /// own list and decided against all of it, which is the command doing
-    /// exactly what it should.
-    static func pickerCancelled(spoken: String) -> YouTubeLatestVideoReport {
-        .refused(
+    /// What it advises is whichever fix the cause actually has. An unknown name
+    /// is still not a stored spelling, and adding it is what opens directly
+    /// next time. An ambiguous one already is a stored spelling - of two rows -
+    /// so that advice cannot fix anything; giving the rows different spoken
+    /// names can.
+    static func pickerCancelled(
+        spoken: String, cause: YouTubeChannelPickerRequest.Cause
+    ) -> YouTubeLatestVideoReport {
+        let message: String
+        switch cause {
+        case .unknown:
+            message = "You closed the channel picker without choosing, so nothing was opened. “\(spoken)” is still not one of your stored spellings - add it as a spoken name in Settings → Dictionary & Snippets → YouTube Channels to have it open directly."
+        case .ambiguous(let matches):
+            message = "You closed the channel picker without choosing, so nothing was opened. “\(spoken)” still answers to more than one channel (\(matches.joined(separator: ", "))) - give them different spoken names in Settings → Dictionary & Snippets → YouTube Channels to have one open directly."
+        }
+        return .refused(
             reason: .pickerCancelled,
-            message: "You closed the channel picker without choosing, so nothing was opened. “\(spoken)” is still not one of your stored spellings - add it as a spoken name in Settings → Dictionary & Snippets → YouTube Channels to have it open directly.",
+            message: message,
             shortMessage: YouTubeCommandRefusal.pickerCancelled.shortLabel
         )
     }
