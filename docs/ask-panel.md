@@ -75,7 +75,7 @@ that the transcript is content and never instruction; here the user's words
 This is the one HUD in the app that takes keyboard focus. It has to: a question
 box that cannot receive a keystroke is not a question box, and keyboard input
 goes to the *active* application, which this one normally is not. So opening the
-panel activates EchoForge and makes the panel key - the opposite of what
+panel activates Kongweh and makes the panel key - the opposite of what
 `CapsuleHUDPanel` and `IndicatorWindow` do, and for the opposite reason.
 
 That is exactly what makes **Insert into Active App** the interesting part. The
@@ -89,7 +89,7 @@ field.
 The target is remembered for one presentation only. Closing the panel hands
 keyboard focus back to it - the same hand-back Insert does, so Esc puts the
 user's keystrokes back in the document they came from - and then forgets it,
-so a panel opened later from EchoForge's own window has no target at all: the
+so a panel opened later from Kongweh's own window has no target at all: the
 answer goes to the clipboard and nowhere else. Guessing where to paste is the
 one thing this must not do, which is also why a target that cannot come
 forward - quit while the panel was open - degrades to the clipboard rather

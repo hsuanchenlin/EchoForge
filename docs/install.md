@@ -1,11 +1,20 @@
-# Install and use EchoForge
+# Install and use Kongweh
 
 This guide is for people who just want to use the app. It covers installing the build
 published on this fork, getting past the macOS security warning that build triggers,
 dictating Chinese, and the day-to-day basics.
 
-EchoForge is a renamed fork of OpenSuperWhisper. The upstream project it came from keeps
-the old name, and so do this repository's source directories; the app itself is EchoForge.
+Kongweh is a fork of OpenSuperWhisper, named after Taiwanese *kóng-uē* (講話), "to talk".
+The upstream project it came from keeps its own name, and so do this repository's source
+directories.
+
+**The app is Kongweh; its files are still named EchoForge.** That is what the app was
+called until this release, and the names it stores data under were left alone on purpose,
+so an existing install keeps its recordings, personal terms and downloaded models instead
+of starting empty. In practice this means the download below is `EchoForge.dmg`, it
+installs `EchoForge.app`, and its folder in Application Support is
+`com.hsuanchenlin.EchoForge` - while Finder, the Dock and the app itself all say Kongweh.
+Nothing is wrong if you see both names.
 
 ## What you need
 
@@ -28,13 +37,13 @@ Everything runs on your Mac. No audio is sent anywhere.
 
 Builds from the upstream project are a separate thing: they are published on the
 [Starmel releases page](https://github.com/Starmel/OpenSuperWhisper/releases) and via
-`brew install opensuperwhisper`. Those do not include this fork's changes. EchoForge has
+`brew install opensuperwhisper`. Those do not include this fork's changes. Kongweh has
 its own application identifier, so it installs next to an upstream OpenSuperWhisper rather
 than replacing it, and the two keep separate settings, recordings and downloaded models.
 
 ### Coming from an upstream OpenSuperWhisper build
 
-EchoForge is a new application as far as macOS is concerned, and everything the app stores
+Kongweh is a new application as far as macOS is concerned, and everything the app stores
 lives in a folder named after that identity
 (`~/Library/Application Support/com.hsuanchenlin.EchoForge/`, where the old build used
 `~/Library/Application Support/ru.starmel.OpenSuperWhisper/`). So on first launch you get:
@@ -46,7 +55,7 @@ lives in a folder named after that identity
 Nothing is deleted - the old app keeps its own folder, and both apps can stay installed.
 To carry your recordings, personal terms and downloaded models over instead of starting
 fresh, quit both apps and copy the contents of the old folder into the new one, then
-relaunch EchoForge. Settings are not in that folder (macOS keeps them per app elsewhere),
+relaunch Kongweh. Settings are not in that folder (macOS keeps them per app elsewhere),
 so those are worth setting again by hand. macOS also asks for Microphone, Accessibility
 and Input Monitoring permission again, because those grants are per app too.
 
@@ -55,7 +64,7 @@ and Input Monitoring permission again, because those grants are per app too.
 Builds on this fork are **not signed with an Apple Developer ID and not notarized**.
 macOS therefore refuses to open the app on the first try, with a message like
 "EchoForge.app is damaged and can't be opened" or "Apple could not verify
-EchoForge is free of malware". Nothing is wrong with the download; macOS is
+Kongweh is free of malware". Nothing is wrong with the download; macOS is
 telling you it cannot check who built it.
 
 Use either workaround. You only have to do it once.
@@ -70,7 +79,7 @@ Double-clicking the app normally works from then on.
 
 If macOS shows no **Open** button at all, open **System Settings → Privacy & Security**,
 scroll to the Security section, and click **Open Anyway** next to the message about
-EchoForge. Then use option 2 if it still refuses.
+Kongweh. Then use option 2 if it still refuses.
 
 ### Option 2: remove the quarantine flag (Terminal)
 
@@ -115,7 +124,7 @@ downloads and neither is installed until you pick it.
 | **SenseVoice-Small** (recommended) | 240 MB | Chinese, and it also handles Cantonese, English, Japanese and Korean | Adds punctuation, and writes spoken numbers as digits: say 三點二十分 and you get 3點20分 |
 | **Paraformer-large (zh)** | 653 MB | Slightly more accurate on Mandarin characters | Mandarin only, and produces no punctuation at all |
 
-Both models write **Simplified Chinese (简体字)**, and EchoForge writes the result in
+Both models write **Simplified Chinese (简体字)**, and Kongweh writes the result in
 **Traditional Chinese (繁體字)** for you - that is the default for every engine,
 including Whisper, which otherwise mixes the two inside one sentence. To keep
 Simplified instead, open **Settings → Transcription → Chinese Output Script** and
@@ -128,7 +137,7 @@ never touched, and your dictionary entries and voice snippets are inserted exact
 you typed them.
 
 Paraformer refuses nothing: dictate English to it and the model
-answers with garbled fragments, which EchoForge catches - the dictation fails, the
+answers with garbled fragments, which Kongweh catches - the dictation fails, the
 recording is kept, and switching engine and regenerating gets you a real transcript.
 Cantonese it cannot catch (that comes back as fluent but wrong Mandarin), so leave
 Paraformer selected only while you are dictating Mandarin.
@@ -200,7 +209,7 @@ The same pane can also let the app you are dictating into pick the style: turn o
 **Match the style to the app I dictate into** under the style list, and a chat app gets
 **Casual Chat**, a mail client **Formal Business**, code editors and terminals
 **Grammar & Polishing** - all changeable, per kind of app or for one app. Apps without a
-rule, and this switch while it is off, use the style you chose above. EchoForge only ever
+rule, and this switch while it is off, use the style you chose above. Kongweh only ever
 reads the frontmost app's identifier - never window titles, documents or web addresses -
 and that identifier never leaves your Mac ([details](app-aware-style.md)).
 
@@ -223,7 +232,7 @@ became of the words: **Dictation**, **Ask**, **YouTube command - opened**, or
 **YouTube command - not opened**. A command that opened nothing shows the reason right
 under the label - which spelling was heard, and what to change - and the filter beside
 the search box narrows the list to one kind at a time. Entries recorded before this
-existed say **Older recording**: EchoForge does not guess what they were.
+existed say **Older recording**: Kongweh does not guess what they were.
 
 That is where to look first when a shortcut seemed to do nothing
 ([details](history-provenance.md)).
@@ -237,7 +246,7 @@ provider.
 
 It is off. Switching either feature from **On my Mac** to **Cloud** shows a sheet naming
 exactly what will be uploaded and where, and nothing changes until you accept it. Your key
-goes into your Mac's Keychain, never into EchoForge's settings file. If a cloud dictation
+goes into your Mac's Keychain, never into Kongweh's settings file. If a cloud dictation
 fails - no connection, a refused key, the provider having a bad day - your recording is
 kept with the reason on it, so nothing you said is lost.
 
@@ -253,11 +262,11 @@ its own: checking, downloading and installing are three separate things you ask 
 is no background update check and nothing installs automatically.
 
 When an update is offered you see its release notes and download size first. If you take it,
-EchoForge downloads the DMG from this repository's GitHub releases - and only from there -
+Kongweh downloads the DMG from this repository's GitHub releases - and only from there -
 showing how much of it has arrived, the current speed, and the time remaining. A download
 that fails or is cancelled keeps what it got: retrying continues from where it stopped
-instead of starting over. Before anything is replaced, EchoForge checks that what arrived
-really is EchoForge, really is the version it offered, matches the checksum the release
+instead of starting over. Before anything is replaced, Kongweh checks that what arrived
+really is Kongweh, really is the version it offered, matches the checksum the release
 published (releases since v0.5.2 publish one), and passes signature verification. Anything
 that does not check out is discarded with a reason rather than installed. Installing quits
 the app, swaps it, and opens it again.
@@ -273,7 +282,7 @@ the release page instead.
 - **"The app is damaged and can't be opened"** - this is the unsigned-build warning.
   See [First launch](#first-launch-getting-past-gatekeeper) above.
 - **Nothing gets pasted** - grant Accessibility permission in System Settings, then
-  return to EchoForge; it picks up the grant on its own, no restart needed.
+  return to Kongweh; it picks up the grant on its own, no restart needed.
 - **The shortcut does nothing** - if it is a single modifier key, grant Input Monitoring.
 - **Anything else** - open an issue with your macOS version, your Mac model, and what
   you did.

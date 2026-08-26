@@ -4,7 +4,7 @@
 # broken in the exact ways a release can be broken.
 #
 # The fixtures are synthesised with clang rather than taken from a build of
-# EchoForge, so this runs in seconds, needs no models or submodules, and - the
+# Kongweh, so this runs in seconds, needs no models or submodules, and - the
 # reason it exists - can reproduce the v0.3.0 defect from first principles: an
 # ad-hoc signature plus hardened runtime plus an embedded dylib is a bundle that
 # cannot start, no matter whose code is in it.

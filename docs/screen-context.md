@@ -30,7 +30,7 @@ Three things happen on ⌥S, and the order is the feature:
 
 1. **The frontmost application is read** - `NSWorkspace.frontmostApplication`,
    nothing else about it. This has to happen first, because step 3 activates
-   EchoForge and after that *we* are the frontmost application.
+   Kongweh and after that *we* are the frontmost application.
 2. **The capture starts**, before the panel is drawn, so the screenshot is of
    what the user was looking at rather than of the card that just appeared over
    it.
@@ -53,7 +53,7 @@ the query with its own sentence. A screen query is never answered blind.
 `ScreenCaptureTargetResolver` is a pure function over
 `[CapturableWindow]`, and it has three rules, each of which is a bug without it:
 
-- **Never this app.** EchoForge is frontmost by the time its own panel is up, and
+- **Never this app.** Kongweh is frontmost by the time its own panel is up, and
   a screenshot of our own HUD answers nothing. Our windows are excluded whatever
   pid is asked for, and a *display* capture excludes our whole application from
   the `SCContentFilter` for the same reason.
@@ -81,7 +81,7 @@ the panel explains, and nothing else opens. Every later refusal has no dialog
 left to show, so the panel's sentence points at System Settings and the pane is
 opened - `AskPanelWindowController.screenRecordingRefusal` is that decision.
 Note that a grant applies to the app bundle that asked for it - a fresh download
-of EchoForge asks again.
+of Kongweh asks again.
 
 ## Why the engine is a protocol
 

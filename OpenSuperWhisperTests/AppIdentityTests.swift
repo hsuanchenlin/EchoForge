@@ -1,14 +1,26 @@
 import XCTest
+@testable import OpenSuperWhisper
 
 /// The app's identity on the user's Mac: what macOS calls it, and what it files
 /// its data and permission grants under.
 ///
+/// Those are two different names, and keeping them apart is what this file is
+/// for. The product users see is **Kongweh**; everything the operating system
+/// files data under is still **EchoForge**, because those identifiers are where
+/// a user's recordings, personal terms, downloaded weights, Keychain item and
+/// TCC grants already live. Renaming the visible half is cosmetic; renaming the
+/// technical half hands every existing user an empty app and a fresh round of
+/// permission prompts. So the visible name moved and nothing else did, and both
+/// halves are pinned here so neither can drift into the other.
+///
+/// This is the same split the project already runs one level down, where the
+/// module and source directories stay `OpenSuperWhisper`; `AGENTS.md` describes
+/// all three names and which one is authoritative for what.
+///
 /// These are pinned because they are invisible from the source - they live in
-/// `project.pbxproj` and `OpenSuperWhisper-Info.plist`, and a change to either
-/// silently gives the app a different identity: a new bundle identifier means a
-/// new Application Support directory and a fresh round of TCC prompts. The
-/// identifier also has to stay distinct from upstream's `ru.starmel.*` so this
-/// build can sit next to an installed OpenSuperWhisper rather than replace it.
+/// `project.pbxproj` and `OpenSuperWhisper-Info.plist`. The identifier also has
+/// to stay distinct from upstream's `ru.starmel.*` so this build can sit next to
+/// an installed OpenSuperWhisper rather than replace it.
 ///
 /// The unit-test target runs inside the app (`TEST_HOST`), so `Bundle.main`
 /// here is the built app bundle.
@@ -24,20 +36,66 @@ final class AppIdentityTests: XCTestCase {
         XCTAssertNotEqual(app.bundleIdentifier, "ru.starmel.OpenSuperWhisper")
     }
 
-    func testUserFacingNamesAreEchoForge() {
-        XCTAssertEqual(app.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String, "EchoForge")
-        XCTAssertEqual(app.object(forInfoDictionaryKey: "CFBundleName") as? String, "EchoForge")
-        XCTAssertEqual(app.object(forInfoDictionaryKey: "CFBundleExecutable") as? String, "EchoForge")
-        XCTAssertEqual(app.bundleURL.lastPathComponent, "EchoForge.app")
+    /// The names macOS shows a user. Finder reads `CFBundleDisplayName` and the
+    /// menu bar reads `CFBundleName`, so both have to move for the rename to be
+    /// complete - `CFBundleName` in particular defaults to `$(PRODUCT_NAME)`
+    /// when nothing sets it, which would silently leave the old name in the
+    /// menu bar while Finder showed the new one.
+    func testUserFacingNamesAreKongweh() {
+        XCTAssertEqual(app.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String, "Kongweh")
+        XCTAssertEqual(app.object(forInfoDictionaryKey: "CFBundleName") as? String, "Kongweh")
     }
 
-    func testPermissionPromptsNameEchoForge() {
+    /// The other side of the boundary. None of these is shown to a user, and
+    /// every one of them is load-bearing for an existing install: the bundle
+    /// identifier names the Application Support directory and the TCC grants,
+    /// and the executable and bundle names are what `Scripts/build_release.sh`,
+    /// `Scripts/verify_release_package.sh` and the in-app updater all address
+    /// the shipped app by - `UpdateManifest.assetName` is `EchoForge.dmg` and
+    /// `UpdateInstaller` looks for `EchoForge.app` inside it. Moving any of
+    /// these is a migration, not a rename.
+    func testTechnicalIdentityStillEchoForge() {
+        XCTAssertEqual(app.object(forInfoDictionaryKey: "CFBundleExecutable") as? String, "EchoForge")
+        XCTAssertEqual(app.bundleURL.lastPathComponent, "EchoForge.app")
+        XCTAssertEqual(app.bundleIdentifier, "com.hsuanchenlin.EchoForge")
+    }
+
+    /// The data an existing user already has. These paths are derived from the
+    /// bundle identifier at runtime, so this is the assertion that says an
+    /// install from before the rename still opens its own recordings, terms and
+    /// models rather than starting empty beside them.
+    func testExistingUserDataStillResolvesUnderTheOldIdentity() throws {
+        let identifier = try XCTUnwrap(app.bundleIdentifier)
+        let support = try XCTUnwrap(
+            FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+        ).appendingPathComponent(identifier)
+
+        XCTAssertEqual(support.lastPathComponent, "com.hsuanchenlin.EchoForge")
+        XCTAssertEqual(
+            PersonalTermsStore.defaultFileURL.deletingLastPathComponent().path,
+            support.path,
+            "the personal terms dictionary moved out from under existing installs"
+        )
+        XCTAssertEqual(
+            Recording.recordingsDirectory.deletingLastPathComponent().path,
+            support.path,
+            "the recordings directory moved out from under existing installs"
+        )
+        // The Keychain item is keyed the same way, and a moved service string
+        // strands the API key of every install that already stored one.
+        XCTAssertEqual(
+            KeychainCloudCredentialStore().service,
+            "com.hsuanchenlin.EchoForge.cloud"
+        )
+    }
+
+    func testPermissionPromptsNameKongweh() {
         // These strings are what macOS shows in the microphone and automation
         // prompts, so they are the app's name in the most load-bearing place.
         for key in ["NSMicrophoneUsageDescription", "NSAccessibilityUsageDescription", "NSAppleEventsUsageDescription"] {
             let value = app.object(forInfoDictionaryKey: key) as? String
             XCTAssertNotNil(value, "\(key) is missing")
-            XCTAssertTrue(value?.hasPrefix("EchoForge ") == true, "\(key) does not name EchoForge: \(value ?? "nil")")
+            XCTAssertTrue(value?.hasPrefix("Kongweh ") == true, "\(key) does not name Kongweh: \(value ?? "nil")")
         }
     }
 

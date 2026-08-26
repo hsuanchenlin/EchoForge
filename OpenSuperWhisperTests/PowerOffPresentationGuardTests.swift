@@ -5,7 +5,7 @@ import XCTest
 @testable import OpenSuperWhisper
 
 /// A sheet on screen makes AppKit refuse the quit Apple Event that loginwindow
-/// sends, so the user's restart is cancelled and EchoForge is named in a dialog.
+/// sends, so the user's restart is cancelled and Kongweh is named in a dialog.
 /// These tests drive the whole path that stops that happening - the workspace
 /// signal in, a sheet off the screen out - with no shutdown involved.
 @MainActor

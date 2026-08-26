@@ -4,14 +4,34 @@ This file is the project's committed home for project-intrinsic agent knowledge:
 
 ## Naming
 
-The shipped app is **EchoForge** (`com.hsuanchenlin.EchoForge`); the repository, Xcode project,
-targets, source directories and the Swift module are still `OpenSuperWhisper`. That split is
-deliberate: the product carries the fork's own identity, while the code keeps upstream's paths so
-merges from `Starmel/OpenSuperWhisper` stay clean. So `PRODUCT_NAME` is `EchoForge` with
-`PRODUCT_MODULE_NAME` pinned to `OpenSuperWhisper` (that is what `@testable import
-OpenSuperWhisper` binds to), and the scheme and `-only-testing:` arguments below keep the old
-names. `OpenSuperWhisperTests/AppIdentityTests.swift` pins the user-facing side of it - bundle
-identifier, display name, permission strings, and that the icon ships with every size.
+**Three names, and which one is authoritative for what.** Do not collapse them.
+
+- **Kongweh** is the product - the only name a user sees. Taiwanese *kóng-uē* (講話), "to talk".
+  It lives in `CFBundleDisplayName` and `CFBundleName`, the permission strings, and every string
+  in the UI and in user-facing docs.
+- **EchoForge** is the *release and storage* identity: `com.hsuanchenlin.EchoForge`,
+  `PRODUCT_NAME`, so `EchoForge.app` and `EchoForge.dmg`, the GitHub repository, and
+  `~/Library/Application Support/com.hsuanchenlin.EchoForge/`.
+- **OpenSuperWhisper** is the *code* identity: the Xcode project, targets, scheme, source
+  directories and the Swift module (`PRODUCT_MODULE_NAME`, what `@testable import
+  OpenSuperWhisper` binds to, and what the `-only-testing:` arguments below name).
+
+Each split exists for a reason and each reason still holds. The code keeps upstream's paths so
+merges from `Starmel/OpenSuperWhisper` stay clean. The release and storage identity was left at
+EchoForge through the Kongweh rename because it names the folder holding every existing user's
+recordings, personal terms and downloaded models, their Keychain item and their TCC grants, and
+because `UpdateManifest.assetName` and `UpdateInstaller` find an update by those exact file names -
+so moving it is a migration, not a rename, and it would hand every existing user an empty app.
+`OpenSuperWhisperTests/AppIdentityTests.swift` pins both halves of that boundary, including that
+the data paths still resolve under the old identity.
+
+One consequence worth knowing before you touch the Info.plist: `GENERATE_INFOPLIST_FILE` is **off**
+for the app target. Xcode's generated plist hard-codes `CFBundleName` to `$(PRODUCT_NAME)` and no
+`INFOPLIST_KEY_` overrides it, so with generation on the app menu said EchoForge while Finder said
+Kongweh. The keys generation used to supply are written out in
+`OpenSuperWhisper/OpenSuperWhisper-Info.plist` instead, several as `$(BUILD_SETTING)` so
+`MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` still reach the bundle the way
+`ReleaseVersionTests` expects.
 
 Renaming reached the product, not the models or the upstream credit: engine and model names are
 constrained by their licences (see `docs/speech-model-attribution.md`), and the README and LICENSE
@@ -19,8 +39,18 @@ keep upstream's attribution.
 
 The app icon is generated, not hand-drawn: `Scripts/GenerateAppIcon.swift` is the vector source and
 `Scripts/generate_app_icon.sh` renders `OpenSuperWhisper/AppIcon.icns` from it. The `.icns` is
-committed, so builds never run the script. `CFBundleIconFile` in the Info.plist is what loads it;
+committed, so builds never run the script - which means editing the artwork without re-running the
+script ships the old icon, and `AppIconArtworkTests` exists to catch exactly that: it reads the
+committed `.icns` rather than the source. `CFBundleIconFile` in the Info.plist is what loads it;
 there is no `AppIcon.appiconset`.
+
+The mark is "Speech Ripple" and the file's own header states what may not drift - it is symmetric,
+it has no microphone, and its palette is ink, white and cyan with nothing warm in it, because it
+replaced a bronze-and-ember "Forge Ribbon" direction that was dropped along with the EchoForge
+name. `AppIconArtworkTests` asserts that at the pixel level.
+
+The menu-bar `tray_icon.pdf` is a leftover upstream bear silhouette and matches neither the old
+icon nor the new one. It is a separate asset and a separate decision; nothing above touches it.
 
 ## Build
 
@@ -496,7 +526,7 @@ callers use and documents why it is not a task group.
 takes the shot and `Vision/` reads and answers it, with `docs/screen-context.md`
 as the whole story. Three things there are absolute. The frontmost app is read
 and the capture started **before** the panel opens, because opening it makes
-EchoForge frontmost - and this app is never in the picture either way. Screen
+Kongweh frontmost - and this app is never in the picture either way. Screen
 Recording is **conditional** like Input Monitoring: read when ⌥S runs, never
 polled, never part of `isMissingRequiredPermission`. And what is on the screen is
 *data* - `ScreenQueryPrompt` fences the text read off it the way
@@ -621,7 +651,7 @@ and do not contain it; `frame(width:)` does but clips real content; the modifier
 un-clipped so nothing trims a focus frame at a pane's edge.
 
 A visible window-modal sheet also makes AppKit **refuse the quit Apple Event** loginwindow sends, so
-an open Settings sheet cancels the user's restart and puts up *"'EchoForge' interrupted restart"*.
+an open Settings sheet cancels the user's restart and puts up *"'Kongweh' interrupted restart"*.
 `Utils/PowerOffPresentationGuard.swift` is the one owner of that: it reads
 `NSWorkspace.willPowerOffNotification` and broadcasts `.dismissModalPresentations`, and
 `.dismissesOnPowerOff($binding)` takes each presentation down. Two things there are absolute and

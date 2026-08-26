@@ -1,5 +1,5 @@
 #!/bin/bash
-# Regenerate OpenSuperWhisper/AppIcon.icns, the EchoForge app icon, from its
+# Regenerate OpenSuperWhisper/AppIcon.icns, the Kongweh app icon, from its
 # vector source in Scripts/GenerateAppIcon.swift.
 #
 # Run it after changing the artwork; the resulting .icns is committed, so the

@@ -294,7 +294,7 @@ struct AboutSettingsView: View {
 
     private var identityCard: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("About EchoForge")
+            Text("About Kongweh")
                 .font(.headline)
                 .foregroundColor(.primary)
 
@@ -358,14 +358,14 @@ struct UpdateCardView: View {
     static func statusText(for state: UpdateState) -> String {
         switch state {
         case .idle:
-            return "EchoForge never checks or installs updates on its own. Checking, downloading and "
+            return "Kongweh never checks or installs updates on its own. Checking, downloading and "
                 + "installing are three things you ask for."
         case .checking:
             return "Checking…"
         case .upToDate:
             return "You are on the latest published release."
         case .available(let release):
-            return "EchoForge \(release.version.description) is available."
+            return "Kongweh \(release.version.description) is available."
         case .connecting(let release, let progress):
             return progress.receivedBytes > 0
                 ? "Connecting… resuming \(release.version.description) from "
@@ -380,9 +380,9 @@ struct UpdateCardView: View {
             return "Verifying \(release.version.description)…"
         case .readyToInstall(let release, _):
             return "\(release.version.description) downloaded and verified: it identifies itself as "
-                + "EchoForge, reports the version that was offered, and passes signature verification."
+                + "Kongweh, reports the version that was offered, and passes signature verification."
         case .installing(let release, _):
-            return "Installing \(release.version.description). EchoForge will quit and open again."
+            return "Installing \(release.version.description). Kongweh will quit and open again."
         case .failed(let message, _):
             return message
         }
@@ -465,7 +465,7 @@ struct UpdateCardView: View {
             case .readyToInstall(let release, let stagedApp):
                 statusLine(icon: "checkmark.seal", color: .green,
                            text: Self.statusText(for: state))
-                Text("Installing quits EchoForge, replaces it, and opens it again.")
+                Text("Installing quits Kongweh, replaces it, and opens it again.")
                     .font(.caption)
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -524,7 +524,7 @@ struct UpdateCardView: View {
     /// whether to take an update is what they are for.
     private func releaseDetails(_ release: PublishedRelease) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("EchoForge \(release.version.description) is available.")
+            Text("Kongweh \(release.version.description) is available.")
                 .font(.subheadline.weight(.medium))
 
             Text(ByteCountFormatter.string(fromByteCount: Int64(release.sizeInBytes), countStyle: .file))

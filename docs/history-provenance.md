@@ -17,8 +17,8 @@ underneath it, with no disclosure to open.
 | **Ask** | A spoken question that went to the Ask panel (`Ask: …`, `請問…`). Nothing was inserted into your document. |
 | **YouTube command - opened** | The YouTube command shortcut, and the channel's newest video opened in Chrome. The sentence names the channel and the video. |
 | **YouTube command - not opened** | The YouTube command shortcut, and **nothing was opened**. The sentence says why and what to do about it. |
-| **File transcription** | A file you dropped on the window or opened with EchoForge, or a dictation whose audio was queued because the engine was busy with another one. |
-| **Older recording** | Made before EchoForge recorded any of this, so the app does not know. It is never guessed at: an entry from before the upgrade says "older recording" rather than being relabelled as something it might not have been. |
+| **File transcription** | A file you dropped on the window or opened with Kongweh, or a dictation whose audio was queued because the engine was busy with another one. |
+| **Older recording** | Made before Kongweh recorded any of this, so the app does not know. It is never guessed at: an entry from before the upgrade says "older recording" rather than being relabelled as something it might not have been. |
 
 Use the filter beside the search box to show one kind at a time. **Not opened**
 is the one to reach for after a command that seemed to do nothing; the filter
@@ -42,7 +42,7 @@ short version and what to do:
 | Google Chrome was not found / could not open | The video was found and Chrome would not take it. | Install Chrome, or open the video yourself. |
 | The transcription engine was busy | The audio was queued as a plain transcription, so the command never ran at all. | Try the shortcut again once the queue is clear. |
 | This command could not be transcribed | There were never any words to read as a channel name. | The sentence carries the engine's own reason. |
-| This command had not finished | EchoForge quit or was interrupted between hearing the words and finishing the command. | Try it again. |
+| This command had not finished | Kongweh quit or was interrupted between hearing the words and finishing the command. | Try it again. |
 | This recording was transcribed again from History | You pressed the row's Regenerate transcription button. The label and the outcome stay what that press actually did, but the old sentence quoted the old transcript, so it is replaced. Regenerating never re-runs the command. | Press the YouTube command shortcut to run the command again. |
 
 ### "It heard the name wrong"
@@ -50,7 +50,7 @@ short version and what to do:
 This is the common one, and the entry is what makes it fixable: the name in
 quotes is what the speech engine actually wrote. A stored `valley101` is matched
 case-insensitively and with spacing ignored, so "Valley 101" and "valley101"
-both reach it - but "Vali101" is a different name, and EchoForge will not guess
+both reach it - but "Vali101" is a different name, and Kongweh will not guess
 that one name means another. That refusal is deliberate: a near miss that opened
 *something* would be the app choosing a channel you did not.
 

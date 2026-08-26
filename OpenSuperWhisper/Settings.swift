@@ -905,7 +905,7 @@ struct Settings {
     ///   - dictationTarget: the app this dictation is being typed into,
     ///     captured once when the session started. `nil` - the default - is
     ///     every other transcription: a dropped file, a queued recording, a
-    ///     regenerate from history, or dictation into EchoForge's own window.
+    ///     regenerate from history, or dictation into Kongweh's own window.
     ///     Those have no app to match, so the style the user chose is what they
     ///     use.
     ///   - routesSpokenIntents: whether this path reads the transcript for a
@@ -974,7 +974,7 @@ struct SettingsView: View {
     private var sheetSize: CGSize { SettingsSheetLayout.current }
     
     var body: some View {
-        // The tab bar is EchoForge's own control, not the `NSSegmentedControl` a
+        // The tab bar is Kongweh's own control, not the `NSSegmentedControl` a
         // SwiftUI `TabView` renders in a sheet: that one drew its keyboard focus
         // ring from different geometry than its selection, and no width or
         // containment above it could make the two agree. `SettingsTabBar` draws
@@ -1025,7 +1025,7 @@ struct SettingsView: View {
                 
                 Spacer()
                 
-                // EchoForge's own source. Credit for the upstream project this
+                // Kongweh's own source. Credit for the upstream project this
                 // forked from lives in the README and LICENSE, which travel with it.
                 Link(destination: URL(string: "https://github.com/hsuanchenlin/EchoForge")!) {
                     HStack(spacing: 4) {

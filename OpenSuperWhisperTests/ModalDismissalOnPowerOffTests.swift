@@ -113,7 +113,7 @@ final class ModalDismissalOnPowerOffTests: XCTestCase {
                 guarded, sites,
                 "\(file) presents \(sites) sheet(s)/confirmation dialog(s) but only \(guarded) "
                     + "of them are marked .dismissesOnPowerOff. An unguarded one cancels the "
-                    + "user's restart and names EchoForge in a system dialog.")
+                    + "user's restart and names Kongweh in a system dialog.")
         }
 
         XCTAssertGreaterThan(scanned, 20, "the scan found almost no sources, so it proved almost nothing")

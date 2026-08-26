@@ -145,7 +145,7 @@ enum EngineCatalog {
         guard isBundled, kind == StarterModel.engine else {
             return "Downloaded to your Mac, not bundled with the app."
         }
-        return "Included with this build of EchoForge and installed on your Mac on first launch, "
+        return "Included with this build of Kongweh and installed on your Mac on first launch, "
             + "under the model licence linked below."
     }
 
@@ -196,7 +196,7 @@ enum EngineCatalog {
         summary: "Transcribes with a provider you choose, using your own API key. Off unless you turn it on.",
         attributionCredit: nil,
         notes: [
-            "Your recordings are uploaded to the provider you configure. Nothing else in EchoForge "
+            "Your recordings are uploaded to the provider you configure. Nothing else in Kongweh "
                 + "sends audio anywhere.",
             "You need an account and an API key with that provider, and they bill you for what you use.",
             "It needs a working connection. With none, the dictation fails and the recording is kept "
@@ -241,7 +241,7 @@ enum EngineCatalog {
             "Adds punctuation, and writes spoken numbers as digits - say 三點二十分 and it transcribes 3點20分. "
                 + "Upstream these are one switch, so punctuation is not available without the conversion, "
                 + "and it can occasionally turn a bare numeral into the wrong number.",
-            "The model writes Simplified Chinese; EchoForge writes your transcript in Traditional "
+            "The model writes Simplified Chinese; Kongweh writes your transcript in Traditional "
                 + "unless you choose otherwise in Settings \u{2192} Transcription.",
             "About 8x faster than real time, so a 30-second recording takes a few seconds.",
         ],
@@ -275,11 +275,11 @@ enum EngineCatalog {
         notes: [
             "Produces no punctuation at all - its vocabulary contains none, and nothing here invents any.",
             "Mandarin only, and the model refuses nothing - so English comes back as tokeniser fragments. "
-                + "EchoForge catches those and keeps the recording instead of inserting them, leaving you to "
+                + "Kongweh catches those and keeps the recording instead of inserting them, leaving you to "
                 + "switch engine and regenerate.",
             "Cantonese is the case nothing can catch: it comes back as fluent but wrong Mandarin, which reads "
                 + "like a real transcript.",
-            "The model writes Simplified Chinese - EchoForge writes your transcript in the script you "
+            "The model writes Simplified Chinese - Kongweh writes your transcript in the script you "
                 + "chose - and it spells numbers as spoken: 三點二十分, not 3點20分.",
             "Long recordings are split into short pieces before the model sees them, because it silently "
                 + "truncates anything longer.",

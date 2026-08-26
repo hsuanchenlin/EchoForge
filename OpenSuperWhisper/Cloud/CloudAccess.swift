@@ -95,7 +95,7 @@ enum CloudAccessRefusal: Error, Equatable, Sendable {
     var explanation: String {
         switch self {
         case .notInThisBuild:
-            return "This build of EchoForge has no cloud path. Everything runs on your Mac."
+            return "This build of Kongweh has no cloud path. Everything runs on your Mac."
         case .featureIsLocal(let feature):
             return "\(feature.name) is set to run on this Mac."
         case .consentNotGiven(let feature):

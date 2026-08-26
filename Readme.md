@@ -1,6 +1,6 @@
-# EchoForge
+# Kongweh
 
-EchoForge is a macOS application that provides real-time audio transcription using on-device speech models. It offers a seamless way to record and transcribe audio with customizable settings and keyboard shortcuts.
+Kongweh is a macOS application that provides real-time audio transcription using on-device speech models. It offers a seamless way to record and transcribe audio with customizable settings and keyboard shortcuts.
 
 Everything runs on your Mac by default - no account, no server, nothing uploaded. There is one
 opt-in exception: you can point speech transcription and the spoken translation command at an
@@ -9,9 +9,17 @@ sheet saying what is uploaded and where; [docs/cloud-api.md](docs/cloud-api.md) 
 leaves the device, when, and where it goes.
 
 It is a fork of [OpenSuperWhisper](https://github.com/Starmel/OpenSuperWhisper) - which this
-repository's source directories are still named after - renamed and given its own bundle
-identifier (`com.hsuanchenlin.EchoForge`) so it installs and runs alongside an upstream build
-instead of replacing it.
+repository's source directories are still named after - given its own bundle identifier
+(`com.hsuanchenlin.EchoForge`) so it installs and runs alongside an upstream build instead of
+replacing it.
+
+**On the name.** The app is Kongweh, after Taiwanese *kóng-uē* (講話), "to talk". This
+repository, its releases and the files they publish are still named EchoForge, which is what
+the app was called before, so the download is `EchoForge.dmg` and it installs
+`EchoForge.app` - Finder and the Dock show it as Kongweh. That is deliberate: the bundle
+identifier names the folder holding every existing user's recordings, personal terms and
+downloaded models, and the updater finds new versions by those exact file names, so renaming
+them would strand installs rather than rebrand them.
 
 <p align="center">
 <img src="docs/image.png" width="400" /> <img src="docs/image_indicator.png" width="400" />
@@ -43,7 +51,7 @@ instead of replacing it.
 
 ## Installation
 
-### EchoForge (this fork, includes the Chinese engines)
+### Kongweh (this fork, includes the Chinese engines)
 
 Download the newest `.dmg` from
 [this fork's releases page](https://github.com/hsuanchenlin/EchoForge/releases)
@@ -65,7 +73,7 @@ brew install opensuperwhisper
 Or from the [upstream GitHub releases page](https://github.com/Starmel/OpenSuperWhisper/releases).
 These are signed and notarized, and do not include this fork's changes. They install as
 `OpenSuperWhisper.app` under `ru.starmel.OpenSuperWhisper`, so an upstream install and an
-EchoForge install can sit side by side; each keeps its own settings, recordings and
+Kongweh install can sit side by side; each keeps its own settings, recordings and
 downloaded models.
 
 ## Requirements
@@ -109,7 +117,7 @@ Contributions are welcome! Please feel free to submit pull requests or create is
 
 ## License
 
-EchoForge is licensed under the MIT License, inherited from OpenSuperWhisper, whose
+Kongweh is licensed under the MIT License, inherited from OpenSuperWhisper, whose
 copyright notice it keeps. See the [LICENSE](LICENSE) file for details.
 
 Speech models are downloaded at runtime and carry their own licences and attribution

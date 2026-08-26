@@ -45,7 +45,7 @@ struct CloudSettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Cloud")
                 .font(.headline)
-            Text("EchoForge does everything on your Mac unless you change something here. "
+            Text("Kongweh does everything on your Mac unless you change something here. "
                 + "Turn a feature on below and it is sent to the provider you configure, using "
                 + "your own API key.")
                 .font(.caption)
@@ -369,7 +369,7 @@ final class CloudSettingsViewModel: ObservableObject {
     var apiKeyStatus: String {
         hasStoredKey
             ? "A key is stored in your Keychain. Type a new one above to replace it."
-            : "No key stored. It is kept in your Mac's Keychain, never in EchoForge's settings file."
+            : "No key stored. It is kept in your Mac's Keychain, never in Kongweh's settings file."
     }
 
     // MARK: - What the pane says

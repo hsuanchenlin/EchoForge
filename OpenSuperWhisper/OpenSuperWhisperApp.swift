@@ -268,7 +268,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
                 iconImage.isTemplate = true
                 button.image = iconImage
             } else {
-                button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "EchoForge")
+                button.image = NSImage(systemSymbolName: "waveform", accessibilityDescription: "Kongweh")
             }
             
             button.action = #selector(statusBarButtonClicked(_:))
@@ -281,7 +281,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     private func updateStatusBarMenu() {
         let menu = NSMenu()
         
-        menu.addItem(NSMenuItem(title: "EchoForge", action: #selector(openApp), keyEquivalent: "o"))
+        menu.addItem(NSMenuItem(title: "Kongweh", action: #selector(openApp), keyEquivalent: "o"))
         
         let transcriptionLanguageItem = NSMenuItem(title: "Language", action: nil, keyEquivalent: "")
         languageSubmenu = NSMenu()

@@ -2,7 +2,7 @@
 
 ## The problem this solves
 
-Every EchoForge release from v0.3.0 to v0.5.2 shipped a **222 MB** disk image. Of the 250 MB app
+Every Kongweh release from v0.3.0 to v0.5.2 shipped a **222 MB** disk image. Of the 250 MB app
 bundle inside it, **229 MB was one speech model** - SenseVoice-Small, packaged into
 `Contents/Resources/StarterModel`. Everything else, code and frameworks and all other resources
 together, was about 21 MB.

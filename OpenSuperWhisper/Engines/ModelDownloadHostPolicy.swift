@@ -52,7 +52,7 @@ enum ModelDownloadHostPolicy {
             code: -10,
             userInfo: [
                 NSLocalizedDescriptionKey:
-                    "This model is not published where EchoForge downloads models from "
+                    "This model is not published where Kongweh downloads models from "
                     + "(\(url?.host ?? "no host")). It was not downloaded.",
             ]
         )

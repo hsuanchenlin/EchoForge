@@ -66,7 +66,7 @@ enum ScreenCaptureTargetResolver {
     ///
     /// Three rules, and each is a bug that happened without it:
     ///
-    /// - **Never this app.** EchoForge is frontmost by the time the Ask panel is
+    /// - **Never this app.** Kongweh is frontmost by the time the Ask panel is
     ///   up, and a screenshot of our own HUD answers nothing. Its windows are
     ///   excluded whatever pid is asked for.
     /// - **Ordinary windows only.** Layer 0 is where documents live; the Dock, a
@@ -107,7 +107,7 @@ enum ScreenCaptureError: LocalizedError, Equatable {
     var message: String {
         switch self {
         case .permissionDenied:
-            return "EchoForge needs Screen Recording permission to answer questions about your "
+            return "Kongweh needs Screen Recording permission to answer questions about your "
                 + "screen. Grant it in System Settings › Privacy & Security › Screen Recording, "
                 + "then try again."
         case .nothingToCapture:
