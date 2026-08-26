@@ -94,7 +94,7 @@ what the chip promised and what the pipeline did cannot disagree. See
 
 `Settings(dictationTarget:)` is the join. Its default is `nil`, which means
 "no app has a say": a dropped file, a queued recording, a regenerate from
-history, and dictation started from EchoForge's own window - the detector returns
+history, and dictation started from Kongweh's own window - the detector returns
 `nil` for this app itself - all use the chosen style.
 
 ## Known limits

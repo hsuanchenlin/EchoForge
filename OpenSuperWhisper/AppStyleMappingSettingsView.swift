@@ -109,7 +109,7 @@ struct AppStyleMappingSettingsView: View {
             Toggle("Match the style to the app I dictate into", isOn: $model.isEnabled)
                 .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
 
-            Text("Dictating into a chat app uses Casual Chat, into a mail client Formal Business, and so on. Your chosen style is used for every app without a rule. EchoForge only ever reads the frontmost app's identifier - never window titles, documents or web addresses - and that identifier never leaves this Mac.")
+            Text("Dictating into a chat app uses Casual Chat, into a mail client Formal Business, and so on. Your chosen style is used for every app without a rule. Kongweh only ever reads the frontmost app's identifier - never window titles, documents or web addresses - and that identifier never leaves this Mac.")
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

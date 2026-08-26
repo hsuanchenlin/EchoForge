@@ -8,7 +8,7 @@
 > Everything below still describes the bundled path, which is what an offline install medium wants
 > and what `StarterModel.installIfNeeded()` still does for anyone running a build that shipped one.
 
-EchoForge can ship with a speech model already on board, so a fresh install can dictate
+Kongweh can ship with a speech model already on board, so a fresh install can dictate
 immediately instead of waiting on a 240 MB download and a minute of Neural Engine compilation
 before its first word.
 

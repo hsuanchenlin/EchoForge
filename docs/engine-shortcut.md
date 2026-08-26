@@ -189,4 +189,4 @@ changes.
 with OCR and checks the pill still fits inside its panel - the same tactic
 `UpdateCardRenderTests` uses, because this overlay lives for two seconds over
 another app and cannot be screenshotted from outside. The renders are written to
-`/tmp/EchoForgeEngineSwitchRenders/` for a human to open.
+`/tmp/KongwehEngineSwitchRenders/` for a human to open.

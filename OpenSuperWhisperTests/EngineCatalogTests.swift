@@ -105,7 +105,7 @@ final class EngineCatalogTests: XCTestCase {
         )
     }
 
-    /// Both models write Simplified Chinese, and EchoForge writes the transcript
+    /// Both models write Simplified Chinese, and Kongweh writes the transcript
     /// in the script the user chose - Traditional by default. For a Chinese user
     /// that is the most surprising thing about either engine either way round, so
     /// neither entry may leave out what the model does or what the app does with
@@ -118,7 +118,7 @@ final class EngineCatalogTests: XCTestCase {
                 "\(kind) must say which script the model writes: \(notes)"
             )
             XCTAssertTrue(
-                notes.contains("EchoForge writes your transcript"),
+                notes.contains("Kongweh writes your transcript"),
                 "\(kind) must say what the app writes, now that it converts: \(notes)"
             )
         }

@@ -124,7 +124,7 @@ final class AskPanelWindowController {
     /// Takes the screenshot, opens the panel, and starts listening.
     ///
     /// The order is the feature. The frontmost application is read **first**,
-    /// while it is still the user's own - opening this panel activates EchoForge
+    /// while it is still the user's own - opening this panel activates Kongweh
     /// - and the capture is started before the panel is shown so the shot is of
     /// what they were looking at rather than of the card that just appeared over
     /// it. Screen Recording is checked here and nowhere else: a Mac that has
@@ -197,7 +197,7 @@ final class AskPanelWindowController {
             )
         }
         return ScreenRecordingRefusal(
-            message: "EchoForge just asked macOS for Screen Recording permission. "
+            message: "Kongweh just asked macOS for Screen Recording permission. "
                 + "Grant it in the dialog that appeared, then try again.",
             opensSystemSettings: false
         )
@@ -329,7 +329,7 @@ final class AskPanelWindowController {
     /// The application **Insert into Active App** would paste into, given who
     /// was frontmost when the panel opened.
     ///
-    /// This app itself is never a target: a panel opened from EchoForge's own
+    /// This app itself is never a target: a panel opened from Kongweh's own
     /// window remembers nothing, and the answer then goes to the clipboard and
     /// nowhere else.
     static func capturedInsertionTarget(
@@ -348,7 +348,7 @@ final class AskPanelWindowController {
     /// the answer rather than restored, because a user who pressed Insert wants
     /// the text and having it on the clipboard as well costs them nothing.
     ///
-    /// Without a remembered target - the panel was opened from EchoForge's own
+    /// Without a remembered target - the panel was opened from Kongweh's own
     /// window, or the frontmost application could not be read - the answer goes
     /// to the clipboard and nowhere else. Guessing where to paste is the one
     /// thing this must not do, which is also why a target that cannot come

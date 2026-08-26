@@ -6,7 +6,7 @@ follows instead of pasting it, and **"insert [trigger]"**, which expands one of
 their own voice snippets. Everything else is dictation, unchanged.
 
 All three end in **text**, and that is the boundary of this file: a spoken
-command can change what is inserted or send it somewhere else in EchoForge, and
+command can change what is inserted or send it somewhere else in Kongweh, and
 nothing here can open an application, a browser or a URL. Opening a channel's
 latest video *used* to be a fourth marker in this table and is not any more - it
 has a hotkey of its own now, because a command that opens a browser must not

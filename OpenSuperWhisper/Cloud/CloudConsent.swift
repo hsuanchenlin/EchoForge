@@ -47,21 +47,21 @@ enum CloudConsent {
             : "\(host), a company outside your control"
 
         var points = [
-            "EchoForge will upload \(feature.whatLeavesTheDevice) to \(destination).",
+            "Kongweh will upload \(feature.whatLeavesTheDevice) to \(destination).",
             "What happens to it there - how long it is kept, whether it trains a model - "
-                + "is that provider's decision, not EchoForge's. Read their policy.",
+                + "is that provider's decision, not Kongweh's. Read their policy.",
             "Your API key is stored in your Mac's Keychain and sent only to this provider.",
             "You can switch back to on-device at any time in Settings → Cloud, and nothing "
                 + "is uploaded while it is off.",
         ]
         if isLoopback {
             points[1] = "Because that address is on this Mac, the data does not leave it - "
-                + "but it does leave EchoForge, and what the server does with it is up to you."
+                + "but it does leave Kongweh, and what the server does with it is up to you."
         }
 
         return Copy(
             title: "Send \(feature.name.lowercased()) to \(host)?",
-            body: "EchoForge normally does all of this on your Mac, and it will keep doing so "
+            body: "Kongweh normally does all of this on your Mac, and it will keep doing so "
                 + "for everything you do not turn on here.",
             points: points,
             learnMore: "What is sent, when, and where →",

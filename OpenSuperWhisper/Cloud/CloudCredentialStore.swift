@@ -26,7 +26,7 @@ protocol CloudCredentialStoring: Sendable {
 
 /// The production store: a generic password item in the login keychain.
 ///
-/// `kSecAttrService` carries the bundle identifier so an EchoForge install and
+/// `kSecAttrService` carries the bundle identifier so a Kongweh install and
 /// an upstream OpenSuperWhisper install cannot read each other's item - the same
 /// separation the Application Support directory already gives the database and
 /// the models. `kSecAttrAccount` is a fixed string rather than the provider host:

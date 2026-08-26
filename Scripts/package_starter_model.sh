@@ -2,7 +2,7 @@
 #
 # Puts the starter speech model into the app bundle, when one has been supplied.
 #
-# EchoForge can ship with SenseVoice-Small already on board so a fresh install
+# Kongweh can ship with SenseVoice-Small already on board so a fresh install
 # can dictate before it has downloaded anything. The weights are ~240 MB of
 # third-party CoreML artifacts and are never committed to this repository, so
 # they are a *build input*: the release operator stages them in a directory and

@@ -148,7 +148,7 @@ enum StyleRewriteAvailability: Equatable, Sendable {
         case .modelNotReady:
             return "Apple Intelligence is still preparing its model. \(feature.name) will work once it has finished."
         case .cloudProvider(let host):
-            return "\(feature.name) is sent to \(host). Nothing else in EchoForge is."
+            return "\(feature.name) is sent to \(host). Nothing else in Kongweh is."
         case .cloudNotConfigured(let reason):
             return "\(feature.name) is set to use a provider. \(reason)"
         }

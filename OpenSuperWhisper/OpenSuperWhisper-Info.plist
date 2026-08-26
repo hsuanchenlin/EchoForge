@@ -2,10 +2,40 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- The product's visible name. Both keys matter and they are read by
+	     different parts of macOS: Finder and the Dock show CFBundleDisplayName,
+	     the app menu shows CFBundleName. The app switches to .regular while a
+	     window is up, so the menu title is on screen and both have to say the
+	     same thing.
+
+	     CFBundleName is also why GENERATE_INFOPLIST_FILE is off for this target:
+	     the generated plist hard-codes CFBundleName to $(PRODUCT_NAME), there is
+	     no INFOPLIST_KEY_ that overrides it, and PRODUCT_NAME has to stay
+	     EchoForge because it names EchoForge.app and EchoForge.dmg - which the
+	     release scripts and the in-app updater address the shipped app by. The
+	     keys below the icon are the ones that generation used to supply. -->
 	<key>CFBundleDisplayName</key>
-	<string>EchoForge</string>
+	<string>Kongweh</string>
+	<key>CFBundleName</key>
+	<string>Kongweh</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon.icns</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleVersion</key>
+	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.productivity</string>
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -22,10 +52,10 @@
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>EchoForge needs microphone access to record audio for transcription.</string>
+	<string>Kongweh needs microphone access to record audio for transcription.</string>
 	<key>NSAccessibilityUsageDescription</key>
-	<string>EchoForge needs accessibility access to provide system-wide functionality.</string>
+	<string>Kongweh needs accessibility access to provide system-wide functionality.</string>
 	<key>NSAppleEventsUsageDescription</key>
-	<string>EchoForge needs accessibility access to provide system-wide functionality.</string>
+	<string>Kongweh needs accessibility access to provide system-wide functionality.</string>
 </dict>
 </plist>

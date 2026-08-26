@@ -20,8 +20,8 @@ extension Notification.Name {
 ///
 /// A visible window-modal sheet makes AppKit refuse the quit Apple Event that
 /// loginwindow sends, reply `userCanceledErr`, and hand the user
-/// *"'EchoForge' interrupted restart. To continue restarting, quit 'EchoForge'."*
-/// EchoForge is a menu-bar app that stays up all day and its Settings surface is
+/// *"'Kongweh' interrupted restart. To continue restarting, quit 'Kongweh'."*
+/// Kongweh is a menu-bar app that stays up all day and its Settings surface is
 /// a sheet, so this was a routine way to lose a restart.
 ///
 /// Two dead ends are worth stating, because both look like the obvious fix and
@@ -47,7 +47,7 @@ extension Notification.Name {
 /// which `Transaction.disablesAnimations` does not shorten. loginwindow quits
 /// apps one at a time, so in practice there are seconds between the broadcast
 /// and this app's quit event and the guard wins comfortably. It can lose only if
-/// EchoForge happens to be first in the quit list, and even then the sheet is
+/// Kongweh happens to be first in the quit list, and even then the sheet is
 /// gone by the time the user presses **Try Again**. This turns "always blocks"
 /// into "at worst one extra click, once"; it is a race that is heavily won, not
 /// a proof.

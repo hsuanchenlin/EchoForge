@@ -1,6 +1,6 @@
 # Cloud (OpenAI-compatible) transcription and translation
 
-EchoForge does everything on your Mac. This page is about the one exception you
+Kongweh does everything on your Mac. This page is about the one exception you
 can switch on: sending speech to be transcribed, or a transcript to be
 translated, by a provider you choose, with an API key you own.
 
@@ -26,12 +26,12 @@ Nothing else is sent: no window titles, no bundle identifiers, no history, no
 telemetry, no usage counts. The YouTube command's feed request is the one request
 in this app that is not a model call and not an update or model download: no
 transcript, no audio and nothing about you goes with it, and the channel-name
-matching beneath it never leaves your Mac - see `docs/youtube-latest-video.md`. EchoForge has no server of its own and never proxies
+matching beneath it never leaves your Mac - see `docs/youtube-latest-video.md`. Kongweh has no server of its own and never proxies
 anything - requests go from your Mac straight to the address in the base-URL
 field, and your key is sent to that address and nowhere else.
 
 **What the provider does with what you send is their decision, not
-EchoForge's.** Retention, whether it trains a model, who can subpoena it: read
+Kongweh's.** Retention, whether it trains a model, who can subpoena it: read
 the policy of whoever you configure. That sentence is in the consent sheet for
 the same reason it is here.
 
@@ -61,7 +61,7 @@ matching, so none of them has a reachable path to a provider.
    provider works; paste the base URL from their documentation, with or without
    the trailing `/v1`.
 2. **API key** - yours, from your provider. Press Save and it goes into your
-   Mac's **Keychain**. It is never written to EchoForge's settings file, never
+   Mac's **Keychain**. It is never written to Kongweh's settings file, never
    bundled with the app, and never sent anywhere but the base URL above.
 3. **Speech model** / **Text model** - free-text, because every provider names
    its models differently. `whisper-1` and `gpt-4o-mini` are the defaults. On
@@ -81,7 +81,7 @@ Keychain item, forgets both consents and puts both features back on your Mac.
 **One thing to expect after an update.** These builds are ad-hoc signed, which
 means macOS treats each build as a slightly different application, and a keychain
 item belongs to the application that created it. So the first time an updated
-EchoForge reads your key, macOS asks "EchoForge wants to use information stored
+Kongweh reads your key, macOS asks "Kongweh wants to use information stored
 in your keychain"; choose **Always Allow** and it stops asking. It is only ever
 asked of people who have stored a key - the key is read when you open the Cloud
 pane, and, if you have chosen cloud transcription, when the app works out which
@@ -111,7 +111,7 @@ it once the reason is dealt with (or once you switch back to a local engine).
 That is `DictationFailureOutcome`, the same primitive that keeps a recording when
 no engine is set up.
 
-Recordings over 25 MB - about thirteen minutes at the 16 kHz mono WAV EchoForge
+Recordings over 25 MB - about thirteen minutes at the 16 kHz mono WAV Kongweh
 records - are refused **before** the upload starts, so a long dictation does not
 cost you the bandwidth to be told no by a 413.
 
@@ -197,6 +197,6 @@ configured feature is still refused.
 
 ## Cost
 
-Your provider bills you for what you use, at their rates. EchoForge shows no
+Your provider bills you for what you use, at their rates. Kongweh shows no
 prices and counts no spend - it has no way to know your plan. A dictation is one
 request; a translation is one request.

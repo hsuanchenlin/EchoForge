@@ -1,6 +1,6 @@
 import Foundation
 
-/// A published EchoForge release, once it has survived being checked.
+/// A published Kongweh release, once it has survived being checked.
 ///
 /// The type only exists in a validated form: there is no way to construct one
 /// from release metadata except through `UpdateManifest.parse`, which rejects
@@ -79,7 +79,7 @@ enum UpdateManifestError: LocalizedError, Equatable {
         case .noDiskImageAsset:
             return "The latest release has no \(UpdateManifest.assetName) to download."
         case .untrustedDownloadHost(let host):
-            return "The download is not hosted where EchoForge releases are published (\(host))."
+            return "The download is not hosted where Kongweh releases are published (\(host))."
         }
     }
 }

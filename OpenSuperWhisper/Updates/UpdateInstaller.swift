@@ -33,15 +33,15 @@ enum UpdateInstallError: LocalizedError, Equatable {
         case .diskImageCouldNotBeOpened(let detail):
             return "The downloaded disk image could not be opened. \(detail)"
         case .noApplicationInDiskImage:
-            return "The downloaded disk image does not contain EchoForge.app."
+            return "The downloaded disk image does not contain the Kongweh app."
         case .wrongBundleIdentifier(let found):
-            return "The downloaded app identifies itself as \(found), not EchoForge. It was discarded."
+            return "The downloaded app identifies itself as \(found), not Kongweh. It was discarded."
         case .wrongVersion(let expected, let found):
             return "The downloaded app is version \(found), not the \(expected) that was offered. It was discarded."
         case .signatureRejected(let detail):
             return "The downloaded app failed signature verification and was discarded. \(detail)"
         case .replacementFailed(let detail):
-            return "EchoForge could not be replaced. \(detail)"
+            return "Kongweh could not be replaced. \(detail)"
         }
     }
 
@@ -259,7 +259,7 @@ struct GitHubChecksumFetcher: ChecksumFetching {
 
     func fetchChecksumDocument(from url: URL) async throws -> String {
         guard UpdateManifest.isTrustedAssetURL(url) else {
-            throw UpdateInstallError.checksumUnavailable("It is not published where EchoForge releases are.")
+            throw UpdateInstallError.checksumUnavailable("It is not published where Kongweh releases are.")
         }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = Self.timeout

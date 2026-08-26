@@ -2,7 +2,7 @@
 
 ## The problem this solves
 
-Every EchoForge release from v0.3.0 to v0.5.2 shipped a **222 MB** disk image. Of the 250 MB app
+Every Kongweh release from v0.3.0 to v0.5.2 shipped a **222 MB** disk image. Of the 250 MB app
 bundle inside it, **229 MB was one speech model** - SenseVoice-Small, packaged into
 `Contents/Resources/StarterModel`. Everything else, code and frameworks and all other resources
 together, was about 21 MB.
@@ -18,7 +18,7 @@ Measured across a real release pair, by mounting both published disk images and 
 ```
 files: v0.5.1=45  v0.5.2=45
 identical bytes carried over: 246,124,050 (93.98%)
-changed files: 2  -  Contents/MacOS/EchoForge (15,763,024 B), Contents/Info.plist (2,179 B)
+changed files: 2  -  Contents/MacOS/Kongweh (15,763,024 B), Contents/Info.plist (2,179 B)
 StarterModel: 9 files, 239,913,642 bytes, changed between the two releases: 0
 ```
 

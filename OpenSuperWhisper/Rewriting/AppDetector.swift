@@ -204,8 +204,8 @@ enum AppDetector {
     nonisolated(unsafe) static var reader: FrontmostApplicationReading
         = WorkspaceFrontmostApplicationReader()
 
-    /// This app's own identifier, so a dictation started from EchoForge's own
-    /// window is not treated as a dictation *into* EchoForge. Overridable
+    /// This app's own identifier, so a dictation started from Kongweh's own
+    /// window is not treated as a dictation *into* Kongweh. Overridable
     /// because a test bundle's `Bundle.main` is the test runner, not the app.
     nonisolated(unsafe) static var ownBundleIdentifier: String?
         = Bundle.main.bundleIdentifier
@@ -213,7 +213,7 @@ enum AppDetector {
     /// The app a dictation starting now would be typed into.
     ///
     /// `nil` when there is no frontmost app, when it is this app - dictating in
-    /// EchoForge's own window is not dictating into another app - or when the
+    /// Kongweh's own window is not dictating into another app - or when the
     /// system declines to say.
     static func currentTarget() -> DictationTargetApp? {
         guard let identifier = reader.frontmostBundleIdentifier() else { return nil }

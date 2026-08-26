@@ -74,11 +74,11 @@ enum ModelPackManifestError: LocalizedError, Equatable {
         case .unknownEngine(let engine):
             return "The model pack names an engine this build does not have (\(engine))."
         case .engineNotClearedForRedistribution(let engine):
-            return "EchoForge does not publish weights for \(engine)."
+            return "Kongweh does not publish weights for \(engine)."
         case .unsafeEntry(let entry):
             return "The model pack names a file it is not allowed to write (\(entry))."
         case .untrustedHost(let host):
-            return "The model pack is not published where EchoForge publishes them (\(host))."
+            return "The model pack is not published where Kongweh publishes them (\(host))."
         case .badChecksum(let id):
             return "The model pack \(id) does not carry a usable SHA-256."
         }

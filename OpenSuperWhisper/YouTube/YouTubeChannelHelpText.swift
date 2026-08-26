@@ -52,7 +52,7 @@ enum YouTubeChannelHelpText {
     /// What the model is given, what it can answer, and where it runs. All three
     /// are obligations rather than description: this is the only place in the
     /// feature where anything is not a plain string comparison.
-    static let modelMatchHint = "Off by default. When what you said matches no channel above - or matches two - EchoForge can ask Apple's on-device model which of these channels you meant. It is given only the words you said and the names and aliases on this list, it can only answer with a channel already here or with nothing, and it never leaves this Mac. If it answers with anything else, nothing is opened."
+    static let modelMatchHint = "Off by default. When what you said matches no channel above - or matches two - Kongweh can ask Apple's on-device model which of these channels you meant. It is given only the words you said and the names and aliases on this list, it can only answer with a channel already here or with nothing, and it never leaves this Mac. If it answers with anything else, nothing is opened."
 
     static let modelMatchDisclosure = "Nothing else about the command reaches a model: the channel IDs, the feed and the video address are never sent anywhere, and with this off no model sees the command at all. Your dictation never reaches it either way - only what you say into the YouTube command shortcut."
 

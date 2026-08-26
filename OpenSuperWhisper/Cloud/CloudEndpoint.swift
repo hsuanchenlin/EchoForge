@@ -49,7 +49,7 @@ struct CloudEndpoint: Equatable, Sendable {
 
     /// Whether this endpoint is on this machine, which is the difference between
     /// "sent to a provider" and "sent to a program you are running". The Settings
-    /// pane says which, because a user pointing EchoForge at their own Ollama
+    /// pane says which, because a user pointing Kongweh at their own Ollama
     /// deserves to be told their dictation is still on their Mac.
     var isLoopback: Bool { CloudEndpoint.loopbackHosts.contains(baseURL.host?.lowercased() ?? "") }
 
@@ -117,14 +117,14 @@ enum CloudEndpointError: Error, Equatable, Sendable {
         case .empty:
             return "Enter the provider's base URL, for example \(CloudEndpoint.openAIBaseURL)."
         case .notAURL:
-            return "That is not a URL EchoForge can read."
+            return "That is not a URL Kongweh can read."
         case .hasNoHost:
             return "That URL has no host. It should look like \(CloudEndpoint.openAIBaseURL)."
         case .insecure(let host):
-            return "EchoForge will not send audio or an API key to \(host) over plain http. "
+            return "Kongweh will not send audio or an API key to \(host) over plain http. "
                 + "Use https, or a local address such as http://127.0.0.1:11434."
         case .unsupportedScheme(let scheme):
-            return "EchoForge cannot send requests over \(scheme). Use https."
+            return "Kongweh cannot send requests over \(scheme). Use https."
         case .carriesAQueryOrFragment:
             return "The base URL must not have a query string or a #fragment - just the provider's address."
         case .carriesCredentials:

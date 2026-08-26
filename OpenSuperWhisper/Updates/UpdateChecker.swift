@@ -1,6 +1,6 @@
 import Foundation
 
-/// The result of asking whether there is a newer EchoForge.
+/// The result of asking whether there is a newer Kongweh.
 enum UpdateAvailability: Equatable {
     /// This build is the newest published release, or newer than it - which is
     /// what a local build of an unreleased version looks like, and is not an
