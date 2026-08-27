@@ -53,9 +53,12 @@ final class HistoryProvenanceRenderTests: XCTestCase {
         try assertRow(
             named: "command-opened",
             transcription: "Open YouTube channel Valley 101",
+            // The handle form, because that is what `YouTubeLatestVideoService`
+            // now puts in the report a row is written from: a channel named
+            // back to the user is written `@name`. See `YouTubeChannelHandle`.
             provenance: .command(
-                .opened(channel: "valley101", title: "The newest one", match: .spacing)),
-            showing: ["YouTube command", "opened", "valley101", "Chrome"]
+                .opened(channel: "@valley101", title: "The newest one", match: .spacing)),
+            showing: ["YouTube command", "opened", "@valley101", "Chrome"]
         )
     }
 

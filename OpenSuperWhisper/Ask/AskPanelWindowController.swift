@@ -51,15 +51,16 @@ final class AskPanelWindowController {
     private let screenCapture: ScreenCapturing
     private let screenRecordingAuthorizer: ScreenRecordingAuthorizing
 
-    /// The application that was frontmost when the panel opened, and the one
-    /// **Insert into Active App** puts the answer into.
+    /// The application that was frontmost when the panel was last presented, and
+    /// the one **Insert into Active App** puts the answer into.
     ///
     /// Captured up front rather than read at insertion time: by then the
     /// frontmost application may be this one, because the user has just been
     /// typing into this panel. Only the running application is held - no window,
-    /// no document, nothing about what is in it - and only for this one
-    /// presentation: hiding the panel forgets it, so a later presentation can
-    /// never paste into wherever the user was working an hour ago.
+    /// no document, nothing about what is in it - and only for as long as the
+    /// panel is up: hiding it forgets the target, so a later presentation can
+    /// never paste into wherever the user was working an hour ago. See
+    /// `nextInsertionTarget` for what a re-presentation does with it.
     var insertionTarget: NSRunningApplication?
 
     /// Which presentation the pending fade-out belongs to. A `present` can land
@@ -84,13 +85,99 @@ final class AskPanelWindowController {
 
     // MARK: - Showing it
 
-    /// The shortcut's action: open the panel, or close it if it is already up.
-    func toggle() {
-        if panel?.isVisible == true {
-            hide()
-        } else {
-            present()
+    /// What one press of the Ask shortcut means.
+    ///
+    /// Pure, and separate from carrying it out, so the rule can be asserted
+    /// without a window server, a microphone or an on-device model - the same
+    /// split `screenRecordingRefusal` and `capturedInsertionTarget` make.
+    enum ShortcutAction: Equatable {
+        /// Open the panel if it is not up, and start listening.
+        case askByVoice
+        /// A question is already being spoken: this press ends it.
+        case finishVoiceQuestion
+        /// Something else holds the one shared recorder - a dictation, or a
+        /// YouTube command. The press starts nothing and says so where it can
+        /// be seen without disturbing that recording.
+        case refuseToSeizeRecorder
+        /// Something is running that this press is neither the start nor the end
+        /// of - a transcription, an answer, or a ⌥S query that belongs to the
+        /// other key.
+        case ignore
+    }
+
+    /// The press, decided from the three things that matter.
+    ///
+    /// It is deliberately the same shape as `toggleScreenQuery`'s and **not** a
+    /// show/hide toggle any more. A key that closed an open panel could not also
+    /// be a key that always starts listening, and starting the capture is what
+    /// this shortcut is for: the panel is closed with Esc or the Close button.
+    ///
+    /// `isRecordingInFlight` is part of the decision rather than a guard bolted
+    /// on beside it, because the refusal it produces is a press outcome the user
+    /// is owed an answer for - left outside, it was a silent `return` that the
+    /// panel's own `dictationInFlight` sentence could never be reached from.
+    /// It is asked **after** the finishing case: the panel's own question is
+    /// holding that recorder, and this press is what ends it.
+    static func shortcutAction(
+        isCapturingVoiceQuestion: Bool, isBusy: Bool, isRecordingInFlight: Bool
+    ) -> ShortcutAction {
+        if isCapturingVoiceQuestion { return .finishVoiceQuestion }
+        // A transcription or an answer in flight is what `isBusy` exists to
+        // protect, and a screen query in flight belongs to ⌥S.
+        guard !isBusy else { return .ignore }
+        if isRecordingInFlight { return .refuseToSeizeRecorder }
+        return .askByVoice
+    }
+
+    /// The ⌥A action: start a spoken question, or finish the one already being
+    /// spoken.
+    ///
+    /// A press begins microphone capture, the way the dictation key, the
+    /// YouTube command key and ⌥S all do. It used to only put the panel on
+    /// screen, which left the user looking at an idle card and pressing **Ask by
+    /// voice** with the mouse - see `docs/ask-panel.md`.
+    func toggleVoiceQuestion() {
+        switch Self.shortcutAction(
+            isCapturingVoiceQuestion: viewModel.isCapturingVoiceQuestion,
+            isBusy: viewModel.isBusy,
+            isRecordingInFlight: isSharedRecorderInFlight
+        ) {
+        case .finishVoiceQuestion:
+            viewModel.finishVoiceFollowUp()
+        case .ignore:
+            return
+        case .refuseToSeizeRecorder:
+            reportRecorderInFlight()
+        case .askByVoice:
+            startVoiceQuestion()
         }
+    }
+
+    /// Says why a press was refused, on a card that is already on screen.
+    ///
+    /// The panel is deliberately **not** presented to carry the message.
+    /// `present()` forces this app forward (`activate(ignoringOtherApps:)`), so
+    /// the dictation this press just declined to seize would paste into the
+    /// panel's own question field instead of into the user's document - opening
+    /// a card to explain the refusal would do the damage the refusal exists to
+    /// prevent. With no card up there is nowhere to say it that does not cost
+    /// more than the press did, so the press leaves the dictation, and the
+    /// screen, exactly as they were.
+    private func reportRecorderInFlight() {
+        guard panel?.isVisible == true else { return }
+        viewModel.shortcutRefused(VoiceCaptureRefusal.dictationInFlight.message)
+    }
+
+    /// Opens the panel and starts listening, in that order.
+    ///
+    /// The same order `startScreenQuery` uses and for the same reason: the panel
+    /// has to exist before it can show that it is recording, and the capture
+    /// itself is the view model's to request - it reports every reason one
+    /// cannot start (`voiceCaptureRefusal`) onto the card rather than leaving
+    /// one that looks live.
+    private func startVoiceQuestion() {
+        present()
+        viewModel.startVoiceFollowUp()
     }
 
     /// Opens the panel with nothing asked yet.
@@ -119,6 +206,10 @@ final class AskPanelWindowController {
         // screenshot the view model would refuse is wasted work, and a second
         // question mid-answer is what `isBusy` exists to prevent.
         guard !viewModel.isBusy else { return }
+        guard !isSharedRecorderInFlight else {
+            reportRecorderInFlight()
+            return
+        }
         startScreenQuery()
     }
 
@@ -252,7 +343,18 @@ final class AskPanelWindowController {
         // this one spends its life in the background. It is why the insertion
         // target is captured first - by the time the user presses Insert, the
         // frontmost application is this one.
-        NSApplication.shared.activate()
+        //
+        // `ignoringOtherApps` for the reason `YouTubeChannelPickerWindowController`
+        // measured: macOS grants a background process the right to activate only
+        // just after the user has given it attention, and this app is given none
+        // - a global hotkey press goes to the system rather than into this app's
+        // event stream, and a spoken "Ask: …" opens the panel later still, after
+        // a recording and a transcription. Without it the card appeared over the
+        // frontmost app, never became key, and Esc and every keystroke went to
+        // that app instead. It is the same trade the picker makes and tolerable
+        // for the same reason: the panel is only ever here because the user
+        // pressed a key of their own or said so.
+        NSApplication.shared.activate(ignoringOtherApps: true)
 
         guard !panel.isVisible || panel.alphaValue < 1 else {
             panel.makeKeyAndOrderFront(nil)
@@ -321,10 +423,39 @@ final class AskPanelWindowController {
     // MARK: - What the answer does next
 
     private func captureInsertionTarget() {
-        insertionTarget = Self.capturedInsertionTarget(
+        insertionTarget = Self.nextInsertionTarget(
             frontmost: NSWorkspace.shared.frontmostApplication,
-            ownBundleIdentifier: Bundle.main.bundleIdentifier
+            ownBundleIdentifier: Bundle.main.bundleIdentifier,
+            held: insertionTarget
         )
+    }
+
+    /// The target a presentation leaves the panel holding: whoever is frontmost
+    /// now, and otherwise whoever it was already holding.
+    ///
+    /// Both halves are load-bearing, because `present()` is no longer reached
+    /// only with the panel hidden. A second ⌥A press - the follow-up the
+    /// shortcut exists to make - re-presents a panel that is already up and
+    /// already key, so the frontmost application is Kongweh itself,
+    /// `capturedInsertionTarget` refuses this app, and a plain capture would
+    /// replace the target the panel opened with (the user's editor) with
+    /// nothing: **Insert into Active App** would then fall back to the clipboard
+    /// on exactly the question they asked while looking at the document they
+    /// wanted it in.
+    ///
+    /// Keeping the held target across every re-presentation is the opposite
+    /// mistake and the worse one. The panel is `.floating` and does not hide on
+    /// deactivate, so it survives a switch to another application, and a press
+    /// made *there* would paste the answer into the application the user left.
+    /// Reading first and falling back second is what tells the two apart: the
+    /// read refuses this app and only this app, and only this app is not a move.
+    static func nextInsertionTarget(
+        frontmost: NSRunningApplication?,
+        ownBundleIdentifier: String?,
+        held: NSRunningApplication?
+    ) -> NSRunningApplication? {
+        capturedInsertionTarget(frontmost: frontmost, ownBundleIdentifier: ownBundleIdentifier)
+            ?? held
     }
 
     /// The application **Insert into Active App** would paste into, given who
@@ -382,29 +513,104 @@ final class AskPanelWindowController {
     /// deliberately not through `IndicatorWindowManager`: that machinery exists
     /// to paste into another app, and this recording is a question for the panel
     /// that is already on screen. The panel shows its own listening state.
-    private var isCapturing = false
+    private var captureSession: RecordingSession?
+
+    /// Whether the panel is holding a capture of its own. Derived from the
+    /// session rather than tracked beside it: a separate flag stayed true after
+    /// the claim had been given back on the recorder's work queue - a
+    /// microphone that vanished, an `AVAudioRecorder` that threw - and the
+    /// finish or the close that followed then stopped whatever had claimed the
+    /// microphone since.
+    private var isCapturing: Bool { captureSession != nil }
+
+    /// Why a capture cannot start, and what the card says instead.
+    ///
+    /// Pure and separate from starting one, the same split `shortcutAction`
+    /// makes, because the case that matters most cannot be reached from a test
+    /// at all: `AudioRecorder.shared` is a singleton wired to real hardware.
+    enum VoiceCaptureRefusal: Equatable {
+        case noMicrophone
+        case dictationInFlight
+        case busy
+
+        var message: String {
+            switch self {
+            case .noMicrophone: return "No microphone"
+            case .dictationInFlight: return "Recording a dictation - finish that first"
+            case .busy: return "Busy - try again in a moment"
+            }
+        }
+    }
+
+    /// A recording already in flight refuses the press rather than taking it
+    /// over.
+    ///
+    /// There is one `AudioRecorder` and the dictation keys hold the same
+    /// instance, and starting a second recording on it **discards the first**:
+    /// the dictation's audio is deleted and its file re-pointed at this
+    /// question, so the ⌥` that ends the dictation hands the user's document the
+    /// question they asked the panel while the panel reports hearing nothing.
+    /// Refusing is the only answer that leaves the dictation entirely alone -
+    /// deferring the press the way `EngineSwitcher` does would start listening
+    /// at a moment the user has stopped speaking to the panel.
+    ///
+    /// This is the **sentence**, not the enforcement: `AudioRecorder` refuses
+    /// the second claim itself (`hasSessionInFlight`), which is what makes the
+    /// rule hold in the other direction too - a dictation started while this
+    /// panel is listening is refused by the same claim, and used to seize the
+    /// question instead. This function only decides what the card then says.
+    ///
+    /// A microphone that has to wake up counts as in flight: it is recording to
+    /// its file already, and the window before the first samples arrive is
+    /// exactly where a second press would land.
+    static func voiceCaptureRefusal(
+        hasMicrophone: Bool, isRecordingInFlight: Bool, isTranscribing: Bool
+    ) -> VoiceCaptureRefusal? {
+        guard hasMicrophone else { return .noMicrophone }
+        if isRecordingInFlight { return .dictationInFlight }
+        if isTranscribing { return .busy }
+        return nil
+    }
+
+    /// Whether something already holds the one shared `AudioRecorder`.
+    ///
+    /// `hasSessionInFlight` rather than the published `isRecording` and
+    /// `isConnecting`: those are set on the main queue *after* the recorder's
+    /// work queue has paid its CoreAudio round-trips, so a press landing in that
+    /// window read an idle recorder and started a second capture on it - the
+    /// very seizure this predicate exists to refuse.
+    private var isSharedRecorderInFlight: Bool {
+        AudioRecorder.shared.hasSessionInFlight
+    }
 
     private func startVoiceCapture() {
         guard !isCapturing else { return }
-        guard MicrophoneService.shared.getActiveMicrophone() != nil else {
-            viewModel.voiceCaptureDidFail("No microphone")
+        if let refusal = Self.voiceCaptureRefusal(
+            hasMicrophone: MicrophoneService.shared.getActiveMicrophone() != nil,
+            isRecordingInFlight: isSharedRecorderInFlight,
+            isTranscribing: TranscriptionService.shared.isTranscribing
+        ) {
+            viewModel.voiceCaptureDidFail(refusal.message)
             return
         }
-        guard !TranscriptionService.shared.isTranscribing else {
-            viewModel.voiceCaptureDidFail("Busy - try again in a moment")
+        // The recorder's own claim is what actually decides, and it is atomic:
+        // the read above can go stale between here and the next line, and the
+        // panel must never be left showing "Listening…" over a capture that was
+        // refused - or, worse, over a dictation it has just taken.
+        guard let session = AudioRecorder.shared.startRecording() else {
+            viewModel.voiceCaptureDidFail(VoiceCaptureRefusal.dictationInFlight.message)
             return
         }
-        isCapturing = true
-        AudioRecorder.shared.startRecording()
+        captureSession = session
     }
 
     private func finishVoiceCapture() {
-        guard isCapturing else { return }
-        isCapturing = false
+        guard let session = captureSession else { return }
+        captureSession = nil
 
         Task { [weak self] in
             guard let self else { return }
-            guard let url = await AudioRecorder.shared.stopRecording() else {
+            guard let url = await AudioRecorder.shared.stopRecording(session) else {
                 self.viewModel.voiceCaptureDidFail("No speech detected")
                 return
             }
@@ -437,14 +643,14 @@ final class AskPanelWindowController {
     }
 
     private func cancelVoiceCapture() {
-        guard isCapturing else { return }
-        isCapturing = false
-        AudioRecorder.shared.cancelRecording()
+        guard let session = captureSession else { return }
+        captureSession = nil
+        AudioRecorder.shared.cancelRecording(session)
     }
 
     private func stopVoiceCaptureIfRunning() {
-        guard isCapturing else { return }
-        isCapturing = false
-        AudioRecorder.shared.cancelRecording()
+        guard let session = captureSession else { return }
+        captureSession = nil
+        AudioRecorder.shared.cancelRecording(session)
     }
 }

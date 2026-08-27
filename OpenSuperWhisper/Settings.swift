@@ -1886,9 +1886,10 @@ struct SettingsView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("Ask panel shortcut")
                                     .font(.subheadline)
-                                Text("Opens a floating panel that answers questions on this Mac")
+                                Text("Opens a floating panel and starts listening. Say your question, press again to finish, and it is answered on this Mac. Esc closes the panel.")
                                     .font(.caption)
                                     .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                             Spacer()
                             KeyboardShortcuts.Recorder("", name: .askPanel)

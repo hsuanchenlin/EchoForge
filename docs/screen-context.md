@@ -37,6 +37,12 @@ Three things happen on ⌥S, and the order is the feature:
 3. **The panel opens and the microphone starts.** Pressing ⌥S again stops the
    recording and asks the question, the same way the recording hotkey toggles.
 
+None of that happens while something else already holds the microphone. One
+`AudioRecorder` serves the dictation keys, the YouTube command key, ⌥A and ⌥S,
+and a press that would seize a recording in flight is refused instead: no
+screenshot is taken and no panel is opened. `docs/ask-panel.md` owns that rule,
+including why a refusal says so only on a card that is already up.
+
 The screenshot usually lands during the first fraction of a second of recording;
 until it does the panel says "Capturing the screen…", and from then on it shows
 the thumbnail. If the capture fails while the user is still speaking, the

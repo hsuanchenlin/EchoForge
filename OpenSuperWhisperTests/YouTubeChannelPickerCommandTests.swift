@@ -268,7 +268,9 @@ final class YouTubeChannelPickerCommandTests: IsolatedPreferencesTestCase {
         XCTAssertFalse(
             shown.contains("No channel is stored under"),
             "The phrase is a stored spelling of two rows; saying it is not one is a lie")
-        XCTAssertTrue(shown.contains(matches.joined(separator: ", ")))
+        // Named the way the picker sentence the user just read names them.
+        XCTAssertTrue(
+            shown.contains(YouTubeChannelHandle.format(all: matches).joined(separator: ", ")))
         XCTAssertTrue(shown.contains("Nothing has been opened"))
 
         let cancelled = try XCTUnwrap(history.last?.detail)

@@ -44,7 +44,10 @@ struct YouTubeChannelPickerRequest: Equatable, Sendable {
         case .unknown:
             return "No channel is stored under that spelling. Choose the one you meant, or press Escape to open nothing."
         case .ambiguous(let matches):
-            return "More than one of your channels answers to that (\(matches.joined(separator: ", "))). Choose the one you meant, or press Escape to open nothing."
+            // The names are channels being pointed at, so they are written the
+            // way the rows below are; the phrase that was heard, above, is not.
+            let named = YouTubeChannelHandle.format(all: matches).joined(separator: ", ")
+            return "More than one of your channels answers to that (\(named)). Choose the one you meant, or press Escape to open nothing."
         }
     }
 }

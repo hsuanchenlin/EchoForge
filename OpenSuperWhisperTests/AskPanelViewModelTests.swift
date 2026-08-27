@@ -160,7 +160,10 @@ final class AskPanelViewModelTests: XCTestCase {
         // pressed ⌥A and rewriting is not what they were trying to use.
         XCTAssertEqual(
             viewModel.state,
-            .failed(StyleRewriteAvailability.appleIntelligenceOff.explanation(for: .ask))
+            .failed(
+                message: StyleRewriteAvailability.appleIntelligenceOff.explanation(for: .ask),
+                question: "Anything"
+            )
         )
         XCTAssertTrue(
             StyleRewriteAvailability.appleIntelligenceOff.explanation(for: .ask)
@@ -175,7 +178,10 @@ final class AskPanelViewModelTests: XCTestCase {
         for outcome in [AskOutcome.timedOut, .empty, .questionTooLong, .failed("model exploded")] {
             let (viewModel, _) = makeViewModel([outcome])
             await viewModel.ask("Anything")
-            XCTAssertEqual(viewModel.state, .failed(outcome.explanation ?? ""), "\(outcome)")
+            XCTAssertEqual(
+                viewModel.state,
+                .failed(message: outcome.explanation ?? "", question: "Anything"),
+                "\(outcome)")
             XCTAssertTrue(viewModel.exchanges.isEmpty, "\(outcome)")
         }
     }
@@ -188,7 +194,9 @@ final class AskPanelViewModelTests: XCTestCase {
         await viewModel.ask("   \n ")
 
         XCTAssertTrue(stub.requests.isEmpty)
-        XCTAssertEqual(viewModel.state, .failed(AskOutcome.nothingAsked.explanation ?? ""))
+        XCTAssertEqual(
+            viewModel.state,
+            .failed(message: AskOutcome.nothingAsked.explanation ?? "", question: nil))
     }
 
     func testASecondQuestionIsRefusedWhileOneIsInFlight() async {
@@ -322,7 +330,7 @@ final class AskPanelViewModelTests: XCTestCase {
         await viewModel.voiceCaptureDidProduce("   ")
 
         XCTAssertTrue(stub.requests.isEmpty)
-        XCTAssertEqual(viewModel.state, .failed("No speech detected"))
+        XCTAssertEqual(viewModel.state, .failed(message: "No speech detected", question: nil))
     }
 
     func testCancellingAFollowUpKeepsTheAnswerAlreadyOnScreen() async {
@@ -397,7 +405,7 @@ final class AskPanelViewModelTests: XCTestCase {
         viewModel.startVoiceFollowUp()
         viewModel.voiceCaptureDidFail("No microphone")
 
-        XCTAssertEqual(viewModel.state, .failed("No microphone"))
+        XCTAssertEqual(viewModel.state, .failed(message: "No microphone", question: nil))
         XCTAssertFalse(viewModel.isBusy)
     }
 
