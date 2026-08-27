@@ -562,13 +562,17 @@ the rule that catches that class is that every listening path goes through a cal
 that starts a capture (`AskPanelWindowController.shortcutAction` decides which,
 purely), and a panel that appears is not a panel that is recording. Sharing one
 `AudioRecorder` with the dictation keys is why a press can be **refused**, and
-that refusal belongs to the recorder rather than to its callers:
-`startRecording` claims the microphone and returns false when something already
-holds it (`hasSessionInFlight`, synchronous - `isRecording` is published too
-late to guard with), so neither side can seize the other's capture. Each caller
-only picks the wording, and a refused ⌥A never presents the panel, because
-activating this app mid-dictation would send that dictation's paste into the
-panel's own question field. It runs the same on-device model as rewriting
+the microphone is therefore owned rather than shared: `RecordingSessionClaim`
+(its own type, so the rule is testable without hardware) grants one
+`RecordingSession` at a time, `startRecording` hands it back or refuses, and
+`stopRecording`/`cancelRecording` **name the session they mean** so nobody can
+end a capture they did not start. The claim is synchronous because `isRecording`
+is published a main-queue hop too late to guard with, and the sinks that read it
+in `IndicatorViewModel` and `ContentViewModel` are gated on holding a claim -
+`@Published` replays, so an ungated one repainted a refused dictation as the
+panel's recording. Each caller only picks the wording, and a refused ⌥A never
+presents the panel, because activating this app mid-dictation would send that
+dictation's paste into the panel's own question field. It runs the same on-device model as rewriting
 and has deliberately **no `StyleRewriteGuard`**: a guard exists because a rewrite
 replaces the user's words unread, and an answer is read before it goes anywhere.
 It also *takes* focus, as only it and the channel picker do - a question box has

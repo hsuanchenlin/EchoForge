@@ -214,21 +214,29 @@ class IndicatorViewModel: ObservableObject {
         self.transcriptionService = TranscriptionService.shared
         self.transcriptionQueue = TranscriptionQueue.shared
 
+        // Both sinks describe **this** session and no other, which is what
+        // `recordingSession` gates them on. `AudioRecorder` publishes to every
+        // subscriber, `@Published` replays its current value to a new one, and
+        // `prepare()` builds this view model before the press has claimed
+        // anything - so a dictation refused because the Ask panel holds the
+        // microphone would otherwise be handed that panel's `isRecording` a
+        // runloop turn later, repaint itself as a blinking recording it does not
+        // own, and let the next press decode the question as a dictation.
         recorder.$isConnecting
             .receive(on: RunLoop.main)
             .sink { [weak self] isConnecting in
-                guard let self = self else { return }
+                guard let self = self, self.recordingSession != nil else { return }
                 if isConnecting {
                     self.state = .connecting
                     self.stopBlinking()
                 }
             }
             .store(in: &cancellables)
-        
+
         recorder.$isRecording
             .receive(on: RunLoop.main)
             .sink { [weak self] isRecording in
-                guard let self = self else { return }
+                guard let self = self, self.recordingSession != nil else { return }
                 if isRecording {
                     self.state = .recording
                     self.startBlinking()
@@ -236,6 +244,12 @@ class IndicatorViewModel: ObservableObject {
             }
             .store(in: &cancellables)
     }
+
+    /// The microphone claim this session holds, from the press that took it
+    /// until the stop or cancel that gives it back. `nil` means this view model
+    /// owns no recording - it was refused, or it has already ended - and every
+    /// path that reads the recorder is gated on it.
+    private var recordingSession: RecordingSession?
     
     var isTranscriptionBusy: Bool {
         transcriptionService.isTranscribing || transcriptionQueue.isProcessing
@@ -278,10 +292,11 @@ class IndicatorViewModel: ObservableObject {
         // CoreAudio HAL round-trip; the recorder still resolves the real state
         // on its own queue and publishes isConnecting/isRecording, which the
         // sinks above translate into .connecting/.recording.
-        guard recorder.startRecording() else {
+        guard let claimed = recorder.startRecording() else {
             showBusyMessage(.startRefused)
             return
         }
+        recordingSession = claimed
 
         state = .recording
         startBlinking()
@@ -318,16 +333,22 @@ class IndicatorViewModel: ObservableObject {
         // A second stop request (double hotkey press, hold-mode key-up) must not
         // restart decoding or hide the window while transcription is in flight.
         guard state == .recording || state == .connecting else { return }
-        
+
         resetCancelConfirmation()
         stopBlinking()
-        
+
+        guard let session = recordingSession else {
+            delegate?.didFinishDecoding()
+            return
+        }
+        recordingSession = nil
+
         if isTranscriptionBusy {
             // The engine is busy with another transcription: keep the user's audio
             // and put it into the queue instead of deleting it.
             Task { [weak self] in
                 guard let self = self else { return }
-                if let tempURL = await self.recorder.stopRecording() {
+                if let tempURL = await self.recorder.stopRecording(session) {
                     // The queue transcribes and never routes, so a command
                     // capture that lands here is transcribed as text and the
                     // command never runs. History says exactly that rather than
@@ -344,8 +365,8 @@ class IndicatorViewModel: ObservableObject {
         
         Task { [weak self] in
             guard let self = self else { return }
-            
-            if let tempURL = await self.recorder.stopRecording() {
+
+            if let tempURL = await self.recorder.stopRecording(session) {
                 let duration = await AudioUtil.audioDuration(url: tempURL)
                 do {
                     print("start decoding...")
@@ -629,7 +650,9 @@ class IndicatorViewModel: ObservableObject {
     func cancelRecording() {
         hideTimer?.invalidate()
         hideTimer = nil
-        recorder.cancelRecording()
+        guard let session = recordingSession else { return }
+        recordingSession = nil
+        recorder.cancelRecording(session)
     }
 }
 

@@ -170,20 +170,41 @@ document the question they asked the panel. It is not deferred the way an engine
 switch is - a question that started listening once the dictation ended would be
 recording at a moment nobody is speaking to it.
 
-**The refusal lives in the recorder, and is symmetric.**
-`AudioRecorder.startRecording` claims the microphone and returns false when
-something already holds it (`hasSessionInFlight`), so neither side can take a
-capture from the other: ⌥A cannot seize a dictation, and ⌥` or ⌥Y cannot seize
-the panel's question. That second half was the one missing while each caller
-guarded itself - the Ask panel checked, the dictation keys never did, and a ⌥`
-press deleted the question the panel was recording while the card went on saying
-"Listening…". A rule enforced by every caller separately is a rule one of them
-forgets. The claim is also **synchronous**, which the published `isRecording`
-and `isConnecting` are not: those are set on the main queue after the recorder's
-work queue has paid its CoreAudio round-trips, so a second press landing inside
-that window read an idle recorder. Each caller only chooses the wording -
+**The microphone is owned, not shared, and `RecordingSessionClaim` is that
+ownership.** `AudioRecorder.startRecording` claims it and hands back a
+`RecordingSession`, or nil when something already holds it - so neither side can
+take a capture from the other: ⌥A cannot seize a dictation, and ⌥` or ⌥Y cannot
+seize the panel's question. That second half was the one missing while each
+caller guarded itself: the Ask panel checked, the dictation keys never did, and a
+⌥` press deleted the question the panel was recording while the card went on
+saying "Listening…". A rule enforced by every caller separately is a rule one of
+them forgets. The claim is **synchronous**, which the published `isRecording` and
+`isConnecting` are not - those are set on the main queue after the recorder's
+work queue has paid its CoreAudio round-trips, so a press landing inside that
+window read an idle recorder. Each caller only chooses the wording:
 `IndicatorViewModel` shows its ordinary `.startRefused` message, the panel shows
 `voiceCaptureRefusal`'s sentence.
+
+**Ending a recording names the session it means.** `stopRecording` and
+`cancelRecording` take the `RecordingSession` the caller was given and refuse one
+that is no longer in flight, because a caller that believes it is recording can
+be wrong: its claim may have been given back on the work queue - the microphone
+vanished, `AVAudioRecorder` threw - and taken by somebody else since. Acting on
+whatever happened to be in flight instead meant the panel's stop returned a
+dictation's audio, the main window's record button ended a capture it never
+started, and Esc on a refused dictation cancelled the panel's question. The rule
+lives in its own type rather than inside the recorder so it can be tested at all
+(`RecordingSessionClaimTests`); `AudioRecorder` is a singleton wired to real
+hardware.
+
+**A session's state belongs to the session that claimed it.** `AudioRecorder`
+publishes `isRecording`/`isConnecting` to every subscriber and `@Published`
+replays the current value to a new one, so both the mini indicator and the main
+window gate those sinks on holding a claim of their own. Without that, a
+dictation refused because this panel held the microphone was handed the panel's
+`isRecording` a runloop turn later, repainted itself as a blinking recording it
+did not own, and let the next press decode the user's question into their
+document.
 
 **What a refused ⌥A or ⌥S does is narrower than it looks**, and deliberately so.
 It says so on the card when the card is already up, and does nothing at all when

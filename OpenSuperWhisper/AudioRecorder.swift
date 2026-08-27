@@ -42,11 +42,9 @@ class AudioRecorder: NSObject, ObservableObject {
     // so a stop arriving right after a start can never overtake it.
     private let workQueue = DispatchQueue(label: "com.opensuperwhisper.audiorecorder")
 
-    /// Guards `sessionClaimed`. A lock rather than `workQueue`, because a caller
-    /// asking whether the microphone is free must not be made to wait behind the
-    /// CoreAudio round-trips a start is already doing on that queue.
-    private let sessionLock = NSLock()
-    private var sessionClaimed = false
+    /// Who holds the microphone. `RecordingSessionClaim` documents the whole
+    /// rule and is where it is tested.
+    private let sessionClaim = RecordingSessionClaim()
 
     private var audioRecorder: AVAudioRecorder?
     private var audioPlayer: AVAudioPlayer?
@@ -179,28 +177,16 @@ class AudioRecorder: NSObject, ObservableObject {
     /// round-trips, so a second start landing inside that window read an idle
     /// recorder and took the session away from the first.
     var hasSessionInFlight: Bool {
-        sessionLock.lock()
-        defer { sessionLock.unlock() }
-        return sessionClaimed
+        sessionClaim.isHeld
     }
 
-    /// Claims the microphone for one session, or refuses because something is
-    /// already holding it.
-    private func claimSession() -> Bool {
-        sessionLock.lock()
-        defer { sessionLock.unlock() }
-        guard !sessionClaimed else { return false }
-        sessionClaimed = true
-        return true
+    private func claimSession() -> RecordingSession? {
+        sessionClaim.claim()
     }
 
-    /// Gives the microphone back. Idempotent: every path that ends a session
-    /// calls it, and several of them can be reached for a session that never
-    /// started.
-    private func releaseSession() {
-        sessionLock.lock()
-        sessionClaimed = false
-        sessionLock.unlock()
+    @discardableResult
+    private func releaseSession(_ session: RecordingSession) -> Bool {
+        sessionClaim.release(session)
     }
 
     /// Starts a recording, or refuses because one is already in flight.
@@ -214,14 +200,15 @@ class AudioRecorder: NSObject, ObservableObject {
     /// wrong recording. Every caller guarding itself cannot hold that rule -
     /// one of them always forgets, and the dictation keys did.
     ///
-    /// - Returns: false when the microphone is already held, in which case
-    ///   nothing was started and the session in flight is untouched. The caller
-    ///   shows its own refusal.
-    @discardableResult
-    func startRecording() -> Bool {
-        guard claimSession() else {
+    /// - Returns: the claimed session, or nil when the microphone is already
+    ///   held - in which case nothing was started and the session in flight is
+    ///   untouched, and the caller shows its own refusal. A caller that starts
+    ///   one keeps the session and presents it again to stop or cancel; there
+    ///   is deliberately no way to end a recording without naming it.
+    func startRecording() -> RecordingSession? {
+        guard let session = claimSession() else {
             print("Cannot start recording - a recording is already in flight")
-            return false
+            return nil
         }
         // Everything below costs CoreAudio HAL round-trips (device queries,
         // AudioQueue start for the notification sound) - 20-35 ms that used to
@@ -231,22 +218,27 @@ class AudioRecorder: NSObject, ObservableObject {
         workQueue.async {
             guard let activeMic = MicrophoneService.shared.getActiveMicrophone() else {
                 print("Cannot start recording - no audio input available")
-                self.releaseSession()
+                self.releaseSession(session)
                 return
             }
 
             if playSound {
                 self.playNotificationSound()
             }
-            
+
             let requiresConnection = MicrophoneService.shared.isActiveMicrophoneRequiresConnection()
             self.updateRecordingState(isRecording: false, isConnecting: requiresConnection)
-            self.performStart(activeMic: activeMic, monitorConnection: requiresConnection)
+            self.performStart(
+                session: session, activeMic: activeMic, monitorConnection: requiresConnection)
         }
-        return true
+        return session
     }
 
-    private func performStart(activeMic: MicrophoneService.AudioDevice?, monitorConnection: Bool) {
+    private func performStart(
+        session: RecordingSession,
+        activeMic: MicrophoneService.AudioDevice?,
+        monitorConnection: Bool
+    ) {
         // Unreachable while the claim above holds: it is kept as the last line
         // of defence, and deliberately does not touch the claim - the session
         // being started here is the one that owns it.
@@ -299,17 +291,31 @@ class AudioRecorder: NSObject, ObservableObject {
             currentRecordingURL = nil
             restoreSystemDefaultInputIfNeeded()
             updateRecordingState(isRecording: false, isConnecting: false)
-            releaseSession()
+            releaseSession(session)
         }
     }
-    
-    func stopRecording() async -> URL? {
+
+    /// Ends `session` and hands back its audio, or nil when that session is no
+    /// longer the one in flight.
+    ///
+    /// Claiming the stop is what decides it, and the claim goes back **here**
+    /// rather than after the tail below: the tail is not a recording anybody may
+    /// still stop, and the code inside it already expects a new session to have
+    /// started during it.
+    func stopRecording(_ session: RecordingSession) async -> URL? {
         await withCheckedContinuation { continuation in
             workQueue.async {
+                guard self.releaseSession(session) else {
+                    // Somebody else's recording, or one whose start already gave
+                    // the claim back. Either way nothing here may touch the
+                    // recorder: this caller has no audio, and saying so is the
+                    // only answer that cannot hand it another session's words.
+                    continuation.resume(returning: nil)
+                    return
+                }
+
                 guard let recorder = self.audioRecorder, let url = self.currentRecordingURL else {
-                    let stopped = self.performStop(discard: false)
-                    self.releaseSession()
-                    continuation.resume(returning: stopped)
+                    continuation.resume(returning: self.performStop(discard: false))
                     return
                 }
 
@@ -321,10 +327,6 @@ class AudioRecorder: NSObject, ObservableObject {
                 self.stopConnectionMonitoring()
                 self.stopLevelMonitoring()
                 self.updateRecordingState(isRecording: false, isConnecting: false)
-                // The claim goes back here rather than after the tail, because
-                // the tail is not a recording anybody may still stop: the code
-                // below already expects a new session to have started inside it.
-                self.releaseSession()
 
                 self.workQueue.asyncAfter(deadline: .now() + Self.stopTailDuration) {
                     let recordedDuration = recorder.currentTime
@@ -346,10 +348,14 @@ class AudioRecorder: NSObject, ObservableObject {
         }
     }
     
-    func cancelRecording() {
+    /// Throws `session`'s audio away, or does nothing when that session is no
+    /// longer the one in flight - the same rule `stopRecording` follows, and for
+    /// the same reason: Esc pressed on a refused dictation used to cancel the
+    /// Ask panel's question instead.
+    func cancelRecording(_ session: RecordingSession) {
         workQueue.sync {
+            guard releaseSession(session) else { return }
             _ = performStop(discard: true)
-            releaseSession()
         }
     }
     

@@ -513,7 +513,15 @@ final class AskPanelWindowController {
     /// deliberately not through `IndicatorWindowManager`: that machinery exists
     /// to paste into another app, and this recording is a question for the panel
     /// that is already on screen. The panel shows its own listening state.
-    private var isCapturing = false
+    private var captureSession: RecordingSession?
+
+    /// Whether the panel is holding a capture of its own. Derived from the
+    /// session rather than tracked beside it: a separate flag stayed true after
+    /// the claim had been given back on the recorder's work queue - a
+    /// microphone that vanished, an `AVAudioRecorder` that threw - and the
+    /// finish or the close that followed then stopped whatever had claimed the
+    /// microphone since.
+    private var isCapturing: Bool { captureSession != nil }
 
     /// Why a capture cannot start, and what the card says instead.
     ///
@@ -589,20 +597,20 @@ final class AskPanelWindowController {
         // the read above can go stale between here and the next line, and the
         // panel must never be left showing "Listening…" over a capture that was
         // refused - or, worse, over a dictation it has just taken.
-        guard AudioRecorder.shared.startRecording() else {
+        guard let session = AudioRecorder.shared.startRecording() else {
             viewModel.voiceCaptureDidFail(VoiceCaptureRefusal.dictationInFlight.message)
             return
         }
-        isCapturing = true
+        captureSession = session
     }
 
     private func finishVoiceCapture() {
-        guard isCapturing else { return }
-        isCapturing = false
+        guard let session = captureSession else { return }
+        captureSession = nil
 
         Task { [weak self] in
             guard let self else { return }
-            guard let url = await AudioRecorder.shared.stopRecording() else {
+            guard let url = await AudioRecorder.shared.stopRecording(session) else {
                 self.viewModel.voiceCaptureDidFail("No speech detected")
                 return
             }
@@ -635,14 +643,14 @@ final class AskPanelWindowController {
     }
 
     private func cancelVoiceCapture() {
-        guard isCapturing else { return }
-        isCapturing = false
-        AudioRecorder.shared.cancelRecording()
+        guard let session = captureSession else { return }
+        captureSession = nil
+        AudioRecorder.shared.cancelRecording(session)
     }
 
     private func stopVoiceCaptureIfRunning() {
-        guard isCapturing else { return }
-        isCapturing = false
-        AudioRecorder.shared.cancelRecording()
+        guard let session = captureSession else { return }
+        captureSession = nil
+        AudioRecorder.shared.cancelRecording(session)
     }
 }

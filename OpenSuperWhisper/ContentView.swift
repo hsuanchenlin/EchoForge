@@ -54,10 +54,14 @@ class ContentViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     
     init() {
+        // Gated on this window's own claim, the way the mini indicator's are.
+        // `AudioRecorder` publishes to every subscriber, so an ungated sink drew
+        // this window as recording - blinking dot, running duration - for the
+        // Ask panel's question or a hotkey dictation it had nothing to do with.
         recorder.$isConnecting
             .receive(on: RunLoop.main)
             .sink { [weak self] isConnecting in
-                guard let self = self else { return }
+                guard let self = self, self.recordingSession != nil else { return }
                 if isConnecting && self.state != .decoding {
                     self.state = .connecting
                     self.stopBlinking()
@@ -66,16 +70,21 @@ class ContentViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
-        
+
         recorder.$isRecording
             .receive(on: RunLoop.main)
             .sink { [weak self] isRecording in
-                guard let self = self else { return }
+                guard let self = self, self.recordingSession != nil else { return }
                 if isRecording && self.state != .decoding {
                     self.state = .recording
                     self.startBlinking()
                     self.startDurationTimerIfNeeded()
                 } else if !isRecording && self.state == .recording {
+                    // The claim was given back underneath this window - a start
+                    // that could not open the microphone - so the session it is
+                    // still holding names nothing and must not be presented to
+                    // a stop later.
+                    self.recordingSession = nil
                     self.state = .idle
                     self.stopBlinking()
                     self.stopDurationTimer()
@@ -232,10 +241,17 @@ class ContentViewModel: ObservableObject {
         recordings.removeAll()
     }
 
+    /// The microphone claim this window holds, or nil when it holds none.
+    private var recordingSession: RecordingSession?
+
+    /// Whether **this window** is recording - not whether the microphone is
+    /// busy. The record button branches on it, so reading the shared
+    /// `recorder.isRecording` drew it as recording while the Ask panel was
+    /// listening, and a press then decoded the panel's question as a dictation.
     var isRecording: Bool {
-        recorder.isRecording
+        recordingSession != nil
     }
-    
+
     func startRecording() {
         guard microphoneService.getActiveMicrophone() != nil else { return }
         // Same claim the mini indicator makes, and for the same reason: this
@@ -243,7 +259,8 @@ class ContentViewModel: ObservableObject {
         // the Ask panel or a hotkey dictation is already holding. Refused, it
         // leaves the window exactly as it was rather than showing a recording
         // state over nothing.
-        guard recorder.startRecording() else { return }
+        guard let claimed = recorder.startRecording() else { return }
+        recordingSession = claimed
 
         if microphoneService.isActiveMicrophoneRequiresConnection() {
             state = .connecting
@@ -260,16 +277,19 @@ class ContentViewModel: ObservableObject {
     }
 
     func startDecoding() {
+        guard let session = recordingSession else { return }
+        recordingSession = nil
+
         state = .decoding
         stopBlinking()
         stopDurationTimer()
-        
+
         IndicatorWindowManager.shared.hide()
 
         Task { [weak self] in
             guard let self = self else { return }
-            
-            if let tempURL = await self.recorder.stopRecording() {
+
+            if let tempURL = await self.recorder.stopRecording(session) {
                 let duration = await AudioUtil.audioDuration(url: tempURL)
                 do {
                     print("start decoding...")
