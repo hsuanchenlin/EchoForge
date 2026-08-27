@@ -133,6 +133,7 @@ final class AskPanelWindowController {
         case .ignore:
             return
         case .askByVoice:
+            guard !isSharedRecorderInFlight else { return }
             startVoiceQuestion()
         }
     }
@@ -175,6 +176,7 @@ final class AskPanelWindowController {
         // screenshot the view model would refuse is wasted work, and a second
         // question mid-answer is what `isBusy` exists to prevent.
         guard !viewModel.isBusy else { return }
+        guard !isSharedRecorderInFlight else { return }
         startScreenQuery()
     }
 
@@ -523,12 +525,15 @@ final class AskPanelWindowController {
         return nil
     }
 
+    private var isSharedRecorderInFlight: Bool {
+        AudioRecorder.shared.isRecording || AudioRecorder.shared.isConnecting
+    }
+
     private func startVoiceCapture() {
         guard !isCapturing else { return }
         if let refusal = Self.voiceCaptureRefusal(
             hasMicrophone: MicrophoneService.shared.getActiveMicrophone() != nil,
-            isRecordingInFlight: AudioRecorder.shared.isRecording
-                || AudioRecorder.shared.isConnecting,
+            isRecordingInFlight: isSharedRecorderInFlight,
             isTranscribing: TranscriptionService.shared.isTranscribing
         ) {
             viewModel.voiceCaptureDidFail(refusal.message)

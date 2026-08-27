@@ -293,10 +293,33 @@ final class AskVoiceShortcutTests: XCTestCase {
         let body = String(start.prefix(700))
 
         XCTAssertTrue(body.contains("voiceCaptureRefusal("))
+        XCTAssertTrue(body.contains("isRecordingInFlight: isSharedRecorderInFlight"))
         XCTAssertTrue(
-            body.contains("AudioRecorder.shared.isRecording"),
+            controller.contains("AudioRecorder.shared.isRecording || AudioRecorder.shared.isConnecting"),
             "a press must not seize a dictation that is already recording"
         )
+    }
+
+    func testShortcutRefusesAnActiveDictationBeforePresentingOrCapturingTheScreen() throws {
+        let controller = try Self.source(of: "OpenSuperWhisper/Ask/AskPanelWindowController.swift")
+
+        let voiceStart = try XCTUnwrap(controller.range(of: "func toggleVoiceQuestion() {"))
+        let voiceEnd = try XCTUnwrap(
+            controller.range(of: "private func startVoiceQuestion()", range: voiceStart.upperBound..<controller.endIndex)
+        )
+        let voiceBody = controller[voiceStart.lowerBound..<voiceEnd.lowerBound]
+        let voiceGuard = try XCTUnwrap(voiceBody.range(of: "guard !isSharedRecorderInFlight"))
+        let voicePresentation = try XCTUnwrap(voiceBody.range(of: "startVoiceQuestion()"))
+        XCTAssertLessThan(voiceGuard.lowerBound, voicePresentation.lowerBound)
+
+        let screenStart = try XCTUnwrap(controller.range(of: "func toggleScreenQuery() {"))
+        let screenEnd = try XCTUnwrap(
+            controller.range(of: "private func startScreenQuery()", range: screenStart.upperBound..<controller.endIndex)
+        )
+        let screenBody = controller[screenStart.lowerBound..<screenEnd.lowerBound]
+        let screenGuard = try XCTUnwrap(screenBody.range(of: "guard !isSharedRecorderInFlight"))
+        let screenCapture = try XCTUnwrap(screenBody.range(of: "startScreenQuery()"))
+        XCTAssertLessThan(screenGuard.lowerBound, screenCapture.lowerBound)
     }
 
     /// A capture that cannot start says so on the panel rather than leaving a
