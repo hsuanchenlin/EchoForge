@@ -1,11 +1,22 @@
 name: Build Check
 
+# pull_request is what attaches the check GitHub shows on a PR. push is
+# limited to master so a feature-branch PR does not also spend a second
+# macos-latest runner; the previous unfiltered push did, and still left a
+# window where statusCheckRollup was empty (gh-axi: "this PR has no CI
+# checks configured").
 on:
   push:
+    branches: [master]
   pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
 
 jobs:
   build:
+    name: build
     runs-on: macos-latest
     steps:
       - name: Checkout repository (with submodules)

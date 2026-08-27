@@ -61,7 +61,10 @@ The toolchain is Xcode plus Homebrew `cmake`, `libomp` and a Rust toolchain;
 
 `./run.sh build` builds everything (CMake for whisper.cpp, cargo for the autocorrect dylib,
 then `xcodebuild`); `./run.sh` also launches the app. CI runs exactly `./run.sh build`
-(`.github/workflows/build.yml`) and does not run tests.
+(`.github/workflows/build.yml`) and does not run tests. The GitHub check name is the job
+name `build`; a repository ruleset requires that check on pull requests to `master`.
+This repository is a fork, so Actions has to stay enabled in the Actions tab or pull
+requests report no checks.
 
 ## Release
 
