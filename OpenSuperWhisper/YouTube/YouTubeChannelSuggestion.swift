@@ -87,7 +87,7 @@ enum YouTubeChannelSuggestions {
     static func filter(
         _ suggestions: [YouTubeChannelSuggestion], matching query: String
     ) -> [YouTubeChannelSuggestion] {
-        let key = YouTubeChannelAlias.normalize(query)
+        let key = droppingHandlePrefix(YouTubeChannelAlias.normalize(query))
         guard !key.isEmpty else { return suggestions }
         let compactKey = YouTubeChannelAlias.compact(key)
         let matching = suggestions.filter { suggestion in
@@ -106,6 +106,18 @@ enum YouTubeChannelSuggestions {
             )
         }
         .sorted(by: isOrderedByQueryScore)
+    }
+
+    /// A typed `@` is dropped before anything is compared, because the rows this
+    /// box narrows are written as handles (`YouTubeChannelHandle`) and what a
+    /// user types into a filter is usually what the list in front of them says.
+    /// Applied to the **query** and nowhere else: a stored spelling and a spoken
+    /// name still go through `YouTubeChannelAlias` untouched, so nothing about
+    /// what the app hears changes. One `@` only, so a label the user really did
+    /// write with one is still reachable by typing it in full.
+    private static func droppingHandlePrefix(_ key: String) -> String {
+        guard key.hasPrefix("@") else { return key }
+        return String(key.dropFirst())
     }
 
     private static func contains(

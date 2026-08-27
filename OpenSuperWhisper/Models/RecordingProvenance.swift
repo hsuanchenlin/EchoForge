@@ -320,7 +320,10 @@ extension RecordingProvenance {
             // The phrase *is* a stored spelling - of every one of these rows -
             // so the unknown wording would be a lie, and the fix it implies is
             // not one that exists: adding another spelling cannot split a tie.
-            message = "“\(request.spokenName)” answers to more than one of your channels (\(matches.joined(separator: ", "))), so Kongweh offered your channel list to choose between them. Nothing has been opened."
+            // Named back as handles, like the picker sentence the user just
+            // read and the report the same collision writes elsewhere.
+            let named = YouTubeChannelHandle.format(all: matches).joined(separator: ", ")
+            message = "“\(request.spokenName)” answers to more than one of your channels (\(named)), so Kongweh offered your channel list to choose between them. Nothing has been opened."
         }
         return .youTubeCommandNotOpened(reason: .pickerShown, message: message)
     }

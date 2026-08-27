@@ -257,9 +257,11 @@ has the user-facing half; four things carry it here.
 
 A channel the app **names back** to the user is written `@name` - the picker's
 rows and their VoiceOver labels, the sentence naming the rows an ambiguous
-phrase collided on, and the report saying which channel a video was opened
-from. `YouTubeChannelHandle` is the whole of it, and it is presentation only:
-nothing there is stored, normalized, matched against or sent anywhere.
+phrase collided on, the History row that same collision writes
+(`RecordingProvenance.pickerShown`), and the report saying which channel a video
+was opened from. `YouTubeChannelHandle` is the whole of it, and it is
+presentation only: nothing there is stored, normalized, matched against or sent
+anywhere.
 
 Two rules keep it honest, and they are the same rule - it must never show a name
 the user did not configure:
@@ -278,6 +280,13 @@ the user did not configure:
 
 `YouTubeChannelHandleTests` holds both halves, including that spoken matching is
 untouched by it.
+
+The picker's filter box is the one place a handle comes back *in*: its rows say
+`@Veritasium`, so a single leading `@` is dropped from what the user types
+before it is compared, or typing what the list in front of them says would
+report that none of their channels match. It is dropped from the **query**
+alone - `YouTubeChannelAlias` is unchanged, and a stored spelling and a spoken
+name still go through it untouched.
 
 `YouTubeChannelPickerViewModel` owns every key - ↑/↓ with wrap-around,
 type-to-filter, Return, Escape - so keyboard behaviour is tested without a window

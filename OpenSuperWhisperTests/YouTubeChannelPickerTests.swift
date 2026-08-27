@@ -265,6 +265,40 @@ final class YouTubeChannelPickerTests: XCTestCase {
         XCTAssertEqual(model.rows.map(\.channel), [valley])
     }
 
+    /// The rows say `@Veritasium`, so typing `@Veritasium` has to find that row.
+    /// Before this, a user who typed what the list in front of them said was
+    /// told none of their channels matched, with the row still on screen above
+    /// the message.
+    @MainActor
+    func testTypingTheHandleFindsTheSameRowAsTypingTheName() throws {
+        let model = YouTubeChannelPickerViewModel(request: try request())
+
+        model.query = "@Veritasium"
+        XCTAssertEqual(model.rows.map(\.channel), [veritasium])
+
+        model.query = "Veritasium"
+        XCTAssertEqual(model.rows.map(\.channel), [veritasium])
+    }
+
+    /// One `@` only, and off the query alone: a label the user really did store
+    /// with one is still reachable by typing it in full, and nothing about the
+    /// stored spellings or the spoken path changes.
+    @MainActor
+    func testAStoredNameWrittenWithAnAtSignIsStillReachable() throws {
+        let handleNamed = YouTubeChannel(
+            displayName: "@midjourney", channelID: "UCeeeeeeeeeeeeeeeeeeeeee")
+        guard case .picker(let request) = offer(
+            .unknown(spoken: "mid journey"), candidates: allChannels + [handleNamed])
+        else { return XCTFail("expected a picker") }
+        let model = YouTubeChannelPickerViewModel(request: request)
+
+        model.query = "@midjourney"
+        XCTAssertEqual(model.rows.map(\.channel), [handleNamed])
+
+        model.query = "@@midjourney"
+        XCTAssertEqual(model.rows.map(\.channel), [handleNamed])
+    }
+
     /// A filter that matches nothing says so rather than showing an empty box.
     @MainActor
     func testAFilterThatMatchesNothingExplainsItself() throws {

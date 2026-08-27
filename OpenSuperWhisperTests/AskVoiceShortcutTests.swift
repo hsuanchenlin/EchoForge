@@ -75,44 +75,84 @@ final class AskVoiceShortcutTests: XCTestCase {
     /// The regression the review caught. `present()` is no longer reached only
     /// with the panel hidden: a second ⌥A press re-presents a panel that is up
     /// and key, so the frontmost application is Kongweh itself. Reading it
-    /// again would replace the user's editor with nothing, and Insert would
+    /// plainly would replace the user's editor with nothing, and Insert would
     /// fall back to the clipboard on exactly the follow-up the shortcut exists
     /// to make.
-    func testRePresentingAnOpenPanelKeepsTheTargetItOpenedWith() {
-        XCTAssertFalse(
-            AskPanelWindowController.shouldCaptureInsertionTarget(
-                isPanelVisible: true, hasInsertionTarget: true),
-            "a re-presentation must not erase the target the panel opened with"
+    func testRePresentingWhileThisAppIsFrontmostKeepsTheTargetItOpenedWith() {
+        let editor = NSRunningApplication.current
+
+        XCTAssertEqual(
+            AskPanelWindowController.nextInsertionTarget(
+                frontmost: editor,
+                ownBundleIdentifier: editor.bundleIdentifier,
+                held: editor
+            ),
+            editor,
+            "a re-presentation over this app's own panel must not erase the target"
         )
     }
 
-    /// Opening the panel is what reads the frontmost application, and a
-    /// presentation holding nothing has nothing to lose by reading again - a
-    /// panel opened from Kongweh's own window, or one caught mid-fade-out.
-    func testOpeningThePanelStillReadsTheFrontmostApplication() {
-        XCTAssertTrue(
-            AskPanelWindowController.shouldCaptureInsertionTarget(
-                isPanelVisible: false, hasInsertionTarget: false))
-        XCTAssertTrue(
-            AskPanelWindowController.shouldCaptureInsertionTarget(
-                isPanelVisible: false, hasInsertionTarget: true))
-        XCTAssertTrue(
-            AskPanelWindowController.shouldCaptureInsertionTarget(
-                isPanelVisible: true, hasInsertionTarget: false))
+    /// And the other half, which keeping the target unconditionally got wrong:
+    /// the panel is floating and survives a switch to another application, so a
+    /// press made *there* has to re-target. Otherwise Insert pastes the answer
+    /// into the application the user left.
+    func testAPressFromAnotherApplicationRetargetsTheHeldOne() throws {
+        let left = NSRunningApplication.current
+        let movedTo = try XCTUnwrap(
+            NSWorkspace.shared.runningApplications.first {
+                $0.bundleIdentifier != nil && $0 != left
+            },
+            "the app-switch case needs a second running application to move to"
+        )
+
+        XCTAssertEqual(
+            AskPanelWindowController.nextInsertionTarget(
+                frontmost: movedTo,
+                ownBundleIdentifier: "kongweh.itself",
+                held: left
+            ),
+            movedTo
+        )
+    }
+
+    /// Only a read that **refuses** falls back - this app itself, or a frontmost
+    /// application that could not be read at all. A presentation holding nothing
+    /// then still ends up holding nothing, which is the clipboard-only case.
+    func testOnlyARefusedReadFallsBackToWhatIsHeld() {
+        let editor = NSRunningApplication.current
+
+        XCTAssertEqual(
+            AskPanelWindowController.nextInsertionTarget(
+                frontmost: nil, ownBundleIdentifier: "kongweh.itself", held: editor
+            ),
+            editor
+        )
+        XCTAssertNil(
+            AskPanelWindowController.nextInsertionTarget(
+                frontmost: editor, ownBundleIdentifier: editor.bundleIdentifier, held: nil
+            )
+        )
     }
 
     /// And the rule is actually wired into the presentation, not just stated:
-    /// `present()` must ask it rather than reading the frontmost application
-    /// unconditionally the way it did before the shortcut re-presented panels.
-    func testThePresentationAsksBeforeReadingTheFrontmostApplication() throws {
+    /// `present()` reads the frontmost application on every presentation, and
+    /// what it holds is only ever a fallback.
+    func testThePresentationReadsTheFrontmostApplicationEveryTime() throws {
         let controller = try Self.source(of: "OpenSuperWhisper/Ask/AskPanelWindowController.swift")
         let present = try XCTUnwrap(
             controller.range(of: "func present() {").map { controller[$0.lowerBound...] })
         let body = String(present.prefix(600))
 
         XCTAssertTrue(
-            body.contains("shouldCaptureInsertionTarget"),
-            "present() must not capture unconditionally - a re-present would clobber the target"
+            body.contains("captureInsertionTarget()"),
+            "present() must read the frontmost app - a kept target would paste into the app the user left"
+        )
+        let capture = try XCTUnwrap(
+            controller.range(of: "private func captureInsertionTarget() {")
+                .map { controller[$0.lowerBound...] })
+        XCTAssertTrue(
+            String(capture.prefix(400)).contains("held: insertionTarget"),
+            "the read must fall back to the held target, or a follow-up clobbers it with nil"
         )
     }
 
@@ -205,6 +245,58 @@ final class AskVoiceShortcutTests: XCTestCase {
             return XCTFail("cancelling must leave the answer that was already given")
         }
         XCTAssertEqual(exchange.answer, "Taipei.")
+    }
+
+    /// The press must never take the recorder away from a dictation. There is
+    /// one `AudioRecorder`, and starting a second recording on it discards the
+    /// first: the dictation's audio is deleted and its file re-pointed at this
+    /// question, so ⌥` then pastes the spoken question into the user's document
+    /// while the panel reports hearing nothing.
+    func testACaptureIsRefusedWhileARecordingIsAlreadyRunning() {
+        XCTAssertEqual(
+            AskPanelWindowController.voiceCaptureRefusal(
+                hasMicrophone: true, isRecordingInFlight: true, isTranscribing: false),
+            .dictationInFlight
+        )
+        // A recording in flight is named ahead of anything else that is busy,
+        // because it is the one the press would have destroyed.
+        XCTAssertEqual(
+            AskPanelWindowController.voiceCaptureRefusal(
+                hasMicrophone: true, isRecordingInFlight: true, isTranscribing: true),
+            .dictationInFlight
+        )
+        XCTAssertNil(
+            AskPanelWindowController.voiceCaptureRefusal(
+                hasMicrophone: true, isRecordingInFlight: false, isTranscribing: false)
+        )
+        XCTAssertEqual(
+            AskPanelWindowController.voiceCaptureRefusal(
+                hasMicrophone: false, isRecordingInFlight: false, isTranscribing: false),
+            .noMicrophone
+        )
+        XCTAssertEqual(
+            AskPanelWindowController.voiceCaptureRefusal(
+                hasMicrophone: true, isRecordingInFlight: false, isTranscribing: true),
+            .busy
+        )
+    }
+
+    /// And the guard is wired in, which no assertion above can see: the shared
+    /// recorder is a singleton on real hardware, so the only way to know
+    /// `startVoiceCapture` consults it is to read the source. It covers ⌥S and
+    /// the **Ask by voice** button too, since all three reach that call.
+    func testStartingACaptureConsultsTheSharedRecorder() throws {
+        let controller = try Self.source(of: "OpenSuperWhisper/Ask/AskPanelWindowController.swift")
+        let start = try XCTUnwrap(
+            controller.range(of: "private func startVoiceCapture() {")
+                .map { controller[$0.lowerBound...] })
+        let body = String(start.prefix(700))
+
+        XCTAssertTrue(body.contains("voiceCaptureRefusal("))
+        XCTAssertTrue(
+            body.contains("AudioRecorder.shared.isRecording"),
+            "a press must not seize a dictation that is already recording"
+        )
     }
 
     /// A capture that cannot start says so on the panel rather than leaving a

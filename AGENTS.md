@@ -523,12 +523,15 @@ having no `cloudFeature`, and a match it made is disclosed in the report.
 
 A channel the app **names back** to the user is written `@name`
 (`YouTubeChannelHandle`) - the picker's rows, the sentence naming the rows an
-ambiguous phrase collided on, and the report saying what was opened. It is
-presentation only and prefixes without folding anything, because this app never
-resolves a handle and a rendered one that is not literally the user's own label
-would be an identity it invented; anything quoting what to **say** - the phrase
-that was heard, a stored alias, the Settings list and its usage example - stays
-verbatim. `YouTubeChannelHandleTests` holds both halves.
+ambiguous phrase collided on, the History row that collision writes, and the
+report saying what was opened. It is presentation only and prefixes without
+folding anything, because this app never resolves a handle and a rendered one
+that is not literally the user's own label would be an identity it invented;
+anything quoting what to **say** - the phrase that was heard, a stored alias,
+the Settings list and its usage example - stays verbatim.
+`YouTubeChannelHandleTests` holds both halves. The picker's filter box is where
+a handle comes back in: one leading `@` is dropped from the typed query, and
+from nothing else, so typing what a row says finds that row.
 
 When every automatic tier misses, the last one is a **person**: `YouTubeChannelPickerOffer`
 decides whether to show the user their own channels, `YouTubeCommandRunner` is the whole

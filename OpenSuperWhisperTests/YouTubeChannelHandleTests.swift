@@ -121,6 +121,26 @@ final class YouTubeChannelHandleTests: XCTestCase {
         XCTAssertTrue(message.contains("@Veritasium"))
         XCTAssertTrue(message.contains("@Verity"))
     }
+
+    /// The History row for the same collision is read after the picker sentence
+    /// and about the same channels, so it names them the same way. A handle is a
+    /// display label, so the column still carries no id, URL or credential -
+    /// which `HistoryProvenancePrivacyTests` is what holds.
+    func testTheHistoryRowForAnAmbiguousPickerNamesChannelsInHandleForm() {
+        let provenance = RecordingProvenance.pickerShown(
+            YouTubeChannelPickerRequest(
+                spokenName: "vera tasium",
+                cause: .ambiguous(matches: ["Veritasium", "Verity"]),
+                suggestions: []))
+
+        guard case .youTubeCommandNotOpened(let reason, let message) = provenance else {
+            return XCTFail("a picker on screen has opened nothing")
+        }
+        XCTAssertEqual(reason, .pickerShown)
+        XCTAssertTrue(message.contains("@Veritasium"))
+        XCTAssertTrue(message.contains("@Verity"))
+        XCTAssertTrue(message.contains("“vera tasium”"))
+    }
 }
 
 /// Draws the channel picker and reads its pixels back, so the handle form is

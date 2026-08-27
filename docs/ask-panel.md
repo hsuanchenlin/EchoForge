@@ -121,14 +121,19 @@ with `activate()`, and the paste is synthesized after
 while this panel still has focus and the answer is pasted into the question
 field.
 
-**A re-presentation keeps it.** ⌥A re-presents a panel that is already up - that
-is what a spoken follow-up is - and by then this app is the frontmost one, so
-reading the frontmost application again would capture Kongweh, which
-`capturedInsertionTarget` refuses, and replace the user's editor with nothing.
-`AskPanelWindowController.shouldCaptureInsertionTarget` is that rule: a
-presentation reads the frontmost application when the panel is not already up,
-or when it is holding no target and so has nothing to lose. Without it, Insert
-fell back to the clipboard on exactly the follow-up the shortcut exists to make.
+**A re-presentation reads again, and falls back to what it holds.** ⌥A
+re-presents a panel that is already up - that is what a spoken follow-up is -
+and by then this app is the frontmost one, so a plain capture would read
+Kongweh, which `capturedInsertionTarget` refuses, and replace the user's editor
+with nothing: Insert would fall back to the clipboard on exactly the follow-up
+the shortcut exists to make. Keeping the held target across every
+re-presentation is the opposite mistake and the worse one - the panel floats and
+does not hide on deactivate, so it survives a switch to another application, and
+a press made *there* would paste the answer into the application the user left.
+`AskPanelWindowController.nextInsertionTarget` is the rule that tells the two
+apart: read the frontmost application every time, and fall back to the held
+target only when the read refuses. The read refuses this app and only this app,
+and only this app is not a move.
 
 The target is remembered for one presentation only. Closing the panel hands
 keyboard focus back to it - the same hand-back Insert does, so Esc puts the
@@ -152,6 +157,17 @@ It records through `AudioRecorder` and transcribes through
 `IndicatorWindowManager`. That machinery exists to paste into another app, and
 this recording is a question for the panel that is already on screen - so the
 panel shows its own listening state and no indicator or capsule appears.
+
+Sharing that recorder is why a capture can be **refused**
+(`AskPanelWindowController.voiceCaptureRefusal`). There is one `AudioRecorder`
+and the dictation keys hold the same instance, so starting a second recording on
+it discards the first: the dictation's audio is deleted and its file re-pointed
+at the question, and the press that ends the dictation then hands the user's
+document the question they asked the panel. A press made while anything is
+recording therefore says so on the card and leaves the dictation entirely alone.
+It is not deferred the way an engine switch is - a question that started
+listening once the dictation ended would be recording at a moment nobody is
+speaking to it.
 
 The follow-up's own transcription
 (`AskPanelWindowController.followUpTranscriptionSettings`) keeps routing off -
