@@ -35,12 +35,12 @@ enum HistoryWidthTier: String, CaseIterable, Sendable {
     }
 }
 
-/// Every measurement one tier settles, in one value.
+/// Every measurement that differs by tier, in one value.
 ///
 /// Deliberately a plain `struct` of numbers and booleans rather than a set of
 /// `if tier == .compact` branches scattered through the view: the row asks this
-/// for a number, and a test asks it for the same number. Nothing in the view
-/// body may hard-code a padding that this does not name.
+/// for a tier-dependent number, and a test asks it for the same number. Fixed
+/// measurements shared by both tiers stay with the component they style.
 struct HistoryRowMetrics: Equatable, Sendable {
     let tier: HistoryWidthTier
 

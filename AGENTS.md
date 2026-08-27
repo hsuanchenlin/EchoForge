@@ -641,20 +641,6 @@ columns. The history list filters in **SQL** (`RecordingStore.query(matching:)`)
 the loaded page, because history is paged; `provenanceKind IN (…)` is false for NULL, so
 the legacy filter asks for the NULL and every other filter must not.
 
-The list that shows those rows is `OpenSuperWhisper/History/`, and `docs/history-card.md`
-is its whole story. It has **two** layouts and one threshold - 480 pt of list width -
-and `HistoryRowMetrics` is the only place either of them is described: nothing in
-`RecordingRow` may hard-code a padding, a corner radius or a glyph size that the metrics
-table does not name, which is what keeps the two tiers from drifting apart in scattered
-branches. The width is measured once at the list and published through the environment,
-never per row - a `GeometryReader` inside a `LazyVStack` cell reports the width that
-cell's own height then depends on. Which actions a row offers is a pure function of its
-status (`HistoryRowActionKind.available(for:)`) read twice, once for the hover bar and
-once for VoiceOver, because hover is a pointer affordance and a VoiceOver user has no
-pointer. `HistoryRowLayoutTests` and `HistoryRowActionTests` pin the decisions;
-`HistoryRowRenderTests` and `HistoryProvenanceRenderTests` draw the card at both widths
-and read the pixels back.
-
 `terms.json` beside it is the second store: the personal terms dictionary, deliberately a plain
 hand-editable file outside the database because it has a different lifecycle and must not be
 touched by the recordings retention policy. See `docs/personal-terms.md`.

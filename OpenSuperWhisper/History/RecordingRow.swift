@@ -9,10 +9,10 @@ import SwiftUI
 /// something is still running - how far along it is. `HistoryRowMetrics` decides
 /// how those are arranged; this view decides what they say.
 ///
-/// Two rules carry the layout. Nothing here hard-codes a padding or an icon
-/// size that `HistoryRowMetrics` does not name, so both tiers are designed in
-/// one place rather than drifting apart in branches. And nothing may lay itself
-/// out wider than the row is offered - every multi-line string is
+/// Two rules carry the layout. Measurements that differ by tier come from
+/// `HistoryRowMetrics`, so the responsive layouts do not drift apart in
+/// scattered branches. And nothing may lay itself out wider than the row is
+/// offered - every multi-line string is
 /// `fixedSize(horizontal: false, vertical: true)` and every one-line one either
 /// truncates deliberately or sits inside a `ViewThatFits` that stacks instead.
 /// `HistoryRowRenderTests` draws both tiers and reads the pixels back.

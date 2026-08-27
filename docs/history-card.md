@@ -15,10 +15,11 @@ layouts, and `HistoryWidthTier` picks between them at **480 pt of list width**.
 
 Two tiers rather than a formula over the width, because two layouts can each be
 designed, rendered and asserted on where a continuous formula can only be eyeballed.
-`HistoryRowMetrics` is the whole table - padding, corner radius, spacing, action glyph
-and hit-target size, and the three booleans the card branches on. **Nothing in the view
-body may hard-code a measurement the metrics table does not name**: that is what keeps
-both tiers designed in one place instead of drifting apart in scattered `if`s.
+`HistoryRowMetrics` is the table of measurements and branching decisions that differ by
+tier - card padding and radius, section and action spacing, action glyph and hit-target
+size, and the three booleans the card branches on. Tier-specific values belong there so
+the responsive layouts do not drift apart in scattered `if`s; fixed measurements shared
+by both tiers remain local to the component they style.
 `HistoryRowLayoutTests` reads the table back; `HistoryRowRenderTests` draws both sides
 of the threshold and reads the pixels.
 
