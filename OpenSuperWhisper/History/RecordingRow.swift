@@ -210,20 +210,24 @@ struct RecordingRow: View {
     }
 
     private var metadataChips: some View {
-        HStack(spacing: 6) {
-            HistoryMetadataChip(
-                systemImage: "clock",
-                text: HistoryTimestamp.relative(for: recording.timestamp),
-                accessibilityLabel: "Recorded \(HistoryTimestamp.relative(for: recording.timestamp))"
-            )
-            HistoryMetadataChip(
-                systemImage: "waveform",
-                text: TextUtil.formatDuration(recording.duration),
-                accessibilityLabel: "Duration \(TextUtil.formatDuration(recording.duration))",
-                isMonospacedDigit: true
-            )
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            let relativeTimestamp = HistoryTimestamp.relative(
+                for: recording.timestamp, now: context.date)
+            HStack(spacing: 6) {
+                HistoryMetadataChip(
+                    systemImage: "clock",
+                    text: relativeTimestamp,
+                    accessibilityLabel: "Recorded \(relativeTimestamp)"
+                )
+                HistoryMetadataChip(
+                    systemImage: "waveform",
+                    text: TextUtil.formatDuration(recording.duration),
+                    accessibilityLabel: "Duration \(TextUtil.formatDuration(recording.duration))",
+                    isMonospacedDigit: true
+                )
+            }
+            .fixedSize()
         }
-        .fixedSize()
     }
 
     // MARK: - Body

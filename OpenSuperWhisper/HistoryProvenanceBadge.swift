@@ -31,8 +31,7 @@ struct HistoryProvenanceBadge: View {
                     .font(.system(size: 10, weight: .semibold))
                 Text(provenance.kind.label)
                     .font(.caption2.weight(.semibold))
-                    .lineLimit(1)
-                    .fixedSize()
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .foregroundColor(tint)
             .padding(.horizontal, 7)
