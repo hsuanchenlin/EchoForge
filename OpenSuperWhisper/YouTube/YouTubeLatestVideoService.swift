@@ -88,7 +88,7 @@ extension YouTubeLatestVideoReport {
         case .ambiguous(let spoken, let matches):
             return .refused(
                 reason: .channelAmbiguous,
-                message: "“\(spoken)” answers for more than one channel (\(matches.joined(separator: ", "))). Give them different spoken names in Settings → Dictionary & Snippets → YouTube Channels.",
+                message: "“\(spoken)” answers for more than one channel (\(YouTubeChannelHandle.format(all: matches).joined(separator: ", "))). Give them different spoken names in Settings → Dictionary & Snippets → YouTube Channels.",
                 shortMessage: "Two channels answer to that"
             )
         case .disabled:
@@ -132,7 +132,7 @@ extension YouTubeLatestVideoReport {
         case .unknown:
             message = "You closed the channel picker without choosing, so nothing was opened. “\(spoken)” is still not one of your stored spellings - add it as a spoken name in Settings → Dictionary & Snippets → YouTube Channels to have it open directly."
         case .ambiguous(let matches):
-            message = "You closed the channel picker without choosing, so nothing was opened. “\(spoken)” still answers to more than one channel (\(matches.joined(separator: ", "))) - give them different spoken names in Settings → Dictionary & Snippets → YouTube Channels to have one open directly."
+            message = "You closed the channel picker without choosing, so nothing was opened. “\(spoken)” still answers to more than one channel (\(YouTubeChannelHandle.format(all: matches).joined(separator: ", "))) - give them different spoken names in Settings → Dictionary & Snippets → YouTube Channels to have one open directly."
         }
         return .refused(
             reason: .pickerCancelled,
@@ -192,7 +192,7 @@ struct YouTubeLatestVideoService: Sendable {
             // is why it is a message about the id rather than an assertion.
             return .refused(
                 reason: .channelIDUnusable,
-                message: "“\(channel.displayName)” has no usable channel ID, so nothing was opened. Fix it in Settings → Dictionary & Snippets → YouTube Channels.",
+                message: "\(channel.handle) has no usable channel ID, so nothing was opened. Fix it in Settings → Dictionary & Snippets → YouTube Channels.",
                 shortMessage: "That channel ID is not valid"
             )
         }
@@ -232,6 +232,9 @@ struct YouTubeLatestVideoService: Sendable {
             )
         }
 
-        return .opened(channel: channel.displayName, title: video.title, match: match)
+        // The handle form, because this string is the channel *named back* to
+        // the user - it reaches the overlay, the VoiceOver announcement and the
+        // History row, and never a lookup. See `YouTubeChannelHandle`.
+        return .opened(channel: channel.handle, title: video.title, match: match)
     }
 }

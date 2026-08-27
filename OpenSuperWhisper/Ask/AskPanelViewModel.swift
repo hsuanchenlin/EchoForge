@@ -18,7 +18,15 @@ enum AskPanelState: Equatable {
     case answered(AskExchange)
     /// Something the user needs told: no model on this Mac, nothing heard, the
     /// answer took too long.
-    case failed(String)
+    ///
+    /// `question` is what was being asked when it went wrong, and nil when there
+    /// was nothing to ask - a capture that heard nothing, a microphone that is
+    /// not there. The panel shows it above the sentence: with the shortcut
+    /// starting a capture on the press, a spoken question that fails is one the
+    /// user never typed and has no other copy of, and a card that answered it
+    /// with a bare sentence left them unable to tell a misheard question from a
+    /// model that could not run.
+    case failed(message: String, question: String?)
 }
 
 /// The Ask panel's state machine, and the only thing that decides what it shows.
@@ -139,6 +147,17 @@ final class AskPanelViewModel: ObservableObject {
         isScreenQuery && (state == .listening || state == .transcribing)
     }
 
+    /// True while a plain spoken question is still being captured, which is the
+    /// only state pressing ⌥A again should finish rather than start something
+    /// new.
+    ///
+    /// The mirror image of `isCapturingScreenQuery`, and deliberately exclusive
+    /// with it: a ⌥S capture has a screenshot behind it that ⌥A knows nothing
+    /// about, so neither key may finish the other key's question.
+    var isCapturingVoiceQuestion: Bool {
+        !isScreenQuery && (state == .listening || state == .transcribing)
+    }
+
     /// The answer on screen, or nil when there is not one.
     var answer: String? {
         if case .answered(let exchange) = state { return exchange.answer }
@@ -198,7 +217,7 @@ final class AskPanelViewModel: ObservableObject {
                 screen = arrived
             } else {
                 let message = captureFailure ?? Self.captureTimedOutMessage
-                fail(message)
+                fail(message, question: trimmed)
                 return
             }
         }
@@ -221,7 +240,10 @@ final class AskPanelViewModel: ObservableObject {
             exchanges.append(exchange)
             state = .answered(exchange)
         default:
-            state = .failed(outcome.explanation ?? "The question could not be answered.")
+            fail(
+                outcome.explanation ?? "The question could not be answered.",
+                question: trimmed
+            )
         }
     }
 
@@ -379,11 +401,11 @@ final class AskPanelViewModel: ObservableObject {
     /// Every failure ends the query the panel was on, and the screen query's
     /// state goes with it: a screenshot, or a capture still in flight, must not
     /// silently follow the user into whatever they ask next.
-    private func fail(_ message: String) {
+    private func fail(_ message: String, question: String? = nil) {
         generation += 1
         dropScreenQuery()
         resolveCaptureWait()
-        state = .failed(message)
+        state = .failed(message: message, question: question)
     }
 
     /// Ends any screen query in flight. The pending screenshot, the flag and

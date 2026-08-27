@@ -511,7 +511,11 @@ final class AskPanelScreenQueryTests: XCTestCase {
         viewModel.screenCaptureDidFail(ScreenCaptureError.nothingToCapture.message, token: token)
         await asking.value
 
-        XCTAssertEqual(viewModel.state, .failed(ScreenCaptureError.nothingToCapture.message))
+        XCTAssertEqual(
+            viewModel.state,
+            .failed(
+                message: ScreenCaptureError.nothingToCapture.message,
+                question: "What am I looking at?"))
         XCTAssertTrue(stub.requests.isEmpty)
         XCTAssertFalse(viewModel.isScreenQuery)
         XCTAssertNil(viewModel.pendingScreen)
@@ -527,7 +531,11 @@ final class AskPanelScreenQueryTests: XCTestCase {
 
         await viewModel.voiceCaptureDidProduce("What am I looking at?")
 
-        XCTAssertEqual(viewModel.state, .failed(AskPanelViewModel.captureTimedOutMessage))
+        XCTAssertEqual(
+            viewModel.state,
+            .failed(
+                message: AskPanelViewModel.captureTimedOutMessage,
+                question: "What am I looking at?"))
         XCTAssertTrue(stub.requests.isEmpty)
         XCTAssertFalse(viewModel.isScreenQuery)
     }
@@ -624,7 +632,9 @@ final class AskPanelScreenQueryTests: XCTestCase {
         viewModel.screenCaptureDidFail(ScreenCaptureError.permissionDenied.message, token: token)
 
         XCTAssertEqual(cancelled, 1)
-        XCTAssertEqual(viewModel.state, .failed(ScreenCaptureError.permissionDenied.message))
+        XCTAssertEqual(
+            viewModel.state,
+            .failed(message: ScreenCaptureError.permissionDenied.message, question: nil))
         XCTAssertFalse(viewModel.isBusy)
         XCTAssertNil(viewModel.pendingScreen)
 
@@ -642,7 +652,9 @@ final class AskPanelScreenQueryTests: XCTestCase {
         viewModel.screenQueryRefused(ScreenCaptureError.permissionDenied.message)
 
         XCTAssertEqual(started, 0)
-        XCTAssertEqual(viewModel.state, .failed(ScreenCaptureError.permissionDenied.message))
+        XCTAssertEqual(
+            viewModel.state,
+            .failed(message: ScreenCaptureError.permissionDenied.message, question: nil))
         XCTAssertFalse(viewModel.isScreenQuery)
     }
 

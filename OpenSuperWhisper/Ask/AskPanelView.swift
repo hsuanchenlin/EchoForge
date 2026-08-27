@@ -195,7 +195,7 @@ struct AskPanelView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Ask a question")
                         .font(.system(size: 13, weight: .semibold))
-                    Text("Type it below, hold your shortcut and say \"Ask: …\", or press ⌥S to ask about what is on your screen. Answers are generated on this Mac.")
+                    Text("Press your Ask shortcut and start talking, type it below, or press ⌥S to ask about what is on your screen. Answers are generated on this Mac.")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -249,15 +249,24 @@ struct AskPanelView: View {
             // the moment it arrives, so drawing it here too would show it twice.
             EmptyView()
 
-        case .failed(let message):
-            HStack(alignment: .top, spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.orange)
-                Text(message)
-                    .font(.system(size: 12))
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
+        case .failed(let message, let question):
+            VStack(alignment: .leading, spacing: 6) {
+                // What was asked, above why it did not work. A spoken question
+                // exists nowhere else - the user never typed it - so a card that
+                // showed only the sentence left them unable to tell a misheard
+                // question from a model that could not run.
+                if let question, !question.isEmpty {
+                    questionLine(question)
+                }
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.orange)
+                    Text(message)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }

@@ -10,13 +10,19 @@ extension KeyboardShortcuts.Name {
     static let toggleRecord = Self("toggleRecord", default: .init(.backtick, modifiers: .option))
     static let escape = Self("escape", default: .init(.escape))
 
-    /// Opens the Ask panel, or closes it if it is already up.
+    /// Opens the Ask panel and starts listening for a spoken question, or ends
+    /// the question already being spoken.
     ///
     /// Its own shortcut rather than a mode of the recording one: the panel is
-    /// something the user goes to, types in and reads, and folding it into the
-    /// dictation hotkey would make every dictation ambiguous. ⌥A by default, and
+    /// something the user goes to and reads, and folding it into the dictation
+    /// hotkey would make every dictation ambiguous. ⌥A by default, and
     /// configurable like the others - it is a plain global hotkey, so whatever
     /// the key would otherwise type is consumed while it is bound.
+    ///
+    /// A press records, the way the dictation key and ⌥Y do. It is not a
+    /// show/hide toggle: a key that closed an open panel could not also be one
+    /// that always starts listening, and the panel is closed with Esc, the Close
+    /// button, or by discarding the recording.
     static let askPanel = Self("askPanel", default: .init(.a, modifiers: .option))
 
     /// Asks a question about what is on screen: takes a screenshot of the window
@@ -138,9 +144,13 @@ class ShortcutManager {
         // Deliberately independent of the recording trigger's three exclusive
         // modes below: the Ask panel is reached the same way whether dictation
         // is on a key combination, a modifier or a mouse button.
+        //
+        // On key-up rather than key-down, like ⌥S and ⌥M: a Carbon hotkey held
+        // down repeats, and a repeat here would start and end a question over
+        // and over. The capture still begins on the press the user makes.
         KeyboardShortcuts.onKeyUp(for: .askPanel) {
             Task { @MainActor in
-                AskPanelWindowController.shared.toggle()
+                AskPanelWindowController.shared.toggleVoiceQuestion()
             }
         }
 

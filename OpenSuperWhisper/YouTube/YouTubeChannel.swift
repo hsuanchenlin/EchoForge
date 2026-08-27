@@ -66,6 +66,10 @@ struct YouTubeChannel: Codable, Identifiable, Equatable, Sendable {
             && YouTubeChannelID.isValid(channelID)
     }
 
+    /// How this channel is named back to the user: their own label in handle
+    /// form. See ``YouTubeChannelHandle``.
+    var handle: String { YouTubeChannelHandle.format(displayName) }
+
     /// Every spoken name this channel answers to, normalized and deduplicated.
     ///
     /// The display name is included, so the obvious thing to say works without
@@ -112,6 +116,46 @@ struct YouTubeChannel: Codable, Identifiable, Equatable, Sendable {
         }
         return tidied
     }
+}
+
+/// How a configured channel is written on the surfaces that name it back to the
+/// user: the picker, and the sentence saying what a command did or did not open.
+///
+/// A channel is a channel, and `@name` is how YouTube itself writes one - so a
+/// row that says `@valley101` reads as a channel rather than as a word somebody
+/// typed into a box. It is **presentation only**: nothing here is stored,
+/// normalized, matched against or sent anywhere, and `YouTubeChannelAlias` is
+/// still the only thing a spoken name is compared with.
+///
+/// Two rules keep it honest, and both are the same rule: it must never show the
+/// user a name they did not configure.
+///
+/// - It **prefixes and nothing else**. Folding the internal spaces out of
+///   "valley 101" would produce `@valley101`, which looks more like a real
+///   handle and is exactly the problem: this app never resolves a handle (see
+///   `YouTubeChannelHelpText.channelIDInstructions`), so a rendered one that is
+///   not literally the user's own label would be the app inventing an identity
+///   for a channel it reaches by id.
+/// - A label the user already wrote as a handle keeps its single `@`.
+///
+/// Anything quoting what to *say* - the usage example, the phrase that was
+/// heard, a stored alias - stays verbatim. That is the whole boundary: names
+/// **shown back** get the handle form, spellings **spoken** never do.
+enum YouTubeChannelHandle {
+
+    static func format(_ name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        // An empty label has no handle. A bare "@" would read as a channel with
+        // no name rather than as the half-finished row it is.
+        guard !trimmed.isEmpty else { return trimmed }
+        guard !trimmed.hasPrefix("@") else { return trimmed }
+        return "@" + trimmed
+    }
+
+    /// The same, for a list of names carried as strings - the spellings an
+    /// ambiguous resolution collided on, which reach a sentence rather than a
+    /// channel.
+    static func format(all names: [String]) -> [String] { names.map(format) }
 }
 
 /// How a spoken channel name is compared against what the user stored.

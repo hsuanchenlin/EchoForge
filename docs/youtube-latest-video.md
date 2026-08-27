@@ -253,6 +253,32 @@ has the user-facing half; four things carry it here.
   `YouTubeChannelMatchSource.picker`, whose disclosure says the user chose it
   themselves, beside the model's own disclosure if it was asked first.
 
+### How a channel is written
+
+A channel the app **names back** to the user is written `@name` - the picker's
+rows and their VoiceOver labels, the sentence naming the rows an ambiguous
+phrase collided on, and the report saying which channel a video was opened
+from. `YouTubeChannelHandle` is the whole of it, and it is presentation only:
+nothing there is stored, normalized, matched against or sent anywhere.
+
+Two rules keep it honest, and they are the same rule - it must never show a name
+the user did not configure:
+
+- **It prefixes and nothing else.** Folding the internal spaces out of
+  "valley 101" would give `@valley101`, which looks more like a real handle and
+  is exactly the problem: this app never resolves a handle, so a rendered one
+  that is not literally the user's own label would be an identity the app
+  invented for a channel it reaches by id. A label already written with a `@`
+  keeps its single one; an empty label has no handle at all.
+- **Only names shown back.** Anything quoting what to *say* stays verbatim: the
+  phrase that was heard at the top of the picker, the "Also said as …" spelling
+  under a row, the usage example in Settings, and the Settings list itself - that
+  list is the reference for what to say, and teaching somebody to say "at
+  Veritasium" would be worse than the inconsistency.
+
+`YouTubeChannelHandleTests` holds both halves, including that spoken matching is
+untouched by it.
+
 `YouTubeChannelPickerViewModel` owns every key - ↑/↓ with wrap-around,
 type-to-filter, Return, Escape - so keyboard behaviour is tested without a window
 server; `YouTubeChannelPickerWindowController` owns the panel and takes the keys

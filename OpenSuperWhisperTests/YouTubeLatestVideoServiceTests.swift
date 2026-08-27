@@ -109,7 +109,7 @@ final class YouTubeLatestVideoServiceTests: XCTestCase {
 
         XCTAssertEqual(
             report,
-            .opened(channel: "Veritasium", title: "The newest one", match: .spokenName)
+            .opened(channel: "@Veritasium", title: "The newest one", match: .spokenName)
         )
         XCTAssertEqual(
             opener.openedURLs.map(\.absoluteString),

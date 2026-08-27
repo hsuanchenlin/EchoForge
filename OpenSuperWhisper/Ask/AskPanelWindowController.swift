@@ -84,13 +84,68 @@ final class AskPanelWindowController {
 
     // MARK: - Showing it
 
-    /// The shortcut's action: open the panel, or close it if it is already up.
-    func toggle() {
-        if panel?.isVisible == true {
-            hide()
-        } else {
-            present()
+    /// What one press of the Ask shortcut means.
+    ///
+    /// Pure, and separate from carrying it out, so the rule can be asserted
+    /// without a window server, a microphone or an on-device model - the same
+    /// split `screenRecordingRefusal` and `capturedInsertionTarget` make.
+    enum ShortcutAction: Equatable {
+        /// Open the panel if it is not up, and start listening.
+        case askByVoice
+        /// A question is already being spoken: this press ends it.
+        case finishVoiceQuestion
+        /// Something is running that this press is neither the start nor the end
+        /// of - a transcription, an answer, or a ⌥S query that belongs to the
+        /// other key.
+        case ignore
+    }
+
+    /// The press, decided from the two things about the panel that matter.
+    ///
+    /// It is deliberately the same shape as `toggleScreenQuery`'s and **not** a
+    /// show/hide toggle any more. A key that closed an open panel could not also
+    /// be a key that always starts listening, and starting the capture is what
+    /// this shortcut is for: the panel is closed with Esc, the Close button, or
+    /// by discarding the recording.
+    static func shortcutAction(isCapturingVoiceQuestion: Bool, isBusy: Bool) -> ShortcutAction {
+        if isCapturingVoiceQuestion { return .finishVoiceQuestion }
+        // A transcription or an answer in flight is what `isBusy` exists to
+        // protect, and a screen query in flight belongs to ⌥S.
+        guard !isBusy else { return .ignore }
+        return .askByVoice
+    }
+
+    /// The ⌥A action: start a spoken question, or finish the one already being
+    /// spoken.
+    ///
+    /// A press begins microphone capture, the way the dictation key, the
+    /// YouTube command key and ⌥S all do. It used to only put the panel on
+    /// screen, which left the user looking at an idle card and pressing **Ask by
+    /// voice** with the mouse - see `docs/ask-panel.md`.
+    func toggleVoiceQuestion() {
+        switch Self.shortcutAction(
+            isCapturingVoiceQuestion: viewModel.isCapturingVoiceQuestion,
+            isBusy: viewModel.isBusy
+        ) {
+        case .finishVoiceQuestion:
+            viewModel.finishVoiceFollowUp()
+        case .ignore:
+            return
+        case .askByVoice:
+            startVoiceQuestion()
         }
+    }
+
+    /// Opens the panel and starts listening, in that order.
+    ///
+    /// The same order `startScreenQuery` uses and for the same reason: the panel
+    /// has to exist before it can show that it is recording, and the capture
+    /// itself is the view model's to request - it reports a microphone that is
+    /// not there, or a transcription already running, onto the card rather than
+    /// leaving one that looks live.
+    private func startVoiceQuestion() {
+        present()
+        viewModel.startVoiceFollowUp()
     }
 
     /// Opens the panel with nothing asked yet.
@@ -252,7 +307,18 @@ final class AskPanelWindowController {
         // this one spends its life in the background. It is why the insertion
         // target is captured first - by the time the user presses Insert, the
         // frontmost application is this one.
-        NSApplication.shared.activate()
+        //
+        // `ignoringOtherApps` for the reason `YouTubeChannelPickerWindowController`
+        // measured: macOS grants a background process the right to activate only
+        // just after the user has given it attention, and this app is given none
+        // - a global hotkey press goes to the system rather than into this app's
+        // event stream, and a spoken "Ask: …" opens the panel later still, after
+        // a recording and a transcription. Without it the card appeared over the
+        // frontmost app, never became key, and Esc and every keystroke went to
+        // that app instead. It is the same trade the picker makes and tolerable
+        // for the same reason: the panel is only ever here because the user
+        // pressed a key of their own or said so.
+        NSApplication.shared.activate(ignoringOtherApps: true)
 
         guard !panel.isVisible || panel.alphaValue < 1 else {
             panel.makeKeyAndOrderFront(nil)

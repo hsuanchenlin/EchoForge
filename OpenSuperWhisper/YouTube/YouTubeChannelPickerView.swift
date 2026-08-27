@@ -236,7 +236,11 @@ struct YouTubeChannelPickerView: View {
         let isHighlighted = viewModel.highlighted == index
         return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(row.channel.displayName)
+                // The handle form, not the bare label: this is a list of
+                // channels, and `@name` is what a channel looks like.
+                // `YouTubeChannelHandle` is presentation only - the subtitle
+                // below still quotes the stored spelling verbatim.
+                Text(row.channel.handle)
                     .font(.system(size: 13, weight: isHighlighted ? .semibold : .regular))
                     .lineLimit(1)
                 if let subtitle = subtitle(for: row) {
@@ -289,7 +293,7 @@ struct YouTubeChannelPickerView: View {
     }
 
     private func accessibilityLabel(for row: YouTubeChannelSuggestion) -> String {
-        var label = row.channel.displayName
+        var label = row.channel.handle
         if let subtitle = subtitle(for: row) { label += ", \(subtitle)" }
         if row.isSuggested && viewModel.query.isEmpty { label += ", closest match" }
         return label

@@ -521,6 +521,15 @@ an invented name, an answer two rows answer to) leaves the refusal exactly as it
 was. It is on-device only, enforced by `OnDeviceModelFeature.channelMatching`
 having no `cloudFeature`, and a match it made is disclosed in the report.
 
+A channel the app **names back** to the user is written `@name`
+(`YouTubeChannelHandle`) - the picker's rows, the sentence naming the rows an
+ambiguous phrase collided on, and the report saying what was opened. It is
+presentation only and prefixes without folding anything, because this app never
+resolves a handle and a rendered one that is not literally the user's own label
+would be an identity it invented; anything quoting what to **say** - the phrase
+that was heard, a stored alias, the Settings list and its usage example - stays
+verbatim. `YouTubeChannelHandleTests` holds both halves.
+
 When every automatic tier misses, the last one is a **person**: `YouTubeChannelPickerOffer`
 decides whether to show the user their own channels, `YouTubeCommandRunner` is the whole
 press behind seams (feed, browser, chooser, history), and the panel takes focus like the Ask
@@ -540,12 +549,21 @@ key press. The key monitor stands down while an input method is composing, since
 users type Chinese.
 
 `OpenSuperWhisper/Ask/` is the floating Ask panel (⌥A, or a spoken question) and
-`docs/ask-panel.md` is its story. It runs the same on-device model as rewriting
+`docs/ask-panel.md` is its story. **⌥A records**: the press opens the panel and
+starts the microphone, the way the two dictation keys and ⌥S do, and a second
+press ends the question - it is not a show/hide toggle, and the panel is closed
+with Esc, Close, or by discarding the recording. It reached only `present()` for
+one release, which put an idle card on screen with a button the user had to find;
+the rule that catches that class is that every listening path goes through a call
+that starts a capture (`AskPanelWindowController.shortcutAction` decides which,
+purely), and a panel that appears is not a panel that is recording. It runs the same on-device model as rewriting
 and has deliberately **no `StyleRewriteGuard`**: a guard exists because a rewrite
 replaces the user's words unread, and an answer is read before it goes anywhere.
 It also *takes* focus, as only it and the channel picker do - a question box has
 to - which is why the app to paste into is captured before the panel opens
-rather than read at insertion time. `TranslationRewrite` is a sibling of
+rather than read at insertion time, and why its activation is forced the way the
+picker's is (`activate(ignoringOtherApps:)`; a background app's plain
+`activate()` is refused, so the card appeared but never became key). `TranslationRewrite` is a sibling of
 `StyleRewriteService`, not a style inside it, because that stage's rules say
 "never translate this"; the one
 guard rule it relaxes is `StyleRewriteShape.translating`, and it relaxes it in
