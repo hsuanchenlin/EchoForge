@@ -14,6 +14,14 @@ import SwiftUI
 /// diagnosis.
 struct HistoryProvenanceBadge: View {
     let provenance: RecordingProvenance
+    /// Whether the sentence under the pill is drawn here.
+    ///
+    /// The history row now places that sentence itself, full width, under a
+    /// header the pill shares with the metadata chips - a detail wrapping
+    /// inside the pill's own column would be squeezed into whatever the chips
+    /// left over. Everything else showing a badge still gets both halves, so
+    /// this defaults to on and the pill remains complete on its own.
+    var showsDetail: Bool = true
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -23,6 +31,7 @@ struct HistoryProvenanceBadge: View {
                     .font(.system(size: 10, weight: .semibold))
                 Text(provenance.kind.label)
                     .font(.caption2.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .foregroundColor(tint)
             .padding(.horizontal, 7)
@@ -33,7 +42,7 @@ struct HistoryProvenanceBadge: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(provenance.kind.accessibilityLabel)
 
-            if let detail = provenance.detail {
+            if showsDetail, let detail = provenance.detail {
                 Text(detail)
                     .font(.caption)
                     .foregroundColor(.secondary)
