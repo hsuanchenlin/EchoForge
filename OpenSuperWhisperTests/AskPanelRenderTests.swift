@@ -22,6 +22,18 @@ final class AskPanelRenderTests: XCTestCase {
     private static let outputDirectory = URL(
         fileURLWithPath: "/tmp/EchoForgeAskRenders", isDirectory: true)
 
+    /// The card with nothing asked yet tells the user what the shortcut now
+    /// does. It used to say "hold your shortcut and say \"Ask: …\"", which was
+    /// the only instruction on screen for a key that had merely opened this
+    /// card - the sentence and the key have to agree.
+    func testTheEmptyCardSaysThatTheShortcutStartsTalking() throws {
+        let viewModel = AskPanelViewModel { _ in .answered("unused") }
+
+        try assertRenders(
+            viewModel, named: "idle",
+            showing: ["Ask a question", "Press your Ask shortcut and start talking"])
+    }
+
     /// The captain's press: the card says it is listening, and there is a Stop
     /// on it rather than a button they still have to find.
     func testTheShortcutPutsAListeningCardOnScreen() throws {

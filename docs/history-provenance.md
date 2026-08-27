@@ -36,7 +36,7 @@ short version and what to do:
 | No channel name was heard | The press produced nothing usable to read as a channel name at all. | Hold the shortcut, say the channel name, let go. |
 | "…" answers for more than one channel | Two rows in your list answer to the same spoken name, so neither can be the one you meant. | Give them different spoken names. |
 | The YouTube command is switched off | The shortcut is still bound so a press can tell you this instead of doing nothing. | Turn it on in Settings → Dictionary & Snippets → YouTube Channels. |
-| "…" has no usable channel ID | The row is stored with something that is not a `UC…` id - a `@handle`, usually. | Fix the id. The Settings pane says how to find it. |
+| @name has no usable channel ID | The row is stored with something that is not a `UC…` id - a `@handle`, usually. The name is your own label for that channel, not something the app looked up. | Fix the id. The Settings pane says how to find it. |
 | Could not reach YouTube / YouTube answered with HTTP … | The channel feed lookup failed. Nothing was opened, and nothing was fetched more than once. | Check your connection, or check the channel id. |
 | That channel's feed … | The feed arrived and carried nothing that could be opened - no videos, or no video link this app will follow. | Nothing to do; that channel has published nothing openable. |
 | Google Chrome was not found / could not open | The video was found and Chrome would not take it. | Install Chrome, or open the video yourself. |
@@ -95,9 +95,11 @@ to wonder whether it was going to save you.
 ## What History does not contain
 
 The sentence under a label is written for you and holds nothing else. It names
-the channel the way *your own list* names it, and never a channel ID, a feed
-address, a video URL, or anything from your Keychain. Nothing in History leaves
-your Mac.
+the channel as `@` followed by the label in *your own list* - never a channel
+ID, a feed address, a video URL, or anything from your Keychain, and never a
+handle the app looked up, because it never looks one up
+(`docs/youtube-latest-video.md` has that rule). Nothing in History leaves your
+Mac.
 
 ## Related
 

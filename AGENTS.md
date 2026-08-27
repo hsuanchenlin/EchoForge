@@ -556,35 +556,34 @@ users type Chinese.
 starts the microphone, the way the two dictation keys and ⌥S do, and a second
 press ends the question - it is not a show/hide toggle, and the panel is closed
 with Esc or Close and by nothing else (discarding a recording gives the
-microphone back and keeps the card). It reached only `present()` for
-one release, which put an idle card on screen with a button the user had to find;
-the rule that catches that class is that every listening path goes through a call
+microphone back and keeps the card). Every listening path goes through a call
 that starts a capture (`AskPanelWindowController.shortcutAction` decides which,
-purely), and a panel that appears is not a panel that is recording. Sharing one
-`AudioRecorder` with the dictation keys is why a press can be **refused**, and
-the microphone is therefore owned rather than shared: `RecordingSessionClaim`
-(its own type, so the rule is testable without hardware) grants one
-`RecordingSession` at a time, `startRecording` hands it back or refuses, and
-`stopRecording`/`cancelRecording` **name the session they mean** so nobody can
-end a capture they did not start. The claim is synchronous because `isRecording`
-is published a main-queue hop too late to guard with, and the sinks that read it
-in `IndicatorViewModel` and `ContentViewModel` are gated on holding a claim -
-`@Published` replays, so an ungated one repainted a refused dictation as the
-panel's recording. Each caller only picks the wording, and a refused ⌥A never
-presents the panel, because activating this app mid-dictation would send that
-dictation's paste into the panel's own question field. It runs the same on-device model as rewriting
-and has deliberately **no `StyleRewriteGuard`**: a guard exists because a rewrite
-replaces the user's words unread, and an answer is read before it goes anywhere.
-It also *takes* focus, as only it and the channel picker do - a question box has
-to - which is why the app to paste into is captured before the panel opens
-rather than read at insertion time, and why its activation is forced the way the
-picker's is (`activate(ignoringOtherApps:)`; a background app's plain
-`activate()` is refused, so the card appeared but never became key). `TranslationRewrite` is a sibling of
-`StyleRewriteService`, not a style inside it, because that stage's rules say
-"never translate this"; the one
-guard rule it relaxes is `StyleRewriteShape.translating`, and it relaxes it in
-that one place. `AsyncDeadline` (`Utils/`) is the shared hard budget both model
-callers use and documents why it is not a task group.
+purely), because a panel that appears is not a panel that is recording. Sharing
+one `AudioRecorder` with the dictation keys is why a press can be **refused**,
+and the microphone is therefore owned rather than shared:
+`RecordingSessionClaim` (its own type, so the rule is testable without hardware)
+grants one `RecordingSession` at a time, `startRecording` hands it back or
+refuses, and `stopRecording`/`cancelRecording` **name the session they mean** so
+nobody can end a capture they did not start. The claim is synchronous because
+`isRecording` is published a main-queue hop too late to guard with, and the
+sinks that read it in `IndicatorViewModel` and `ContentViewModel` are gated on
+holding a claim - `@Published` replays, so an ungated one repainted a refused
+dictation as the panel's recording. Each caller only picks the wording, and a
+refused ⌥A never presents the panel, because activating this app mid-dictation
+would send that dictation's paste into the panel's own question field. It runs
+the same on-device model as rewriting and has deliberately **no
+`StyleRewriteGuard`**: a guard exists because a rewrite replaces the user's
+words unread, and an answer is read before it goes anywhere. It also *takes*
+focus, as only it and the channel picker do - a question box has to - which is
+why the app to paste into is captured before the panel opens rather than read at
+insertion time, and why its activation is forced the way the picker's is
+(`activate(ignoringOtherApps:)`; a background app's plain `activate()` is
+refused, so the card appeared but never became key). `TranslationRewrite` is a
+sibling of `StyleRewriteService`, not a style inside it, because that stage's
+rules say "never translate this"; the one guard rule it relaxes is
+`StyleRewriteShape.translating`, and it relaxes it in that one place.
+`AsyncDeadline` (`Utils/`) is the shared hard budget both model callers use and
+documents why it is not a task group.
 
 **⌥S** asks that same panel about the screen: `Utils/ScreenCaptureService.swift`
 takes the shot and `Vision/` reads and answers it, with `docs/screen-context.md`
