@@ -103,8 +103,14 @@ struct RecordingRow: View {
     // MARK: - Body
 
     var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            card(now: context.date)
+        }
+    }
+
+    private func card(now: Date) -> some View {
         VStack(alignment: .leading, spacing: metrics.sectionSpacing) {
-            header
+            header(now: now)
             body(for: recording)
             footer
         }
@@ -127,7 +133,7 @@ struct RecordingRow: View {
         .animation(.easeInOut(duration: 0.2), value: showsActions)
         .animation(.easeInOut(duration: 0.2), value: isRegenerating)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(accessibilitySummary)
+        .accessibilityLabel(accessibilitySummary(now: now))
         .accessibilityActions {
             ForEach(actions) { action in
                 Button(action.label, action: action.perform)
@@ -153,9 +159,9 @@ struct RecordingRow: View {
     /// Named parts only - the kind, when, how long - and never the transcript,
     /// which is its own selectable element further in and can be thousands of
     /// words long.
-    private var accessibilitySummary: String {
+    private func accessibilitySummary(now: Date) -> String {
         var parts = [recording.provenance.kind.accessibilityLabel]
-        parts.append(HistoryTimestamp.relative(for: recording.timestamp))
+        parts.append(HistoryTimestamp.relative(for: recording.timestamp, now: now))
         parts.append(TextUtil.formatDuration(recording.duration))
         if hasFailed { parts.append("Transcription failed") }
         if isPending { parts.append(statusText) }
@@ -172,18 +178,18 @@ struct RecordingRow: View {
     /// and the honest answer to that is to stack rather than to truncate a
     /// timestamp into nothing.
     @ViewBuilder
-    private var header: some View {
+    private func header(now: Date) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             if metrics.stacksMetadata {
-                stackedHeader
+                stackedHeader(now: now)
             } else {
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .firstTextBaseline, spacing: 10) {
                         badgePill
                         Spacer(minLength: 8)
-                        metadataChips
+                        metadataChips(now: now)
                     }
-                    stackedHeader
+                    stackedHeader(now: now)
                 }
             }
 
@@ -198,10 +204,10 @@ struct RecordingRow: View {
         }
     }
 
-    private var stackedHeader: some View {
+    private func stackedHeader(now: Date) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             badgePill
-            metadataChips
+            metadataChips(now: now)
         }
     }
 
@@ -209,25 +215,22 @@ struct RecordingRow: View {
         HistoryProvenanceBadge(provenance: recording.provenance, showsDetail: false)
     }
 
-    private var metadataChips: some View {
-        TimelineView(.periodic(from: .now, by: 30)) { context in
-            let relativeTimestamp = HistoryTimestamp.relative(
-                for: recording.timestamp, now: context.date)
-            HStack(spacing: 6) {
-                HistoryMetadataChip(
-                    systemImage: "clock",
-                    text: relativeTimestamp,
-                    accessibilityLabel: "Recorded \(relativeTimestamp)"
-                )
-                HistoryMetadataChip(
-                    systemImage: "waveform",
-                    text: TextUtil.formatDuration(recording.duration),
-                    accessibilityLabel: "Duration \(TextUtil.formatDuration(recording.duration))",
-                    isMonospacedDigit: true
-                )
-            }
-            .fixedSize()
+    private func metadataChips(now: Date) -> some View {
+        let relativeTimestamp = HistoryTimestamp.relative(for: recording.timestamp, now: now)
+        return HStack(spacing: 6) {
+            HistoryMetadataChip(
+                systemImage: "clock",
+                text: relativeTimestamp,
+                accessibilityLabel: "Recorded \(relativeTimestamp)"
+            )
+            HistoryMetadataChip(
+                systemImage: "waveform",
+                text: TextUtil.formatDuration(recording.duration),
+                accessibilityLabel: "Duration \(TextUtil.formatDuration(recording.duration))",
+                isMonospacedDigit: true
+            )
         }
+        .fixedSize()
     }
 
     // MARK: - Body
