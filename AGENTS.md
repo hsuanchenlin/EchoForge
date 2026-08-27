@@ -102,15 +102,23 @@ and `CURRENT_PROJECT_VERSION` in `OpenSuperWhisper.xcodeproj/project.pbxproj`, w
 them once per target and configuration - keep all of them in step, the way `make_release.sh`
 does. `OpenSuperWhisperTests/ReleaseVersionTests.swift` pins that: the two settings agree
 across every target and configuration, and the version the app reports has notes carrying
-its number and the Gatekeeper workaround.
+its number, the Gatekeeper workaround and the `UpdateManifest.assetName` a release
+publishes. It also reads the whole notes directory - every file is headed with the version
+its own name declares, and the newest version with notes is the one this build reports - so
+notes written for a version nobody bumped to, or a bump that did not move past the last
+release, fail at test time rather than at publish time.
 
 Publishing is the last step and it happens **on `master`**, not on the release branch. Every
 `vX.Y.Z` tag points at the squashed release commit the release PR produced, so the GitHub
 release - tag `vX.Y.Z`, name `EchoForge X.Y.Z`, body the notes file verbatim, assets
 `EchoForge.dmg` and `EchoForge.dmg.sha256` and nothing else - is created only after that PR
-is merged. The two assets are the pair from one `Scripts/build_release.sh` run and are never
-rebuilt between hashing and upload, for the reason `docs/release_build.md` measures. Older
-releases and tags are never edited, replaced or force-updated.
+is merged. 0.9.1 was published off that convention, as tag `0.9.1` with the name
+`Kongweh 0.9.1` and a hand-written body rather than the notes file; the updater survived it
+only because `AppVersion` tolerates a tag with no `v`. Which spelling holds from here is a
+decision nobody has made, so read the last release before assuming. The two assets are the
+pair from one `Scripts/build_release.sh` run and are never rebuilt between hashing and
+upload, for the reason `docs/release_build.md` measures. Older releases and tags are never
+edited, replaced or force-updated.
 
 ## Updates
 
