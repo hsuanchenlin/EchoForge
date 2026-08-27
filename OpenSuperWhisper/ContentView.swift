@@ -575,7 +575,7 @@ struct ContentView: View {
                             }
                             .frame(maxWidth: .infinity)
                         } else {
-                            LazyVStack(spacing: 8) {
+                            LazyVStack(spacing: 10) {
                                 ForEach(viewModel.recordings) { recording in
                                     RecordingRow(
                                         recording: recording,
@@ -603,8 +603,14 @@ struct ContentView: View {
                                         .padding()
                                 }
                             }
+                            // Measured once, above the rows and inside the
+                            // list's own padding: every card lays itself out
+                            // for the width it is actually offered rather than
+                            // for the width of the window.
+                            .historyRowMetricsForContainerWidth()
                             .padding(.horizontal)
                             .padding(.top, 16)
+                            .padding(.bottom, 4)
                         }
                     }
                     .animation(.easeInOut(duration: 0.2), value: viewModel.recordings.count)
@@ -1056,439 +1062,6 @@ struct PermissionRow: View {
     }
 }
 
-struct RecordingRow: View {
-    let recording: Recording
-    let searchQuery: String
-    let onDelete: () -> Void
-    let onRegenerate: () -> Void
-    @StateObject private var audioRecorder = AudioRecorder.shared
-    @State private var showTranscription = false
-    @State private var showOriginal = false
-    @State private var showComparison = false
-    /// Compared once, when the comparison is opened.
-    ///
-    /// The row rebuilds on hover, and a transcript of a long dictation is a lot
-    /// of words to line up against another one; doing it in `body` would put
-    /// that work behind every mouse move across the history.
-    @State private var comparisonSegments: [TextDiffSegment] = []
-    @State private var isHovered = false
-    @Environment(\.colorScheme) private var colorScheme
-
-    /// What the engine heard, when post-processing changed it into something
-    /// else.
-    ///
-    /// This is the half of the rewriting feature that makes it safe to use: the
-    /// styled text is what the app pasted, and the words the user actually said
-    /// are still here, one click away, in the row next to it.
-    private var originalTranscription: String? {
-        guard let original = recording.rawTranscription, !original.isEmpty,
-              original != recording.transcription else { return nil }
-        return original
-    }
-
-    private var isPlaying: Bool {
-        audioRecorder.isPlaying && audioRecorder.currentlyPlayingURL == recording.url
-    }
-    
-    private var isPending: Bool {
-        recording.status == .pending || recording.status == .converting || recording.status == .transcribing
-    }
-    
-    private var isRegenerating: Bool {
-        recording.isRegeneration && isPending
-    }
-    
-    private var statusText: String {
-        switch recording.status {
-        case .pending:
-            return "In queue..."
-        case .converting:
-            return "Converting..."
-        case .transcribing:
-            return "Transcribing..."
-        case .completed:
-            return ""
-        case .failed:
-            return "Failed"
-        }
-    }
-    
-    private var displayText: String {
-        if recording.transcription.isEmpty || recording.transcription == "Starting transcription..." || recording.transcription == "In queue..." {
-            return ""
-        }
-        return recording.transcription
-    }
-
-    /// The two collapsed disclosures under a post-processed row: what the engine
-    /// heard, and what post-processing did to it.
-    ///
-    /// Both are collapsed by default because the styled text is the answer the
-    /// user asked for. "Show original" is present at all because it is the only
-    /// copy of what they said; "Compare" is what turns that copy into an answer
-    /// to the question the row actually raises - which of these words are mine?
-    @ViewBuilder
-    private func originalTranscriptionSection(_ original: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 12) {
-                disclosureButton(
-                    title: showOriginal ? "Hide original" : "Show original",
-                    isExpanded: showOriginal,
-                    help: "What the transcription engine heard, before post-processing"
-                ) {
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        showOriginal.toggle()
-                    }
-                }
-
-                disclosureButton(
-                    title: showComparison ? "Hide comparison" : "Compare",
-                    isExpanded: showComparison,
-                    help: "The original with the words post-processing dropped struck through"
-                ) {
-                    if !showComparison {
-                        comparisonSegments = TextDiffUtil.compare(
-                            original: original, revised: displayText
-                        )
-                    }
-                    withAnimation(.easeInOut(duration: 0.15)) {
-                        showComparison.toggle()
-                    }
-                }
-
-                if showOriginal {
-                    Button {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(original, forType: .string)
-                    } label: {
-                        Image(systemName: "doc.on.doc")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Copy the original")
-                    .transition(.opacity)
-                }
-
-                Spacer(minLength: 0)
-            }
-
-            if showOriginal {
-                Text(original)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-                    .background(ThemePalette.panelSurface(colorScheme))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                    .transition(.opacity)
-            }
-
-            if showComparison {
-                VStack(alignment: .leading, spacing: 6) {
-                    TextDiffView(segments: comparisonSegments, font: .caption)
-                        .padding(8)
-                        .background(ThemePalette.panelSurface(colorScheme))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-
-                    if TextDiffUtil.hasVisibleChanges(in: comparisonSegments) {
-                        TextDiffLegend()
-                    } else {
-                        // CJK spacing is a real post-processing change that the
-                        // comparison deliberately does not mark up, and a panel
-                        // with nothing struck through in it and no explanation
-                        // reads as a bug.
-                        Label("Only spacing or capitalisation changed here.",
-                              systemImage: "info.circle")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .transition(.opacity)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
-        // A regeneration replaces the transcript underneath an open comparison
-        // - sometimes only the raw side, when the final text lands unchanged -
-        // and a comparison against text the row no longer shows is worse than
-        // none.
-        .onChange(of: recording.transcription) { _, _ in
-            refreshComparison(against: original)
-        }
-        .onChange(of: recording.rawTranscription) { _, _ in
-            refreshComparison(against: original)
-        }
-    }
-
-    private func refreshComparison(against original: String) {
-        guard showComparison else { return }
-        comparisonSegments = TextDiffUtil.compare(original: original, revised: displayText)
-    }
-
-    private func disclosureButton(
-        title: String, isExpanded: Bool, help: String, action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 9, weight: .semibold))
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                Text(title)
-                    .font(.caption)
-            }
-            .foregroundColor(.secondary)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(help)
-    }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // First, and above everything: what this row is. A transcript on its
-            // own cannot say whether the words were typed into another app, sent
-            // to the Ask panel, or read as a command that opened nothing.
-            HistoryProvenanceBadge(provenance: recording.provenance)
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-
-            if isPending && !isRegenerating {
-                VStack(alignment: .leading, spacing: 4) {
-                    if let sourceFileName = recording.sourceFileName {
-                        Text(sourceFileName)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    
-                    HStack(spacing: 6) {
-                        if recording.status == .pending {
-                            Image(systemName: "clock")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        } else {
-                           
-                            ZStack {
-                                Circle()
-                                    .stroke(Color.secondary.opacity(0.2), lineWidth: 2)
-                                
-                                Circle()
-                                    .trim(from: 0, to: CGFloat(recording.progress))
-                                    .stroke(Color.secondary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                                    .rotationEffect(.degrees(-90))
-                                    .animation(.linear(duration: 0.1), value: recording.progress)
-                            }
-                            .frame(width: 16, height: 16)
-
-                            Text("\(Int(recording.progress * 100))%")
-                                .font(.caption.monospacedDigit())
-                                .foregroundColor(.secondary)
-                                .contentTransition(.numericText())
-                                .animation(.linear(duration: 0.1), value: recording.progress)
-                        }
-                        
-                        Text(statusText)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        
-                        Spacer()
-                    }
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
-
-                }
-                .padding(.horizontal, 12)
-                .padding(.top, 8)
-            }
-            
-            if recording.status == .failed {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.caption)
-                            .foregroundColor(.red)
-                        Text("Transcription failed")
-                            .font(.caption)
-                            .foregroundColor(.red)
-                    }
-                    
-                    if !recording.transcription.isEmpty {
-                        Text(recording.transcription)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.top, isPending && !isRegenerating ? 4 : 8)
-            } else if !displayText.isEmpty {
-                ZStack(alignment: .topLeading) {
-                    TranscriptionView(
-                        transcribedText: displayText,
-                        searchQuery: searchQuery,
-                        isExpanded: $showTranscription
-                    )
-                    
-                    if isRegenerating {
-                        ShimmerOverlay()
-                            .transition(.opacity.animation(.easeInOut(duration: 0.3)))
-                    }
-                }
-                .padding(.horizontal, 4)
-                .padding(.top, isPending && !isRegenerating ? 4 : 8)
-
-                if let original = originalTranscription {
-                    originalTranscriptionSection(original)
-                }
-            } else if !isPending {
-                Text("No speech detected")
-                    .font(.body)
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 8)
-            }
-
-            Divider()
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-
-            HStack(alignment: .center, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(recording.timestamp, style: .date)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-
-                    HStack(spacing: 4) {
-                        Text(recording.timestamp, style: .time)
-                        Text("·")
-                        Text(TextUtil.formatDuration(recording.duration))
-                    }
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                }
-                
-                if isRegenerating {
-                    Spacer()
-                        .frame(width: 2)
-                    HStack(spacing: 6) {
-                        if recording.status == .pending {
-                            Image(systemName: "clock")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        } else {
-                            ZStack {
-                                Circle()
-                                    .stroke(Color.secondary.opacity(0.2), lineWidth: 2)
-                                
-                                Circle()
-                                    .trim(from: 0, to: CGFloat(recording.progress))
-                                    .stroke(Color.secondary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                                    .rotationEffect(.degrees(-90))
-                                    .animation(.linear(duration: 0.1), value: recording.progress)
-                            }
-                            .frame(width: 16, height: 16)
-
-                            Text("\(Int(recording.progress * 100))%")
-                                .font(.caption.monospacedDigit())
-                                .foregroundColor(.secondary)
-                                .contentTransition(.numericText())
-                                .animation(.linear(duration: 0.1), value: recording.progress)
-                        }
-                        
-                        Text(statusText)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .transition(.opacity)
-                
-                }
-
-                Spacer()
-
-                HStack(spacing: 16) {
-                    if !isPending && recording.status != .failed && (isHovered || isPlaying) {
-                        Button(action: {
-                            if isPlaying {
-                                audioRecorder.stopPlaying()
-                            } else {
-                                audioRecorder.playRecording(url: recording.url)
-                            }
-                        }) {
-                            Image(systemName: isPlaying ? "stop.circle.fill" : "play.circle.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(isPlaying ? .red : ThemePalette.iconAccent(colorScheme))
-                                .contentTransition(.symbolEffect(.replace))
-                        }
-                        .buttonStyle(.plain)
-                        .transition(.opacity)
-
-                        Button(action: {
-                            NSPasteboard.general.clearContents()
-                            NSPasteboard.general.setString(
-                                recording.transcription, forType: .string
-                            )
-                        }) {
-                            Image(systemName: "doc.on.doc.fill")
-                                .font(.system(size: 18))
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Copy entire text")
-                        .transition(.opacity)
-                    }
-
-                    if (recording.status == .completed || recording.status == .failed) && isHovered {
-                        Button(action: {
-                            onRegenerate()
-                        }) {
-                            Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 18))
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .help("Regenerate transcription")
-                        .transition(.opacity)
-                    }
-
-                    if isHovered || isPlaying || (isPending && !isRegenerating) || recording.status == .failed {
-                        Button(action: {
-                            if isPlaying {
-                                audioRecorder.stopPlaying()
-                            }
-                            onDelete()
-                        }) {
-                            Image(systemName: "trash.fill")
-                                .font(.system(size: 18))
-                                .foregroundColor(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                        .transition(.opacity)
-                    }
-                }
-                .animation(.easeInOut(duration: 0.2), value: isHovered)
-                .animation(.easeInOut(duration: 0.2), value: isPlaying)
-                .animation(.easeInOut(duration: 0.2), value: isRegenerating)
-            }
-            .animation(.easeInOut(duration: 0.2), value: isRegenerating)
-            .padding(.horizontal, 12)
-            .padding(.bottom, 8)
-            .background(ThemePalette.cardBackground(colorScheme))
-        }
-        .background(ThemePalette.cardBackground(colorScheme))
-        .cornerRadius(8)
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(ThemePalette.cardBorder(colorScheme), lineWidth: 1)
-        )
-        .onHover { hovering in
-            isHovered = hovering
-        }
-        .padding(.vertical, 4)
-    }
-}
-
 struct ShimmerOverlay: View {
     @State private var phase: CGFloat = 0
     
@@ -1582,7 +1155,7 @@ struct TranscriptionView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Group {
                 if isExpanded {
                     ScrollView {
@@ -1602,11 +1175,16 @@ struct TranscriptionView: View {
                             }
                     )
                 } else {
+                    // `fixedSize` vertically, not for show: without it the
+                    // collapsed transcript takes whatever height the row can
+                    // spare and truncates to one line at wide widths, which is
+                    // the opposite of what `lineLimit(3)` is asking for.
                     if hasMoreLines {
                         Button(action: { isExpanded.toggle() }) {
                             highlightedText
                                 .font(.body)
                                 .lineLimit(3)
+                                .fixedSize(horizontal: false, vertical: true)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .textSelection(.enabled)
                                 .foregroundColor(.primary)
@@ -1616,13 +1194,16 @@ struct TranscriptionView: View {
                         highlightedText
                             .font(.body)
                             .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .textSelection(.enabled)
                     }
                 }
             }
-            .padding(8)
-
+            // No inset of its own. The card is what sets this row's left
+            // margin, and a transcript indented 8 pt further than the badge,
+            // the chips and the timestamp above and below it is the one
+            // misalignment a reader notices every time.
             if hasMoreLines {
                 Button(action: { isExpanded.toggle() }) {
                     HStack(spacing: 4) {
@@ -1632,8 +1213,7 @@ struct TranscriptionView: View {
                     .foregroundColor(ThemePalette.linkText(colorScheme))
                     .font(.footnote)
                 }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 8)
+                .buttonStyle(.plain)
             }
         }
         .onAppear {
@@ -1815,6 +1395,71 @@ enum ThemePalette {
         scheme == .dark
             ? Color(NSColor.separatorColor)
             : Color(red: 0.86, green: 0.88, blue: 0.92)
+    }
+
+    // MARK: - History cards
+
+    /// A history card's fill, which lifts a shade under the pointer.
+    ///
+    /// The lift is deliberately small. A card is a container for text the user
+    /// is reading, and a hover state strong enough to notice out of the corner
+    /// of the eye is a hover state that makes the words harder to read.
+    static func cardSurface(_ scheme: ColorScheme, hovered: Bool) -> Color {
+        guard hovered else { return cardBackground(scheme) }
+        return scheme == .dark
+            ? Color(nsColor: NSColor.controlBackgroundColor
+                .blended(withFraction: 0.07, of: .white) ?? .controlBackgroundColor)
+            : Color(red: 0.975, green: 0.982, blue: 0.996)
+    }
+
+    /// A history card's border. Hover firms it up; a failed row keeps a warm
+    /// edge so the state is legible before the badge is read - and the badge
+    /// says it in words too, so colour never carries it alone.
+    static func cardStroke(_ scheme: ColorScheme, hovered: Bool, failed: Bool) -> Color {
+        if failed {
+            return failureText(scheme).opacity(hovered ? 0.55 : 0.35)
+        }
+        if hovered {
+            return scheme == .dark
+                ? Color.white.opacity(0.22)
+                : Color(red: 0.72, green: 0.76, blue: 0.84)
+        }
+        return cardBorder(scheme)
+    }
+
+    /// The drop shadow under a history card. Dark mode gets a deeper, tighter
+    /// one because a soft grey shadow over a dark ground reads as a smudge.
+    static func cardShadow(_ scheme: ColorScheme, elevated: Bool) -> Color {
+        scheme == .dark
+            ? Color.black.opacity(elevated ? 0.45 : 0.25)
+            : Color(red: 0.35, green: 0.42, blue: 0.55).opacity(elevated ? 0.16 : 0.07)
+    }
+
+    /// The fill behind a metadata chip or a hovered action button.
+    static func chipSurface(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color.white.opacity(0.08)
+            : Color(red: 0.93, green: 0.94, blue: 0.97)
+    }
+
+    /// The fill behind text quoted inside a card - the original transcript, the
+    /// comparison - which has to stay distinct from the card under it.
+    static func insetSurface(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color.white.opacity(0.05)
+            : Color(red: 0.95, green: 0.96, blue: 0.98)
+    }
+
+    /// The failure tint. Not `.red`: system red on white is bright enough to
+    /// pull the eye off the transcript, and on a dark ground it vibrates.
+    static func failureText(_ scheme: ColorScheme) -> Color {
+        scheme == .dark
+            ? Color(red: 1.0, green: 0.53, blue: 0.48)
+            : Color(red: 0.75, green: 0.18, blue: 0.16)
+    }
+
+    static func failureFill(_ scheme: ColorScheme) -> Color {
+        failureText(scheme).opacity(scheme == .dark ? 0.18 : 0.10)
     }
 
     static func recordButtonBase(_ scheme: ColorScheme) -> Color {
