@@ -150,7 +150,12 @@ final class AskPanelWindowController {
 
     /// Opens the panel with nothing asked yet.
     func present() {
-        captureInsertionTarget()
+        if Self.shouldCaptureInsertionTarget(
+            isPanelVisible: panel?.isVisible == true,
+            hasInsertionTarget: insertionTarget != nil
+        ) {
+            captureInsertionTarget()
+        }
         ensurePanel()
         showPanel()
         // The user is about to wait for the model, and the first request after
@@ -385,6 +390,30 @@ final class AskPanelWindowController {
     }
 
     // MARK: - What the answer does next
+
+    /// Whether this presentation should read the frontmost application, or keep
+    /// the target the panel is already holding.
+    ///
+    /// It matters because `present()` is no longer only reached with the panel
+    /// hidden. A second ⌥A press - the follow-up the shortcut now exists to
+    /// make - re-presents a panel that is already up and already key, so the
+    /// frontmost application is Kongweh itself; `capturedInsertionTarget`
+    /// refuses this app, and capturing again would replace the target the panel
+    /// opened with (the user's editor) with nothing. **Insert into Active App**
+    /// would then silently fall back to the clipboard on exactly the question
+    /// the user asked while looking at the document they wanted it in. The
+    /// target belongs to the presentation, and `hide()` is still what forgets
+    /// it.
+    ///
+    /// A presentation holding no target has nothing to lose, so it may still
+    /// read: that is a panel opened from Kongweh's own window, or one caught
+    /// mid-fade-out, and both are better served by looking than by keeping a
+    /// `nil` they would otherwise be stuck with.
+    static func shouldCaptureInsertionTarget(
+        isPanelVisible: Bool, hasInsertionTarget: Bool
+    ) -> Bool {
+        !isPanelVisible || !hasInsertionTarget
+    }
 
     private func captureInsertionTarget() {
         insertionTarget = Self.capturedInsertionTarget(

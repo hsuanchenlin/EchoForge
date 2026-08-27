@@ -36,6 +36,86 @@ final class AskVoiceShortcutTests: XCTestCase {
         )
     }
 
+    /// The recording has stopped, so there is nothing left for a press to
+    /// finish. It has to classify as `.ignore` on its own rather than reaching
+    /// `finishVoiceFollowUp` and being absorbed by that method's own
+    /// `state == .listening` guard - a decision that is only correct because
+    /// the thing it decides declines to act is not a decision.
+    func testAPressWhileTheQuestionIsBeingTranscribedIsIgnored() {
+        let viewModel = AskPanelViewModel { _ in .answered("unused") }
+        viewModel.startVoiceFollowUp()
+        viewModel.finishVoiceFollowUp()
+
+        XCTAssertEqual(viewModel.state, .transcribing)
+        XCTAssertFalse(viewModel.isCapturingVoiceQuestion)
+        XCTAssertTrue(viewModel.isBusy)
+        XCTAssertEqual(
+            AskPanelWindowController.shortcutAction(
+                isCapturingVoiceQuestion: viewModel.isCapturingVoiceQuestion,
+                isBusy: viewModel.isBusy),
+            .ignore
+        )
+    }
+
+    /// ⌥S still finishes a screen query that has stopped recording and is being
+    /// transcribed - narrowing the voice-question predicate must not narrow
+    /// that one, which `toggleScreenQuery` depends on.
+    func testNarrowingTheVoicePredicateLeftTheScreenQueryOneAlone() {
+        let viewModel = AskPanelViewModel { _ in .answered("unused") }
+        viewModel.startScreenQuery()
+        viewModel.finishVoiceFollowUp()
+
+        XCTAssertEqual(viewModel.state, .transcribing)
+        XCTAssertTrue(viewModel.isCapturingScreenQuery)
+        XCTAssertFalse(viewModel.isCapturingVoiceQuestion)
+    }
+
+    // MARK: - What Insert still pastes into
+
+    /// The regression the review caught. `present()` is no longer reached only
+    /// with the panel hidden: a second ⌥A press re-presents a panel that is up
+    /// and key, so the frontmost application is Kongweh itself. Reading it
+    /// again would replace the user's editor with nothing, and Insert would
+    /// fall back to the clipboard on exactly the follow-up the shortcut exists
+    /// to make.
+    func testRePresentingAnOpenPanelKeepsTheTargetItOpenedWith() {
+        XCTAssertFalse(
+            AskPanelWindowController.shouldCaptureInsertionTarget(
+                isPanelVisible: true, hasInsertionTarget: true),
+            "a re-presentation must not erase the target the panel opened with"
+        )
+    }
+
+    /// Opening the panel is what reads the frontmost application, and a
+    /// presentation holding nothing has nothing to lose by reading again - a
+    /// panel opened from Kongweh's own window, or one caught mid-fade-out.
+    func testOpeningThePanelStillReadsTheFrontmostApplication() {
+        XCTAssertTrue(
+            AskPanelWindowController.shouldCaptureInsertionTarget(
+                isPanelVisible: false, hasInsertionTarget: false))
+        XCTAssertTrue(
+            AskPanelWindowController.shouldCaptureInsertionTarget(
+                isPanelVisible: false, hasInsertionTarget: true))
+        XCTAssertTrue(
+            AskPanelWindowController.shouldCaptureInsertionTarget(
+                isPanelVisible: true, hasInsertionTarget: false))
+    }
+
+    /// And the rule is actually wired into the presentation, not just stated:
+    /// `present()` must ask it rather than reading the frontmost application
+    /// unconditionally the way it did before the shortcut re-presented panels.
+    func testThePresentationAsksBeforeReadingTheFrontmostApplication() throws {
+        let controller = try Self.source(of: "OpenSuperWhisper/Ask/AskPanelWindowController.swift")
+        let present = try XCTUnwrap(
+            controller.range(of: "func present() {").map { controller[$0.lowerBound...] })
+        let body = String(present.prefix(600))
+
+        XCTAssertTrue(
+            body.contains("shouldCaptureInsertionTarget"),
+            "present() must not capture unconditionally - a re-present would clobber the target"
+        )
+    }
+
     /// A screen query in flight belongs to ⌥S: ⌥A must not finish it, because
     /// the two keys ask different questions and only one of them has a
     /// screenshot behind it.

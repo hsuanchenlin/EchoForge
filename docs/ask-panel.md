@@ -121,6 +121,15 @@ with `activate()`, and the paste is synthesized after
 while this panel still has focus and the answer is pasted into the question
 field.
 
+**A re-presentation keeps it.** ⌥A re-presents a panel that is already up - that
+is what a spoken follow-up is - and by then this app is the frontmost one, so
+reading the frontmost application again would capture Kongweh, which
+`capturedInsertionTarget` refuses, and replace the user's editor with nothing.
+`AskPanelWindowController.shouldCaptureInsertionTarget` is that rule: a
+presentation reads the frontmost application when the panel is not already up,
+or when it is holding no target and so has nothing to lose. Without it, Insert
+fell back to the clipboard on exactly the follow-up the shortcut exists to make.
+
 The target is remembered for one presentation only. Closing the panel hands
 keyboard focus back to it - the same hand-back Insert does, so Esc puts the
 user's keystrokes back in the document they came from - and then forgets it,

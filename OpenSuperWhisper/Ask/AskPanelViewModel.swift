@@ -147,15 +147,22 @@ final class AskPanelViewModel: ObservableObject {
         isScreenQuery && (state == .listening || state == .transcribing)
     }
 
-    /// True while a plain spoken question is still being captured, which is the
+    /// True while a plain spoken question is still being spoken, which is the
     /// only state pressing ⌥A again should finish rather than start something
     /// new.
     ///
-    /// The mirror image of `isCapturingScreenQuery`, and deliberately exclusive
-    /// with it: a ⌥S capture has a screenshot behind it that ⌥A knows nothing
-    /// about, so neither key may finish the other key's question.
+    /// Deliberately exclusive with `isCapturingScreenQuery`: a ⌥S capture has a
+    /// screenshot behind it that ⌥A knows nothing about, so neither key may
+    /// finish the other key's question.
+    ///
+    /// And deliberately **narrower** than that one, which also covers
+    /// `.transcribing`. There is nothing left to finish once the recording has
+    /// stopped, so a press then is `.ignore` rather than a finish that
+    /// `finishVoiceFollowUp`'s own `state == .listening` guard would quietly
+    /// absorb - the classification has to be right on its own, not correct only
+    /// because the effect side declines to act on it.
     var isCapturingVoiceQuestion: Bool {
-        !isScreenQuery && (state == .listening || state == .transcribing)
+        !isScreenQuery && state == .listening
     }
 
     /// The answer on screen, or nil when there is not one.
