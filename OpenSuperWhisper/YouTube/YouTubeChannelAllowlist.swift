@@ -19,6 +19,15 @@ enum YouTubeChannelMatchSource: Equatable, Sendable {
     /// both deterministic tiers came back unknown or ambiguous. `spoken` is what
     /// it was given, so a surface can quote it back.
     case model(spoken: String)
+    /// **The user chose it themselves**, from the picker every automatic tier
+    /// failed into. `spoken` is the phrase that missed, so a surface can say
+    /// which words the choice was made about.
+    ///
+    /// Its own case rather than one of the two above, because it is the one
+    /// match nothing inferred: no comparison, no model and no ranking decided
+    /// it, and the row's position in the list did not either. The ranking put a
+    /// row first; a keystroke is what made it the answer.
+    case picker(spoken: String)
 
     /// Whether a model was asked. Read by the surfaces that disclose it.
     var usedModel: Bool {
@@ -26,10 +35,17 @@ enum YouTubeChannelMatchSource: Equatable, Sendable {
         return false
     }
 
-    /// The sentence disclosing a model match, or nil when nothing was asked.
+    /// The sentence disclosing how a match that was not a stored spelling came
+    /// about, or nil when the spelling itself answered.
     var disclosure: String? {
-        guard case .model(let spoken) = self else { return nil }
-        return "“\(spoken)” is not one of your stored spellings; the on-device model matched it to this channel."
+        switch self {
+        case .spokenName, .spacing:
+            return nil
+        case .model(let spoken):
+            return "“\(spoken)” is not one of your stored spellings; the on-device model matched it to this channel."
+        case .picker(let spoken):
+            return "“\(spoken)” is not one of your stored spellings; you chose this channel from your own list."
+        }
     }
 }
 

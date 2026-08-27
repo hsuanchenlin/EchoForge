@@ -17,6 +17,14 @@ enum CapsuleHUDState: Equatable {
     case recording
     /// The audio has stopped and the app is turning it into text.
     case polishing(CapsuleHUDWork)
+    /// The words are read and the channel picker is on screen; what remains is
+    /// the user's answer, not the app's work. Its own state rather than a
+    /// `polishing` label, which would claim the engine is still running for as
+    /// long as the picker waits - the exact lie
+    /// `RecordingState.awaitingChannelChoice` exists to retire - and rather
+    /// than an error, because nothing has failed: the session ends on whatever
+    /// they choose.
+    case awaitingChannelChoice
     /// The text was produced and handed to whatever the user was typing in.
     case complete
     /// Something the user should know before the capsule goes: nothing was heard,
@@ -31,7 +39,7 @@ enum CapsuleHUDState: Equatable {
     var isTerminalBadge: Bool {
         switch self {
         case .complete, .error: return true
-        case .idle, .connecting, .recording, .polishing: return false
+        case .idle, .connecting, .recording, .polishing, .awaitingChannelChoice: return false
         }
     }
 }
@@ -264,6 +272,21 @@ final class CapsuleHUDViewModel: ObservableObject {
         state = .polishing(work)
     }
 
+    /// The command's words are read and the channel picker is on screen; what
+    /// is left is the user's answer.
+    ///
+    /// Not `fail`: nothing has failed, and the session is still in flight, so
+    /// it must remain able to finish on whatever the user chooses.
+    func beginAwaitingChannelChoice() {
+        guard state != .awaitingChannelChoice else { return }
+        // The same guards as `beginPolishing`: a badge already on screen owns
+        // the rest of its life, and a picker announced for a session that has
+        // ended must not reopen the capsule.
+        guard !state.isTerminalBadge, state != .idle else { return }
+        generation += 1
+        state = .awaitingChannelChoice
+    }
+
     /// The dictation produced text and the app used it.
     ///
     /// Ignored unless a session is actually in flight, which is what keeps a
@@ -274,6 +297,11 @@ final class CapsuleHUDViewModel: ObservableObject {
         case .connecting, .recording, .polishing:
             break
         case .idle, .complete, .error:
+            return
+        case .awaitingChannelChoice:
+            // A picker wait has no text to claim was inserted; its answer
+            // arrives as the picker's own outcome - a video opened, or the
+            // refusal reported through `fail`.
             return
         }
         generation += 1
@@ -384,6 +412,13 @@ final class CapsuleHUDViewModel: ObservableObject {
         // pill's words and the sentence separately, and this is the pill's.
         case .commandFailed(let reason):
             fail(reason)
+        // Not a failure and not a finished session: the words were read and
+        // the user is being asked which of their channels they meant. The pill
+        // says that rather than "Transcribing…", which would claim work that
+        // has finished - the same boundary the card draws, since the two are
+        // presentations of one session.
+        case .awaitingChannelChoice:
+            beginAwaitingChannelChoice()
         }
     }
 

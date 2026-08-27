@@ -72,11 +72,12 @@ that the transcript is content and never instruction; here the user's words
 
 ## Focus, and where Insert puts things
 
-This is the one HUD in the app that takes keyboard focus. It has to: a question
-box that cannot receive a keystroke is not a question box, and keyboard input
-goes to the *active* application, which this one normally is not. So opening the
-panel activates Kongweh and makes the panel key - the opposite of what
-`CapsuleHUDPanel` and `IndicatorWindow` do, and for the opposite reason.
+This panel takes keyboard focus - the YouTube channel picker
+(`docs/youtube-latest-video.md`) is the only other surface that does. It has to:
+a question box that cannot receive a keystroke is not a question box, and
+keyboard input goes to the *active* application, which this one normally is not.
+So opening the panel activates Kongweh and makes the panel key - the opposite of
+what `CapsuleHUDPanel` and `IndicatorWindow` do, and for the opposite reason.
 
 That is exactly what makes **Insert into Active App** the interesting part. The
 application the user was working in is captured **before** the panel opens

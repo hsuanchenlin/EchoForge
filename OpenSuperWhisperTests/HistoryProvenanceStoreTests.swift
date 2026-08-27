@@ -121,6 +121,76 @@ final class HistoryProvenanceStoreTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(stored.provenance.detail).contains("valley101"), true)
     }
 
+    /// The picker's own states are durable, and they are the ones most likely
+    /// to be read the next morning: "it asked me something and I closed it" is
+    /// exactly the press a user cannot otherwise reconstruct.
+    func testThePickerStatesSurviveTheDatabase() throws {
+        try RecordingStore.makeMigrator().migrate(dbQueue)
+
+        for reason in [YouTubeCommandRefusal.pickerShown, .pickerCancelled,
+                       .noChannelsConfigured] {
+            var recording = makeRecording(transcription: "Vali101")
+            recording.provenance = .youTubeCommandNotOpened(
+                reason: reason, message: "about “Vali101”")
+            try dbQueue.write { try recording.insert($0) }
+
+            let stored = try XCTUnwrap(
+                try dbQueue.read { try Recording.filter(key: recording.id).fetchOne($0) })
+            XCTAssertEqual(stored.provenance.kind, .youTubeCommandNotOpened)
+            XCTAssertEqual(stored.provenance.refusal, reason)
+            XCTAssertEqual(stored.provenance.detail, "about “Vali101”")
+        }
+    }
+
+    /// A row written by a build that knows a refusal this one does not comes
+    /// back as an older recording rather than as a guess - which is what makes
+    /// adding a reason a safe thing to do to a database full of transcripts
+    /// nobody can get back.
+    func testARefusalThisBuildDoesNotKnowIsAnOlderRecordingRatherThanAGuess() throws {
+        try RecordingStore.makeMigrator().migrate(dbQueue)
+
+        let provenance = RecordingProvenance.stored(
+            kind: RecordingProvenanceKind.youTubeCommandNotOpened.rawValue,
+            reason: "somethingAFutureBuildAdded",
+            detail: "written by a newer Kongweh"
+        )
+        XCTAssertEqual(provenance, .unknown)
+    }
+
+    /// A picker row that the user later re-transcribes from History keeps its
+    /// class - what that press did does not change - and loses only the sentence
+    /// quoting the old spelling.
+    func testAPickerRowRetranscribedFromHistoryKeepsItsClass() {
+        let after = RecordingProvenance
+            .youTubeCommandNotOpened(reason: .pickerCancelled, message: "about “Vali101”")
+            .reTranscribed()
+
+        XCTAssertEqual(after.refusal, .pickerCancelled)
+        XCTAssertEqual(after.detail?.contains("Vali101"), false)
+        XCTAssertEqual(after.detail?.contains("transcribed again from History"), true)
+    }
+
+    /// The list filters in SQL, and both picker outcomes belong to the group a
+    /// user is looking for when they ask what did not open.
+    func testThePickerRowsAreFoundByTheNotOpenedFilter() throws {
+        try RecordingStore.makeMigrator().migrate(dbQueue)
+
+        try insert(
+            makeRecording(transcription: "Vali101"),
+            as: .youTubeCommandNotOpened(reason: .pickerCancelled, message: "cancelled"))
+        try insert(
+            makeRecording(transcription: "Vali101 again"),
+            as: .youTubeCommandNotOpened(reason: .pickerShown, message: "waiting"))
+        try insert(
+            makeRecording(transcription: "valley101"),
+            as: .command(.opened(channel: "valley101", title: "A video", match: .picker(spoken: "Vali101"))))
+
+        XCTAssertEqual(try count(matching: .youTubeCommandNotOpened), 2)
+        XCTAssertEqual(try count(matching: .youTubeCommandOpened), 1)
+        XCTAssertEqual(try count(matching: .dictation), 0, "A command is never filed as dictation.")
+        XCTAssertEqual(try count(matching: .ask), 0, "And never as Ask.")
+    }
+
     func testAssigningAProvenanceReplacesTheOneBeforeIt() throws {
         try RecordingStore.makeMigrator().migrate(dbQueue)
         var recording = makeRecording(transcription: "Veritasium")

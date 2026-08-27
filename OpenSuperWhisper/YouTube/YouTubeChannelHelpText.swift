@@ -47,6 +47,14 @@ enum YouTubeChannelHelpText {
     static let emptyState = "Add the channels you actually watch. The YouTube command shortcut opens the newest video from one of them in Chrome, and can never open anything else."
 
 
+    static let pickerToggleTitle = "Let me pick from my channels when a name is not recognised"
+
+    /// What the picker is, and - the part that has to be said before it is
+    /// switched on - that it appears in front of whatever the user is doing.
+    /// That is the one thing about it a person would want to know in advance,
+    /// and the only reason it is a switch at all.
+    static let pickerHint = "On by default. When what you said matches no channel above - or matches two - Kongweh shows this list and you choose with the arrow keys and Return, or press Escape to open nothing. It asks nothing and sends nothing anywhere; the list is only the channels you added here. It does take keyboard focus for as long as it is up, so turn this off if you would rather a command that misses simply say so."
+
     static let modelMatchToggleTitle = "Let the on-device model match a name I said"
 
     /// What the model is given, what it can answer, and where it runs. All three

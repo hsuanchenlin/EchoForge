@@ -101,6 +101,47 @@ extension YouTubeLatestVideoReport {
     }
 }
 
+extension YouTubeLatestVideoReport {
+
+    /// The refusal for a miss with nothing to offer instead: the allowlist holds
+    /// no channel a command could reach.
+    ///
+    /// Its own sentence rather than `channelUnknown`'s because the fix is a
+    /// different one - "add that spelling to the channel you meant" is not
+    /// advice anybody can act on with no channels stored.
+    static func noChannelsConfigured(spoken: String) -> YouTubeLatestVideoReport {
+        .refused(
+            reason: .noChannelsConfigured,
+            message: "Nothing was opened: “\(spoken)” did not match anything, and there is no YouTube channel in your list yet. Add one in Settings → Dictionary & Snippets → YouTube Channels.",
+            shortMessage: YouTubeCommandRefusal.noChannelsConfigured.shortLabel
+        )
+    }
+
+    /// The refusal for a picker the user closed without choosing.
+    ///
+    /// What it advises is whichever fix the cause actually has. An unknown name
+    /// is still not a stored spelling, and adding it is what opens directly
+    /// next time. An ambiguous one already is a stored spelling - of two rows -
+    /// so that advice cannot fix anything; giving the rows different spoken
+    /// names can.
+    static func pickerCancelled(
+        spoken: String, cause: YouTubeChannelPickerRequest.Cause
+    ) -> YouTubeLatestVideoReport {
+        let message: String
+        switch cause {
+        case .unknown:
+            message = "You closed the channel picker without choosing, so nothing was opened. “\(spoken)” is still not one of your stored spellings - add it as a spoken name in Settings → Dictionary & Snippets → YouTube Channels to have it open directly."
+        case .ambiguous(let matches):
+            message = "You closed the channel picker without choosing, so nothing was opened. “\(spoken)” still answers to more than one channel (\(matches.joined(separator: ", "))) - give them different spoken names in Settings → Dictionary & Snippets → YouTube Channels to have one open directly."
+        }
+        return .refused(
+            reason: .pickerCancelled,
+            message: message,
+            shortMessage: YouTubeCommandRefusal.pickerCancelled.shortLabel
+        )
+    }
+}
+
 /// Carries out a resolved spoken command: newest entry from the channel's feed,
 /// validated, opened in Chrome.
 ///

@@ -513,14 +513,33 @@ an invented name, an answer two rows answer to) leaves the refusal exactly as it
 was. It is on-device only, enforced by `OnDeviceModelFeature.channelMatching`
 having no `cloudFeature`, and a match it made is disclosed in the report.
 
+When every automatic tier misses, the last one is a **person**: `YouTubeChannelPickerOffer`
+decides whether to show the user their own channels, `YouTubeCommandRunner` is the whole
+press behind seams (feed, browser, chooser, history), and the panel takes focus like the Ask
+panel does. Three things there are absolute. It **decides nothing**: the list is
+`YouTubeCommandResolution.candidates` - the allowlist snapshot *that* command resolved
+against, carried rather than re-read - the runner re-checks the answer against it, and
+nothing opens without a keystroke. `YouTubeChannelSuggestions` is the one inexact comparison
+in the feature and is safe only for that reason: it scores stored names and aliases, never an
+id or a URL, orders suggestions first and leaves everything below the threshold in the user's
+own list order, and is deterministic because Return lands on whatever is first. And it is
+offered only to a phrase that missed - silence gets no panel, an empty allowlist is its own
+refusal, and `youTubeChannelPickerEnabled` (on by default) restores the old refusal exactly.
+Its activation is forced (`activate(ignoringOtherApps:)`) and the file records the
+measurement: a background app's plain `activate()` is refused once the user's attention has
+lapsed, which is always, because this panel opens after a transcription rather than on the
+key press. The key monitor stands down while an input method is composing, since this app's
+users type Chinese.
+
 `OpenSuperWhisper/Ask/` is the floating Ask panel (⌥A, or a spoken question) and
 `docs/ask-panel.md` is its story. It runs the same on-device model as rewriting
 and has deliberately **no `StyleRewriteGuard`**: a guard exists because a rewrite
 replaces the user's words unread, and an answer is read before it goes anywhere.
-It is also the one HUD that *takes* focus - a question box has to - which is why
-the app to paste into is captured before the panel opens rather than read at
-insertion time. `TranslationRewrite` is a sibling of `StyleRewriteService`, not a
-style inside it, because that stage's rules say "never translate this"; the one
+It also *takes* focus, as only it and the channel picker do - a question box has
+to - which is why the app to paste into is captured before the panel opens
+rather than read at insertion time. `TranslationRewrite` is a sibling of
+`StyleRewriteService`, not a style inside it, because that stage's rules say
+"never translate this"; the one
 guard rule it relaxes is `StyleRewriteShape.translating`, and it relaxes it in
 that one place. `AsyncDeadline` (`Utils/`) is the shared hard budget both model
 callers use and documents why it is not a task group.

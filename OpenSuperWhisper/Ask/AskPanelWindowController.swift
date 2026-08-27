@@ -4,11 +4,12 @@ import SwiftUI
 
 /// The Ask panel's window.
 ///
-/// This is the one HUD in the app that **does** take focus, and the difference
-/// is the text field: `CapsuleHUDPanel` and `IndicatorWindow` exist to be
-/// glanced at while the user keeps typing somewhere else, so they refuse key
-/// status; a panel with a question box that cannot receive a keystroke is not a
-/// panel. A borderless window cannot become key without this override.
+/// This HUD **does** take focus - the YouTube channel picker's panel is the
+/// only other one that does - and the difference is the text field:
+/// `CapsuleHUDPanel` and `IndicatorWindow` exist to be glanced at while the
+/// user keeps typing somewhere else, so they refuse key status; a panel with a
+/// question box that cannot receive a keystroke is not a panel. A borderless
+/// window cannot become key without this override.
 ///
 /// Taking focus is what makes **Insert into Active App** a real problem rather
 /// than a trivial one, and it is solved elsewhere: the application the user was

@@ -51,6 +51,17 @@ enum RecordingState: Equatable {
     /// carries a matching sentence for the surfaces with room, and posts it as a
     /// VoiceOver announcement).
     case commandFailed(String)
+
+    /// A command whose spoken channel name nothing could place, with the channel
+    /// picker now on screen waiting for the user.
+    ///
+    /// It exists because the card would otherwise sit on `.decoding` for as long
+    /// as the picker is up - a spinner that has in fact finished, in front of a
+    /// panel that is waiting on the user - and a spinner that never resolves is
+    /// how a working feature looks broken. Unlike every other message here it
+    /// carries no timer: the picker ends it, and until then this is what the
+    /// session is doing. See `YouTubeChannelPickerOffer`.
+    case awaitingChannelChoice
 }
 
 /// What became of a dictation that arrived while the engine was busy.
@@ -331,18 +342,22 @@ class IndicatorViewModel: ObservableObject {
                 let duration = await AudioUtil.audioDuration(url: tempURL)
                 do {
                     print("start decoding...")
-                    let styled = try await transcriptionService.transcribeAudio(
-                        url: tempURL,
-                        settings: Settings(
-                            purpose: self.purpose,
-                            dictationTarget: self.dictationTarget,
-                            // Live dictation is the one path where a spoken
-                            // command means anything - see `Settings`. A
-                            // `.youTubeCommand` capture is not one, and
-                            // `Settings` refuses it there whatever is passed.
-                            routesSpokenIntents: true
-                        )
+                    // Resolved once and reused, so the answer to "may this
+                    // session offer the channel picker" is the same one the
+                    // pipeline read the allowlist with. A second `Settings`
+                    // built after the transcription would read preferences the
+                    // user could have changed while they were speaking.
+                    let settings = Settings(
+                        purpose: self.purpose,
+                        dictationTarget: self.dictationTarget,
+                        // Live dictation is the one path where a spoken
+                        // command means anything - see `Settings`. A
+                        // `.youTubeCommand` capture is not one, and
+                        // `Settings` refuses it there whatever is passed.
+                        routesSpokenIntents: true
                     )
+                    let styled = try await transcriptionService.transcribeAudio(
+                        url: tempURL, settings: settings)
                     let text = styled.final
 
                     if text.isEmpty {
@@ -398,7 +413,11 @@ class IndicatorViewModel: ObservableObject {
                             // timer, so the session ends there rather than
                             // falling through to the hide below - the same shape
                             // the kept-recording failures take.
-                            if await self.runOpenLatestVideo(command, storedAs: recordingId) {
+                            if await self.runOpenLatestVideo(
+                                command,
+                                storedAs: recordingId,
+                                isPickerEnabled: settings.youTubeChannelPicker
+                            ) {
                                 return
                             }
                         } else if self.purpose == .youTubeCommand {
@@ -476,27 +495,36 @@ class IndicatorViewModel: ObservableObject {
     
     /// Carries out an "open the latest YouTube video from …" and reports it.
     ///
-    /// The work itself is `YouTubeLatestVideoService`, which is where the feed
-    /// and the browser are tested against stubs; this is the wiring and the two
-    /// ways a session can end because of it.
+    /// The work itself is `YouTubeCommandRunner`, which is where the feed, the
+    /// browser and the channel picker are tested against stubs; this is the
+    /// wiring and the two ways a session can end because of it.
     ///
     /// - Returns: whether it put a message on screen and so owns the end of the
     ///   session, exactly as `DictationFailureOutcome.keep` does.
     private func runOpenLatestVideo(
-        _ command: YouTubeCommandResolution, storedAs recordingId: UUID
+        _ command: YouTubeCommandResolution,
+        storedAs recordingId: UUID,
+        isPickerEnabled: Bool
     ) async -> Bool {
-        let report = await Self.youTubeService.run(command.resolution)
+        // History is written as each step happens rather than once at the end -
+        // the picker can be left on screen for as long as the user likes, and a
+        // quit while it is up has to leave a row saying a choice was offered and
+        // nothing was opened.
+        let outcome = await Self.youTubeRunner.run(
+            command,
+            isPickerEnabled: isPickerEnabled,
+            // The transcription has finished; what is left is the user's answer.
+            // Leaving the card on `.decoding` for as long as the picker is up
+            // would show a spinner for work that is over.
+            willShowPicker: { [weak self] _ in self?.state = .awaitingChannelChoice }
+        ) { [weak self] provenance in
+            await self?.recordingStore.updateProvenance(recordingId, to: provenance)
+        }
+        let report = outcome.report
         // The full sentence, for the users the two-second card cannot reach and
         // for anyone reading the log afterwards.
         YouTubeCommandAccessibility.announce(report)
         print("YouTube command: \(report.spokenSummary)")
-        // And the one surface that is still there tomorrow. The row already
-        // says the command did not open anything; this replaces that with what
-        // actually happened, including the model disclosure.
-        await self.recordingStore.updateProvenance(
-            recordingId,
-            to: .command(report, modelMatch: command.modelMatch)
-        )
 
         switch report {
         case .opened(let channel, _, _):
@@ -512,9 +540,11 @@ class IndicatorViewModel: ObservableObject {
         }
     }
 
-    /// The service spoken YouTube commands run through: the real feed fetcher
-    /// and the real browser opener, built once.
-    private static let youTubeService: YouTubeLatestVideoService = .live
+    /// What spoken YouTube commands run through: the real feed fetcher, the real
+    /// browser opener and the real channel picker, built once.
+    private static let youTubeRunner = YouTubeCommandRunner(
+        service: .live, chooser: YouTubeChannelPickerPresenter()
+    )
 
 
     /// One sentence for a failed dictation, on the surface that has room for one.
@@ -787,6 +817,18 @@ struct IndicatorWindow: View {
                     Text(reason)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.orange)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            case .awaitingChannelChoice:
+                HStack(spacing: 8) {
+                    Image(systemName: "list.bullet.rectangle")
+                        .foregroundColor(.accentColor)
+                        .frame(width: 24)
+
+                    Text("Choose a channel")
+                        .font(.system(size: 13, weight: .semibold))
                         .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

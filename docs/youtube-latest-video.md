@@ -66,6 +66,10 @@ could have been built:
 - **No model decides what happens.** One optional, off-by-default step lets the
   on-device model *choose between rows the user already stored* - see the model
   fallback below. It cannot produce anything that was not already in the list.
+- **No fuzzy match ever opens anything.** A name that is nearly one of the
+  user's spellings opens nothing on its own, in any tier. What a near miss earns
+  is the picker below - the user's own list and the user's own keystroke - and
+  the ranking that puts the likely row first has no path to opening it.
 
 ## The path
 
@@ -90,8 +94,14 @@ YouTubeChannelAllowlist.resolve       tier 1 exact, tier 2 spacing-insensitive
      │                          │                    pick a row already listed
      ├──────────────────────────┘
      │
-     ├── still .unknown / .ambiguous / .disabled ──► nothing happens, and they
-     │                                               are told why
+     ├── still .unknown / .ambiguous ─► YouTubeChannelPickerOffer.make
+     │                                  on by default; the user's own list,
+     │                                  the user's own keystroke
+     │                          │
+     ├──────────────────────────┘
+     │
+     ├── .disabled, nothing heard, no channels stored, or the picker
+     │   cancelled ──► nothing happens, and they are told why
      ▼
 YouTubeFeedEndpoint.url                https://www.youtube.com/feeds/videos.xml
      │                                 ?channel_id=UC…
@@ -206,6 +216,54 @@ words depending on the engine. Every CJK spelling is listed in both scripts,
 including 頻道 beside 频道, for the reason `SpokenIntentGrammar` records: the
 transcript has already been written in the user's own script.
 
+## The picker
+
+`YouTubeChannelPickerOffer` is the last tier and the only one a **person**
+answers. When a spoken name reaches this route and nothing could place it, the
+user's own channels go on screen and they choose. `docs/history-provenance.md`
+has the user-facing half; four things carry it here.
+
+- **It decides nothing.** The panel's only possible answer is one of the
+  `YouTubeChannel` values it was handed, which are `YouTubeChannelAllowlist.reachable`
+  from the snapshot *this command* resolved against - carried on
+  `YouTubeCommandResolution.candidates` rather than re-read, so a Settings edit
+  made while the panel is up cannot widen what one press can reach. The runner
+  re-checks the answer against that same list before opening anything. There is
+  no field that names a channel, nothing that searches, and nothing that turns
+  typing into an address.
+- **Ranking is a hint and never a decision.** `YouTubeChannelSuggestions` scores
+  the stored **display names and aliases** - never an id, a URL or a host - and
+  puts suggestions first, best first; every row below the suggestion threshold
+  keeps the user's own list order, and scores are compared quantized, so the
+  order is reproducible on every Mac. The best row starts highlighted and is
+  badged; opening it still takes Return. This is the one inexact comparison in
+  the feature, and it is safe here precisely because nothing acts on it.
+- **Who is offered one.** A phrase that missed (`.unknown` with something heard)
+  or that two rows answered to (`.ambiguous`), with at least one reachable
+  channel stored, and the switch on. Everything else keeps the refusal it always
+  had: an exact match opens as before, silence gets no panel - a picker that took
+  focus after a stray press would be the app interrupting somebody who asked for
+  nothing - a switched-off command says so, and an empty allowlist is its own
+  refusal (`noChannelsConfigured`) because "add that spelling to the channel you
+  meant" is not advice anybody can act on with no channels stored.
+- **It is written down as it happens.** History gets `pickerShown` the moment the
+  panel opens and `pickerCancelled` if it is dismissed, so a quit with the panel
+  up leaves a row saying a choice was offered and nothing was opened - the same
+  fail-closed rule `pendingCommand` follows. An opened video carries
+  `YouTubeChannelMatchSource.picker`, whose disclosure says the user chose it
+  themselves, beside the model's own disclosure if it was asked first.
+
+`YouTubeChannelPickerViewModel` owns every key - ↑/↓ with wrap-around,
+type-to-filter, Return, Escape - so keyboard behaviour is tested without a window
+server; `YouTubeChannelPickerWindowController` owns the panel and takes the keys
+off a local monitor, because the focus is deliberately in a text field whose
+field editor answers Up and Down itself. It is the second panel in the app that
+takes focus (the Ask panel is the other), which is the only reason it is a switch
+at all: `youTubeChannelPickerEnabled`, on by default, and off restores exactly
+the refusal that shipped before it existed. `YouTubeCommandRunner` is the whole
+sequence, behind seams, so miss → picker → choice → open and every refusal are
+deterministic tests.
+
 ## The allowlist
 
 `YouTubeChannel` is one row: a display name, any number of spoken aliases, the
@@ -268,8 +326,10 @@ crash mid-command leaves a row saying nothing was opened - which is true.
 | What happened | What the user is told |
 | --- | --- |
 | The feature is switched off | That it is off, and where to turn it on |
-| The channel is not in the list | Which name was heard, and where to add it |
-| Two rows answer to that name | Which rows, and to give them different names |
+| The channel is not in the list | The picker, if one can be offered; otherwise which name was heard, and where to add it |
+| The picker was closed without choosing | That nothing was opened, and the fix that opens it directly next time - a spelling to add, or two rows to rename |
+| Nothing is in the list at all | That there is no channel stored yet, and where to add the first |
+| Two rows answer to that name | The picker, if one can be offered; otherwise which rows, and to give them different names |
 | Offline, DNS, a timeout | The lookup did not happen; nothing was opened |
 | YouTube answered with a status | The status, and to check the id |
 | The feed lists no videos | That channel has published nothing |
@@ -331,6 +391,12 @@ it), `YouTubeFeedParserTests` (newest-entry selection, empty, malformed and
 hostile feeds), `YouTubeVideoURLTests` (every URL that is refused) and
 `YouTubeLatestVideoServiceTests` (the whole command against a stub feed and a
 mock browser, including offline and a missing Chrome).
+`YouTubeChannelPickerTests` (who is offered a picker, the ranking and its
+determinism, the filter, every key, and the accessibility identifiers),
+`YouTubeChannelPickerCommandTests` (the whole press through the picker against a
+stub feed, a mock browser and a stub chooser: the near miss recovered, Escape
+opening nothing, an empty list, the switch off, a choice that was never offered,
+and that no dictation can raise the panel).
 `YouTubeCommandHistoryRegressionTests` is the one that holds the whole thing
 together in the configuration it actually failed in: which spellings reach a
 stored `valley101`, which correctly reach nothing, what History records for each

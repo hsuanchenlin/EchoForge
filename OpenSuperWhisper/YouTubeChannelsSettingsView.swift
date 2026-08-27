@@ -26,6 +26,15 @@ final class YouTubeChannelsViewModel: ObservableObject {
         }
     }
 
+    /// Whether a name nothing could place puts this list on screen to choose
+    /// from. On by default - it asks nobody and nothing - and a switch only
+    /// because it is the one part of the feature that takes keyboard focus.
+    @Published var channelPickerEnabled: Bool {
+        didSet {
+            AppPreferences.shared.youTubeChannelPickerEnabled = channelPickerEnabled
+        }
+    }
+
     /// How the YouTube command key currently reads - "⌥Y" - or nil when the
     /// user has cleared it, which leaves no way to use the feature at all.
     ///
@@ -42,6 +51,7 @@ final class YouTubeChannelsViewModel: ObservableObject {
         self.channels = store.channels
         self.youTubeLatestVideoEnabled = AppPreferences.shared.youTubeLatestVideoEnabled
         self.channelModelMatchEnabled = AppPreferences.shared.youTubeChannelModelMatchEnabled
+        self.channelPickerEnabled = AppPreferences.shared.youTubeChannelPickerEnabled
         self.commandShortcut = Self.boundShortcut()
     }
 
@@ -57,6 +67,7 @@ final class YouTubeChannelsViewModel: ObservableObject {
         channels = store.channels
         commandShortcut = Self.boundShortcut()
         channelModelMatchEnabled = AppPreferences.shared.youTubeChannelModelMatchEnabled
+        channelPickerEnabled = AppPreferences.shared.youTubeChannelPickerEnabled
     }
 
     func upsert(_ channel: YouTubeChannel) {
@@ -127,6 +138,7 @@ struct YouTubeChannelsSettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
+            pickerSection
             modelMatchSection
         }
         .padding()
@@ -243,6 +255,37 @@ struct YouTubeChannelsSettingsView: View {
         .background(Color(.controlBackgroundColor).opacity(0.5))
         .cornerRadius(8)
         .accessibilityElement(children: .combine)
+    }
+
+    /// The recovery a command that missed offers, and the one thing about it a
+    /// user would want to know before it happens: it takes keyboard focus.
+    ///
+    /// Above the model row rather than below it because it is the tier that runs
+    /// last and is on by default - a reader going down this pane meets the list,
+    /// then what happens when the list does not answer, then the optional step
+    /// that can try before it.
+    private var pickerSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Divider()
+                .padding(.top, 2)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(YouTubeChannelHelpText.pickerToggleTitle)
+                        .font(.subheadline)
+                    Text(YouTubeChannelHelpText.pickerHint)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 12)
+                Toggle("", isOn: $viewModel.channelPickerEnabled)
+                    .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
+                    .labelsHidden()
+                    .disabled(!viewModel.youTubeLatestVideoEnabled)
+                    .accessibilityLabel(YouTubeChannelHelpText.pickerToggleTitle)
+            }
+        }
+        .opacity(viewModel.youTubeLatestVideoEnabled ? 1 : 0.5)
     }
 
     /// The one setting in this pane that can put a model in the path, with the
