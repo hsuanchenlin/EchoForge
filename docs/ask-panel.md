@@ -9,9 +9,11 @@ dictating "Ask: …" with spoken commands switched on
 the dictation key, the YouTube command key and ⌥S all do; a second press ends
 the question. It is deliberately no longer a show/hide toggle - a key that
 closed an open panel could not also be a key that always starts listening - so
-the panel is closed with Esc, the **Close** button, or by discarding the
-recording. `AskPanelWindowController.shortcutAction` is that whole rule, pure
-and testable, and `AskVoiceShortcutTests` holds it.
+the panel is closed with Esc or the **Close** button, and by nothing else.
+**Discard recording** gives the microphone back and puts the card back to the
+answer before it (`cancelVoiceFollowUp`); it closes nothing.
+`AskPanelWindowController.shortcutAction` is that whole rule, pure and testable,
+and `AskVoiceShortcutTests` holds it.
 
 For one release it was not: ⌥A reached `present()` and stopped, which put an
 idle card on screen with an **Ask by voice** button the user had to find with
@@ -135,8 +137,9 @@ apart: read the frontmost application every time, and fall back to the held
 target only when the read refuses. The read refuses this app and only this app,
 and only this app is not a move.
 
-The target is remembered for one presentation only. Closing the panel hands
-keyboard focus back to it - the same hand-back Insert does, so Esc puts the
+The target is remembered only for as long as the panel is up - across every
+re-presentation, and no longer. Closing the panel hands keyboard focus back to
+it - the same hand-back Insert does, so Esc puts the
 user's keystrokes back in the document they came from - and then forgets it,
 so a panel opened later from Kongweh's own window has no target at all: the
 answer goes to the clipboard and nowhere else. Guessing where to paste is the
@@ -163,11 +166,33 @@ Sharing that recorder is why a capture can be **refused**
 and the dictation keys hold the same instance, so starting a second recording on
 it discards the first: the dictation's audio is deleted and its file re-pointed
 at the question, and the press that ends the dictation then hands the user's
-document the question they asked the panel. A press made while anything is
-recording therefore says so on the card and leaves the dictation entirely alone.
-It is not deferred the way an engine switch is - a question that started
-listening once the dictation ended would be recording at a moment nobody is
-speaking to it.
+document the question they asked the panel. It is not deferred the way an engine
+switch is - a question that started listening once the dictation ended would be
+recording at a moment nobody is speaking to it.
+
+**The refusal lives in the recorder, and is symmetric.**
+`AudioRecorder.startRecording` claims the microphone and returns false when
+something already holds it (`hasSessionInFlight`), so neither side can take a
+capture from the other: ⌥A cannot seize a dictation, and ⌥` or ⌥Y cannot seize
+the panel's question. That second half was the one missing while each caller
+guarded itself - the Ask panel checked, the dictation keys never did, and a ⌥`
+press deleted the question the panel was recording while the card went on saying
+"Listening…". A rule enforced by every caller separately is a rule one of them
+forgets. The claim is also **synchronous**, which the published `isRecording`
+and `isConnecting` are not: those are set on the main queue after the recorder's
+work queue has paid its CoreAudio round-trips, so a second press landing inside
+that window read an idle recorder. Each caller only chooses the wording -
+`IndicatorViewModel` shows its ordinary `.startRefused` message, the panel shows
+`voiceCaptureRefusal`'s sentence.
+
+**What a refused ⌥A or ⌥S does is narrower than it looks**, and deliberately so.
+It says so on the card when the card is already up, and does nothing at all when
+it is not. Presenting the panel forces this app forward
+(`activate(ignoringOtherApps:)`), and the dictation the press just declined to
+seize would then paste into the panel's question field rather than into the
+user's document - so opening a card to explain the refusal would cause the
+damage the refusal exists to prevent. `reportRecorderInFlight` is that whole
+decision, and it never calls `present()`.
 
 The follow-up's own transcription
 (`AskPanelWindowController.followUpTranscriptionSettings`) keeps routing off -

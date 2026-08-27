@@ -21,8 +21,9 @@ extension KeyboardShortcuts.Name {
     ///
     /// A press records, the way the dictation key and ⌥Y do. It is not a
     /// show/hide toggle: a key that closed an open panel could not also be one
-    /// that always starts listening, and the panel is closed with Esc, the Close
-    /// button, or by discarding the recording.
+    /// that always starts listening, and the panel is closed with Esc or the
+    /// Close button. Discarding a recording gives the microphone back and puts
+    /// the card back to the answer before it; it closes nothing.
     static let askPanel = Self("askPanel", default: .init(.a, modifiers: .option))
 
     /// Asks a question about what is on screen: takes a screenshot of the window

@@ -366,6 +366,19 @@ final class AskPanelViewModel: ObservableObject {
         fail(message)
     }
 
+    /// A shortcut press was refused before anything started - something else
+    /// holds the microphone.
+    ///
+    /// Guarded the opposite way round from `voiceCaptureDidFail`, which reports
+    /// on a capture that had already begun. Nothing began here, so what must be
+    /// protected is the work that *is* in flight: a refusal that ended a
+    /// question the panel was already listening to or thinking about would cost
+    /// the user more than the press they were told about.
+    func shortcutRefused(_ message: String) {
+        guard !isBusy else { return }
+        fail(message)
+    }
+
     /// The user stopped a capture that was still running.
     func cancelVoiceFollowUp() {
         guard state == .listening || state == .transcribing else { return }

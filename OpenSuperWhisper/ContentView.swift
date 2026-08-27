@@ -238,6 +238,12 @@ class ContentViewModel: ObservableObject {
     
     func startRecording() {
         guard microphoneService.getActiveMicrophone() != nil else { return }
+        // Same claim the mini indicator makes, and for the same reason: this
+        // button reaches the one shared recorder, so it must not take a session
+        // the Ask panel or a hotkey dictation is already holding. Refused, it
+        // leaves the window exactly as it was rather than showing a recording
+        // state over nothing.
+        guard recorder.startRecording() else { return }
 
         if microphoneService.isActiveMicrophoneRequiresConnection() {
             state = .connecting
@@ -251,8 +257,6 @@ class ContentViewModel: ObservableObject {
             recordingDuration = 0
             startDurationTimerIfNeeded()
         }
-        
-        recorder.startRecording()
     }
 
     func startDecoding() {

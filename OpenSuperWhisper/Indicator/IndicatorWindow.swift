@@ -269,16 +269,23 @@ class IndicatorViewModel: ObservableObject {
             return
         }
         
-        // Optimistically assume recording: querying the microphone here costs
-        // CoreAudio HAL round-trips on the main thread right before the appear
-        // animation. The recorder resolves the real state on its own queue and
-        // publishes isConnecting/isRecording, which the sinks above translate
-        // into .connecting/.recording.
+        // Claim the microphone before anything is drawn. The Ask panel records
+        // on this same `AudioRecorder`, so a dictation started while ⌥A was
+        // listening used to delete the question the panel was recording and
+        // re-point its file at this session - the mirror image of the seizure
+        // `AskPanelWindowController.voiceCaptureRefusal` refuses, and the half
+        // nothing guarded. The claim itself is synchronous and costs no
+        // CoreAudio HAL round-trip; the recorder still resolves the real state
+        // on its own queue and publishes isConnecting/isRecording, which the
+        // sinks above translate into .connecting/.recording.
+        guard recorder.startRecording() else {
+            showBusyMessage(.startRefused)
+            return
+        }
+
         state = .recording
         startBlinking()
         recordingStartedAt = Date()
-        
-        recorder.startRecording()
     }
     
     func handleCancelRequest() -> Bool {

@@ -555,11 +555,20 @@ users type Chinese.
 `docs/ask-panel.md` is its story. **⌥A records**: the press opens the panel and
 starts the microphone, the way the two dictation keys and ⌥S do, and a second
 press ends the question - it is not a show/hide toggle, and the panel is closed
-with Esc, Close, or by discarding the recording. It reached only `present()` for
+with Esc or Close and by nothing else (discarding a recording gives the
+microphone back and keeps the card). It reached only `present()` for
 one release, which put an idle card on screen with a button the user had to find;
 the rule that catches that class is that every listening path goes through a call
 that starts a capture (`AskPanelWindowController.shortcutAction` decides which,
-purely), and a panel that appears is not a panel that is recording. It runs the same on-device model as rewriting
+purely), and a panel that appears is not a panel that is recording. Sharing one
+`AudioRecorder` with the dictation keys is why a press can be **refused**, and
+that refusal belongs to the recorder rather than to its callers:
+`startRecording` claims the microphone and returns false when something already
+holds it (`hasSessionInFlight`, synchronous - `isRecording` is published too
+late to guard with), so neither side can seize the other's capture. Each caller
+only picks the wording, and a refused ⌥A never presents the panel, because
+activating this app mid-dictation would send that dictation's paste into the
+panel's own question field. It runs the same on-device model as rewriting
 and has deliberately **no `StyleRewriteGuard`**: a guard exists because a rewrite
 replaces the user's words unread, and an answer is read before it goes anywhere.
 It also *takes* focus, as only it and the channel picker do - a question box has

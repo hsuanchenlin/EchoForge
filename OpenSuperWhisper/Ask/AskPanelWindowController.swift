@@ -95,24 +95,37 @@ final class AskPanelWindowController {
         case askByVoice
         /// A question is already being spoken: this press ends it.
         case finishVoiceQuestion
+        /// Something else holds the one shared recorder - a dictation, or a
+        /// YouTube command. The press starts nothing and says so where it can
+        /// be seen without disturbing that recording.
+        case refuseToSeizeRecorder
         /// Something is running that this press is neither the start nor the end
         /// of - a transcription, an answer, or a ⌥S query that belongs to the
         /// other key.
         case ignore
     }
 
-    /// The press, decided from the two things about the panel that matter.
+    /// The press, decided from the three things that matter.
     ///
     /// It is deliberately the same shape as `toggleScreenQuery`'s and **not** a
     /// show/hide toggle any more. A key that closed an open panel could not also
     /// be a key that always starts listening, and starting the capture is what
-    /// this shortcut is for: the panel is closed with Esc, the Close button, or
-    /// by discarding the recording.
-    static func shortcutAction(isCapturingVoiceQuestion: Bool, isBusy: Bool) -> ShortcutAction {
+    /// this shortcut is for: the panel is closed with Esc or the Close button.
+    ///
+    /// `isRecordingInFlight` is part of the decision rather than a guard bolted
+    /// on beside it, because the refusal it produces is a press outcome the user
+    /// is owed an answer for - left outside, it was a silent `return` that the
+    /// panel's own `dictationInFlight` sentence could never be reached from.
+    /// It is asked **after** the finishing case: the panel's own question is
+    /// holding that recorder, and this press is what ends it.
+    static func shortcutAction(
+        isCapturingVoiceQuestion: Bool, isBusy: Bool, isRecordingInFlight: Bool
+    ) -> ShortcutAction {
         if isCapturingVoiceQuestion { return .finishVoiceQuestion }
         // A transcription or an answer in flight is what `isBusy` exists to
         // protect, and a screen query in flight belongs to ⌥S.
         guard !isBusy else { return .ignore }
+        if isRecordingInFlight { return .refuseToSeizeRecorder }
         return .askByVoice
     }
 
@@ -126,16 +139,33 @@ final class AskPanelWindowController {
     func toggleVoiceQuestion() {
         switch Self.shortcutAction(
             isCapturingVoiceQuestion: viewModel.isCapturingVoiceQuestion,
-            isBusy: viewModel.isBusy
+            isBusy: viewModel.isBusy,
+            isRecordingInFlight: isSharedRecorderInFlight
         ) {
         case .finishVoiceQuestion:
             viewModel.finishVoiceFollowUp()
         case .ignore:
             return
+        case .refuseToSeizeRecorder:
+            reportRecorderInFlight()
         case .askByVoice:
-            guard !isSharedRecorderInFlight else { return }
             startVoiceQuestion()
         }
+    }
+
+    /// Says why a press was refused, on a card that is already on screen.
+    ///
+    /// The panel is deliberately **not** presented to carry the message.
+    /// `present()` forces this app forward (`activate(ignoringOtherApps:)`), so
+    /// the dictation this press just declined to seize would paste into the
+    /// panel's own question field instead of into the user's document - opening
+    /// a card to explain the refusal would do the damage the refusal exists to
+    /// prevent. With no card up there is nowhere to say it that does not cost
+    /// more than the press did, so the press leaves the dictation, and the
+    /// screen, exactly as they were.
+    private func reportRecorderInFlight() {
+        guard panel?.isVisible == true else { return }
+        viewModel.shortcutRefused(VoiceCaptureRefusal.dictationInFlight.message)
     }
 
     /// Opens the panel and starts listening, in that order.
@@ -176,7 +206,10 @@ final class AskPanelWindowController {
         // screenshot the view model would refuse is wasted work, and a second
         // question mid-answer is what `isBusy` exists to prevent.
         guard !viewModel.isBusy else { return }
-        guard !isSharedRecorderInFlight else { return }
+        guard !isSharedRecorderInFlight else {
+            reportRecorderInFlight()
+            return
+        }
         startScreenQuery()
     }
 
@@ -513,9 +546,15 @@ final class AskPanelWindowController {
     /// deferring the press the way `EngineSwitcher` does would start listening
     /// at a moment the user has stopped speaking to the panel.
     ///
-    /// `isConnecting` counts as in flight: a microphone that has to wake up is
-    /// recording to its file already, and the window before the first samples
-    /// arrive is exactly where a second press would land.
+    /// This is the **sentence**, not the enforcement: `AudioRecorder` refuses
+    /// the second claim itself (`hasSessionInFlight`), which is what makes the
+    /// rule hold in the other direction too - a dictation started while this
+    /// panel is listening is refused by the same claim, and used to seize the
+    /// question instead. This function only decides what the card then says.
+    ///
+    /// A microphone that has to wake up counts as in flight: it is recording to
+    /// its file already, and the window before the first samples arrive is
+    /// exactly where a second press would land.
     static func voiceCaptureRefusal(
         hasMicrophone: Bool, isRecordingInFlight: Bool, isTranscribing: Bool
     ) -> VoiceCaptureRefusal? {
@@ -525,8 +564,15 @@ final class AskPanelWindowController {
         return nil
     }
 
+    /// Whether something already holds the one shared `AudioRecorder`.
+    ///
+    /// `hasSessionInFlight` rather than the published `isRecording` and
+    /// `isConnecting`: those are set on the main queue *after* the recorder's
+    /// work queue has paid its CoreAudio round-trips, so a press landing in that
+    /// window read an idle recorder and started a second capture on it - the
+    /// very seizure this predicate exists to refuse.
     private var isSharedRecorderInFlight: Bool {
-        AudioRecorder.shared.isRecording || AudioRecorder.shared.isConnecting
+        AudioRecorder.shared.hasSessionInFlight
     }
 
     private func startVoiceCapture() {
@@ -539,8 +585,15 @@ final class AskPanelWindowController {
             viewModel.voiceCaptureDidFail(refusal.message)
             return
         }
+        // The recorder's own claim is what actually decides, and it is atomic:
+        // the read above can go stale between here and the next line, and the
+        // panel must never be left showing "Listening…" over a capture that was
+        // refused - or, worse, over a dictation it has just taken.
+        guard AudioRecorder.shared.startRecording() else {
+            viewModel.voiceCaptureDidFail(VoiceCaptureRefusal.dictationInFlight.message)
+            return
+        }
         isCapturing = true
-        AudioRecorder.shared.startRecording()
     }
 
     private func finishVoiceCapture() {

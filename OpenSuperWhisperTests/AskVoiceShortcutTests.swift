@@ -19,19 +19,45 @@ final class AskVoiceShortcutTests: XCTestCase {
     func testAPressStartsListeningUnlessSomethingIsAlreadyRunning() {
         XCTAssertEqual(
             AskPanelWindowController.shortcutAction(
-                isCapturingVoiceQuestion: false, isBusy: false),
+                isCapturingVoiceQuestion: false, isBusy: false, isRecordingInFlight: false),
             .askByVoice
         )
         XCTAssertEqual(
             AskPanelWindowController.shortcutAction(
-                isCapturingVoiceQuestion: true, isBusy: true),
+                isCapturingVoiceQuestion: true, isBusy: true, isRecordingInFlight: true),
             .finishVoiceQuestion
         )
         // Transcribing or thinking: the press is neither a second question nor
         // a close, for the same reason ⌥S ignores one.
         XCTAssertEqual(
             AskPanelWindowController.shortcutAction(
-                isCapturingVoiceQuestion: false, isBusy: true),
+                isCapturingVoiceQuestion: false, isBusy: true, isRecordingInFlight: false),
+            .ignore
+        )
+    }
+
+    /// A dictation holding the microphone is its **own** outcome, not `.ignore`.
+    /// It was a bare `return` beside the switch for one commit, which made the
+    /// press a silent no-op and left `dictationInFlight`'s sentence with no way
+    /// to be reached from either shortcut.
+    func testAPressIsRefusedRatherThanIgnoredWhileSomethingElseIsRecording() {
+        XCTAssertEqual(
+            AskPanelWindowController.shortcutAction(
+                isCapturingVoiceQuestion: false, isBusy: false, isRecordingInFlight: true),
+            .refuseToSeizeRecorder
+        )
+        // The panel's own question holds that same recorder, and this press is
+        // what ends it - so finishing is asked first and wins.
+        XCTAssertEqual(
+            AskPanelWindowController.shortcutAction(
+                isCapturingVoiceQuestion: true, isBusy: true, isRecordingInFlight: true),
+            .finishVoiceQuestion
+        )
+        // And a panel that is only thinking has no recorder to seize, so naming
+        // one would be a lie: that press stays `.ignore`.
+        XCTAssertEqual(
+            AskPanelWindowController.shortcutAction(
+                isCapturingVoiceQuestion: false, isBusy: true, isRecordingInFlight: false),
             .ignore
         )
     }
@@ -52,7 +78,8 @@ final class AskVoiceShortcutTests: XCTestCase {
         XCTAssertEqual(
             AskPanelWindowController.shortcutAction(
                 isCapturingVoiceQuestion: viewModel.isCapturingVoiceQuestion,
-                isBusy: viewModel.isBusy),
+                isBusy: viewModel.isBusy,
+                isRecordingInFlight: false),
             .ignore
         )
     }
@@ -168,7 +195,8 @@ final class AskVoiceShortcutTests: XCTestCase {
         XCTAssertEqual(
             AskPanelWindowController.shortcutAction(
                 isCapturingVoiceQuestion: viewModel.isCapturingVoiceQuestion,
-                isBusy: viewModel.isBusy),
+                isBusy: viewModel.isBusy,
+                isRecordingInFlight: true),
             .ignore
         )
     }
@@ -287,39 +315,115 @@ final class AskVoiceShortcutTests: XCTestCase {
     /// the **Ask by voice** button too, since all three reach that call.
     func testStartingACaptureConsultsTheSharedRecorder() throws {
         let controller = try Self.source(of: "OpenSuperWhisper/Ask/AskPanelWindowController.swift")
-        let start = try XCTUnwrap(
-            controller.range(of: "private func startVoiceCapture() {")
-                .map { controller[$0.lowerBound...] })
-        let body = String(start.prefix(700))
+        let body = try Self.body(of: "private func startVoiceCapture() {", in: controller)
 
         XCTAssertTrue(body.contains("voiceCaptureRefusal("))
         XCTAssertTrue(body.contains("isRecordingInFlight: isSharedRecorderInFlight"))
         XCTAssertTrue(
-            controller.contains("AudioRecorder.shared.isRecording || AudioRecorder.shared.isConnecting"),
+            body.contains("guard AudioRecorder.shared.startRecording() else"),
+            "the read can go stale, so the recorder's own claim has to be what decides"
+        )
+        XCTAssertTrue(
+            controller.contains("AudioRecorder.shared.hasSessionInFlight"),
             "a press must not seize a dictation that is already recording"
+        )
+        XCTAssertFalse(
+            controller.contains("AudioRecorder.shared.isRecording || AudioRecorder.shared.isConnecting"),
+            "those two are published a main-queue hop after the start, so a press lands inside the window they leave open"
+        )
+    }
+
+    /// The claim belongs to the recorder, not to whoever happens to reach it.
+    ///
+    /// This is the half the first fix missed. The Ask panel guarded itself and
+    /// the dictation keys guarded nothing, so ⌥` pressed while the panel was
+    /// listening ran straight into `performStart`, which deletes the recording
+    /// in flight and re-points the file - the panel's question destroyed, the
+    /// card still saying "Listening…". A rule every caller has to remember is a
+    /// rule one of them forgets.
+    func testTheRecorderRefusesASecondSessionSoNeitherKeyCanSeizeTheOther() throws {
+        let recorder = try Self.source(of: "OpenSuperWhisper/AudioRecorder.swift")
+        XCTAssertTrue(
+            recorder.contains("func startRecording() -> Bool"),
+            "a start that cannot refuse cannot be asked to"
+        )
+        XCTAssertTrue(try Self.body(of: "func startRecording() -> Bool {", in: recorder)
+            .contains("guard claimSession() else"))
+        XCTAssertTrue(recorder.contains("var hasSessionInFlight: Bool"))
+
+        let indicator = try Self.source(of: "OpenSuperWhisper/Indicator/IndicatorWindow.swift")
+        XCTAssertTrue(
+            try Self.body(of: "func startRecording() {", in: indicator)
+                .contains("guard recorder.startRecording() else"),
+            "a dictation must not start on a recorder the Ask panel is already holding"
+        )
+
+        let main = try Self.source(of: "OpenSuperWhisper/ContentView.swift")
+        XCTAssertTrue(
+            try Self.body(of: "func startRecording() {", in: main)
+                .contains("guard recorder.startRecording() else"),
+            "the main window's record button reaches the same one recorder"
         )
     }
 
     func testShortcutRefusesAnActiveDictationBeforePresentingOrCapturingTheScreen() throws {
         let controller = try Self.source(of: "OpenSuperWhisper/Ask/AskPanelWindowController.swift")
 
-        let voiceStart = try XCTUnwrap(controller.range(of: "func toggleVoiceQuestion() {"))
-        let voiceEnd = try XCTUnwrap(
-            controller.range(of: "private func startVoiceQuestion()", range: voiceStart.upperBound..<controller.endIndex)
-        )
-        let voiceBody = controller[voiceStart.lowerBound..<voiceEnd.lowerBound]
-        let voiceGuard = try XCTUnwrap(voiceBody.range(of: "guard !isSharedRecorderInFlight"))
+        let voiceBody = try Self.body(of: "func toggleVoiceQuestion() {", in: controller)
+        let voiceGuard = try XCTUnwrap(voiceBody.range(of: "isRecordingInFlight: isSharedRecorderInFlight"))
         let voicePresentation = try XCTUnwrap(voiceBody.range(of: "startVoiceQuestion()"))
         XCTAssertLessThan(voiceGuard.lowerBound, voicePresentation.lowerBound)
 
-        let screenStart = try XCTUnwrap(controller.range(of: "func toggleScreenQuery() {"))
-        let screenEnd = try XCTUnwrap(
-            controller.range(of: "private func startScreenQuery()", range: screenStart.upperBound..<controller.endIndex)
-        )
-        let screenBody = controller[screenStart.lowerBound..<screenEnd.lowerBound]
+        let screenBody = try Self.body(of: "func toggleScreenQuery() {", in: controller)
         let screenGuard = try XCTUnwrap(screenBody.range(of: "guard !isSharedRecorderInFlight"))
         let screenCapture = try XCTUnwrap(screenBody.range(of: "startScreenQuery()"))
         XCTAssertLessThan(screenGuard.lowerBound, screenCapture.lowerBound)
+    }
+
+    /// A refused press says so - and says it without opening anything.
+    ///
+    /// Presenting the panel to carry the message would activate this app, and
+    /// the dictation the press just declined to seize would then paste into the
+    /// panel's own question field: the refusal would cause exactly the damage it
+    /// exists to prevent. So a press with no card on screen is a deliberate
+    /// no-op, and that is the whole of what this key may do while somebody else
+    /// holds the microphone.
+    func testARefusedPressReportsOnAnOpenCardAndNeverOpensOne() throws {
+        let controller = try Self.source(of: "OpenSuperWhisper/Ask/AskPanelWindowController.swift")
+        let body = try Self.body(of: "private func reportRecorderInFlight() {", in: controller)
+
+        XCTAssertTrue(body.contains("shortcutRefused("))
+        XCTAssertTrue(body.contains("panel?.isVisible == true"))
+        XCTAssertFalse(
+            body.contains("present()"),
+            "opening a card mid-dictation is the damage the refusal exists to prevent"
+        )
+    }
+
+    /// And the sentence actually lands, from any state a refused press can find
+    /// the panel in - which `voiceCaptureDidFail` cannot do, because it is
+    /// guarded on a capture having already begun.
+    func testARefusedPressSaysSoWithoutEndingWorkAlreadyInFlight() async {
+        let viewModel = AskPanelViewModel { _ in .answered("Taipei.") }
+        await viewModel.ask("Where?")
+
+        viewModel.shortcutRefused(
+            AskPanelWindowController.VoiceCaptureRefusal.dictationInFlight.message)
+
+        XCTAssertEqual(
+            viewModel.state,
+            .failed(
+                message: "Recording a dictation - finish that first", question: nil))
+        XCTAssertEqual(
+            viewModel.exchanges.count, 1,
+            "the conversation is kept, so the answer is still on the card above the badge")
+
+        // A question the panel is already listening to or thinking about is
+        // never ended by a refusal: the press started nothing, and saying so
+        // must not cost the user what is running.
+        viewModel.startVoiceFollowUp()
+        viewModel.shortcutRefused("Recording a dictation - finish that first")
+        XCTAssertEqual(viewModel.state, .listening)
     }
 
     /// A capture that cannot start says so on the panel rather than leaving a
@@ -427,6 +531,23 @@ final class AskVoiceShortcutTests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// One function's body, from its signature to the line that closes it.
+    ///
+    /// Bounded rather than a fixed `prefix`, because these assertions are about
+    /// what a *particular* function does: a prefix that overruns into the next
+    /// one turns "this guard is here" into "this guard is somewhere nearby",
+    /// and the negative assertions - that a refusal never presents the panel -
+    /// would be answered by whatever happens to follow it.
+    private static func body(of signature: String, in source: String) throws -> String {
+        let start = try XCTUnwrap(
+            source.range(of: signature), "no function \(signature) to read")
+        let rest = source[start.upperBound...]
+        // Every function read here is a method, so the line that closes it is
+        // the first `}` at one level of indentation.
+        let end = rest.range(of: "\n    }\n")
+        return String(rest[..<(end?.upperBound ?? rest.endIndex)])
+    }
 
     private static func source(of relativePath: String) throws -> String {
         let root = URL(fileURLWithPath: #filePath)
