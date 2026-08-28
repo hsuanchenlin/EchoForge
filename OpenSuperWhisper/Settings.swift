@@ -1061,6 +1061,12 @@ struct SettingsView: View {
             // engine, not only the selected one, and the cache can have changed
             // since the pane was last open.
             viewModel.refreshDownloadedEngineModels()
+            // Here rather than in `AboutSettingsView`, because this fires once
+            // per Settings sheet while the About pane is rebuilt on every tab
+            // switch. Through `sharedIfCreated` for the same reason quitting is:
+            // opening Settings must not be what constructs an updater for a user
+            // who never opens About.
+            UpdateViewModel.sharedIfCreated?.settingsDidOpen()
         }
         .onReceive(NotificationCenter.default.publisher(for: .engineModelStateChanged)) { _ in
             viewModel.refreshDownloadedEngineModels()

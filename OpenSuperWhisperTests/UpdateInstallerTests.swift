@@ -36,14 +36,59 @@ final class MockCommandRunner: CommandRunning, @unchecked Sendable {
         return _invocations
     }
 
+    private var _isTerminating = false
+
+    /// Stands the in-flight command down the way killing the real process would:
+    /// a delayed command wakes up, reports failure, and - this is the part that
+    /// matters - never gets to the work it had not done yet. An `hdiutil attach`
+    /// terminated here therefore never creates its mount, exactly as a killed one
+    /// never mounts the image.
+    func terminateInFlightCommands() {
+        lock.lock()
+        _isTerminating = true
+        lock.unlock()
+    }
+
+    func runDuringTermination(
+        _ executable: String, _ arguments: [String]
+    ) throws -> (status: Int32, output: String) {
+        try run(executable, arguments, ignoringTermination: true)
+    }
+
     func run(_ executable: String, _ arguments: [String]) throws -> (status: Int32, output: String) {
+        try run(executable, arguments, ignoringTermination: false)
+    }
+
+    /// Sleeps in slices so a command that was told to take real time notices it
+    /// has been terminated part way through, rather than only afterwards.
+    private func waitOut(_ delay: TimeInterval) -> Bool {
+        guard delay > 0 else { return !isTerminating }
+        let deadline = Date().addingTimeInterval(delay)
+        while Date() < deadline {
+            if isTerminating { return false }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return !isTerminating
+    }
+
+    private var isTerminating: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _isTerminating
+    }
+
+    private func run(
+        _ executable: String, _ arguments: [String], ignoringTermination: Bool
+    ) throws -> (status: Int32, output: String) {
         lock.lock()
         _invocations.append(Invocation(executable: executable, arguments: arguments))
+        let refused = _isTerminating && !ignoringTermination
         lock.unlock()
+        if refused { return (-1, "terminated") }
 
         switch executable {
         case "/usr/bin/hdiutil" where arguments.first == "attach":
-            if attachDelay > 0 { Thread.sleep(forTimeInterval: attachDelay) }
+            guard waitOut(attachDelay) else { return (-1, "hdiutil: attach terminated") }
             if let mountIndex = arguments.firstIndex(of: "-mountpoint") {
                 let mountedApp = URL(fileURLWithPath: arguments[mountIndex + 1])
                     .appendingPathComponent("EchoForge.app", isDirectory: true)
@@ -71,7 +116,7 @@ final class MockCommandRunner: CommandRunning, @unchecked Sendable {
             }
             return (0, "")
         case "/usr/bin/codesign":
-            if codesignDelay > 0 { Thread.sleep(forTimeInterval: codesignDelay) }
+            guard waitOut(codesignDelay) else { return (-1, "codesign terminated") }
             guard let bundle = arguments.last, FileManager.default.fileExists(atPath: bundle) else {
                 return (1, "code object is not signed at all")
             }

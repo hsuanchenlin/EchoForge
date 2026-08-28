@@ -331,6 +331,34 @@ final class UpdateViewModel: ObservableObject {
         state = .idle
     }
 
+    /// Clears the result of a check nobody is still waiting on, so opening
+    /// Settings does not answer a question the user has forgotten asking.
+    ///
+    /// The session is app-lifetime now, which is what keeps a download alive
+    /// across a tab switch - but it also means a `.upToDate` from breakfast is
+    /// still on screen in the evening, presented as though the check had just
+    /// run, and a `.failed` from a network that has since come back offers a
+    /// retry for a failure that no longer exists. Both are answers rather than
+    /// work, so both are dropped and the pane opens on its explainer again.
+    ///
+    /// Only those two. Everything in flight and everything holding bytes -
+    /// `.checking`, the transfer states, `.readyToInstall`, `.installing` - is
+    /// the state the persistence exists for, and `.available` is a live offer
+    /// the user has not answered yet.
+    ///
+    /// Called when the Settings *sheet* opens, not when the About pane is built:
+    /// the pane is rebuilt on every tab switch, and a result the user is in the
+    /// middle of reading must survive a glance at another tab.
+    func settingsDidOpen() {
+        switch state {
+        case .upToDate, .failed:
+            state = .idle
+        case .idle, .checking, .available, .connecting, .downloading, .verifying,
+             .readyToInstall, .installing:
+            break
+        }
+    }
+
     private func discardStagedBundle(_ stagedApp: URL) {
         try? fileManager.removeItem(at: stagedApp.deletingLastPathComponent())
     }

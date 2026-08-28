@@ -192,6 +192,84 @@ final class UpdateSessionPersistenceTests: XCTestCase {
             "a check asks the question the staged bundle was the answer to")
     }
 
+    // MARK: - Reopening Settings
+
+    /// An app-lifetime session also outlives the question its answers were to.
+    /// Reopening Settings hours later must not present a check from breakfast as
+    /// though it had just run, nor offer a retry for a network fault that is long
+    /// over.
+    func testReopeningSettingsDropsAResultNobodyIsWaitingOn() async throws {
+        let upToDate = UpdateViewModel(
+            checker: UpdateChecker(
+                fetcher: OlderReleaseMetadataFetcher(),
+                current: AppBuildIdentity(
+                    marketingVersion: "9.9.9", buildNumber: "1",
+                    bundleIdentifier: AppBuildIdentity.current().bundleIdentifier)),
+            installer: makeInstaller())
+        upToDate.checkForUpdates()
+        try await waitUntil(upToDate) { $0 == .upToDate }
+        upToDate.settingsDidOpen()
+        XCTAssertEqual(upToDate.state, .idle, "a stale 'you are up to date' answered nobody's question")
+
+        let failed = UpdateViewModel(
+            checker: UpdateChecker(fetcher: FailingReleaseMetadataFetcher()),
+            installer: makeInstaller())
+        failed.checkForUpdates()
+        try await waitUntil(failed) { if case .failed = $0 { return true } else { return false } }
+        failed.settingsDidOpen()
+        XCTAssertEqual(failed.state, .idle, "a failure from a fault that is over is not worth reopening on")
+    }
+
+    /// The other half, and the one the whole change exists for: reopening
+    /// Settings must not disturb work in flight or bytes already fetched.
+    func testReopeningSettingsLeavesLiveWorkAlone() async throws {
+        let release = try serve(.completing(bytes: 400_000, chunks: 40, pause: 0.05))
+        let session = UpdateViewModel(installer: makeInstaller())
+
+        session.download(release, settings: UpdateDownloadSettings(stallInterval: 30))
+        try await waitUntilDownloading(session)
+
+        session.settingsDidOpen()
+
+        guard case .downloading = session.state else {
+            return XCTFail("reopening Settings took the download down: \(session.state)")
+        }
+        session.prepareForTermination()
+    }
+
+    func testReopeningSettingsLeavesAStagedBundleAlone() async throws {
+        let release = try serve(.completing(bytes: 4_096, chunks: 1, pause: 0))
+        let session = UpdateViewModel(installer: makeInstaller())
+
+        session.download(release, settings: UpdateDownloadSettings(stallInterval: 30))
+        let staged = try await waitForReadyToInstall(session)
+
+        session.settingsDidOpen()
+
+        XCTAssertEqual(session.state, .readyToInstall(release, stagedApp: staged))
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: staged.path),
+            "reopening Settings threw away a verified bundle the user had already paid 222 MB for")
+    }
+
+    /// Reaching the session from Settings has the same constraint the quit path
+    /// has: a user who never opens About must never end up with an updater.
+    /// Read off the source, because the alternative is presenting a real sheet.
+    func testSettingsReachesTheSessionWithoutCreatingOne() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("OpenSuperWhisper/Settings.swift")
+        let text = try String(contentsOf: source, encoding: .utf8)
+
+        XCTAssertTrue(
+            text.contains("UpdateViewModel.sharedIfCreated?.settingsDidOpen()"),
+            "nothing clears a stale check when the Settings sheet opens")
+        XCTAssertFalse(
+            text.contains("UpdateViewModel.shared."),
+            "opening Settings must not be what constructs an updater for a user who "
+                + "never opens About")
+    }
+
     // MARK: - Quitting
 
     /// Quitting stands an in-flight transfer down rather than leaving a
@@ -236,6 +314,7 @@ final class UpdateSessionPersistenceTests: XCTestCase {
 
         session.prepareForTermination()
 
+        let mounted = try XCTUnwrap(mountPoint(from: runner))
         let detach = runner.invocations.first {
             $0.executable == "/usr/bin/hdiutil" && $0.arguments.first == "detach"
         }
@@ -244,29 +323,57 @@ final class UpdateSessionPersistenceTests: XCTestCase {
             "the image was left mounted with no app to own it - the `defer` that would "
                 + "have detached it never gets to run once the process exits")
         XCTAssertTrue(detach?.arguments.contains("-force") == true)
-        XCTAssertEqual(detach?.arguments.dropFirst().first, mountPoint(from: runner))
+        XCTAssertEqual(detach?.arguments.dropFirst().first, mounted)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: mounted),
+            "the detach was issued but the image is still mounted, which is the state "
+                + "this is supposed to rule out rather than the command that rules it out")
     }
 
-    /// The image is claimed before `hdiutil attach` is issued, not after it
-    /// returns: mounting a 222 MB image takes seconds the pane already spends in
-    /// `.verifying`, and a quit inside that window must still find something to
-    /// detach.
-    func testQuittingWhileTheDiskImageIsStillMountingStillDetachesIt() async throws {
+    /// The window the previous round left open. Mounting a 222 MB image takes
+    /// seconds the pane already spends in `.verifying`, and `hdiutil` is a child
+    /// process, so it outlives the app: detaching while the attach is still
+    /// running takes down nothing, and the attach then finishes and mounts an
+    /// image the exiting process can no longer reach. The attach has to be
+    /// stopped, not raced.
+    func testQuittingWhileTheDiskImageIsStillMountingLeavesNothingMounted() async throws {
         let release = try serve(.completing(bytes: 4_096, chunks: 1, pause: 0))
         let runner = MockCommandRunner()
-        runner.attachDelay = 1
+        runner.attachDelay = 0.5
         let session = UpdateViewModel(installer: makeInstaller(runner))
 
         session.download(release, settings: UpdateDownloadSettings(stallInterval: 30))
         try await waitUntilAttachStarts(runner)
+        let mounted = try XCTUnwrap(mountPoint(from: runner))
 
         session.prepareForTermination()
 
-        XCTAssertTrue(
+        // Past the moment the un-terminated attach would have mounted it.
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: mounted),
+            "the attach was left running and mounted the image after the app was gone")
+    }
+
+    /// The same leak reached from the other side: the last byte can land while
+    /// the app is already going away, and the cancellation check sits *before*
+    /// verification rather than inside it. Nothing may start mounting an image
+    /// at that point.
+    func testQuittingBeforeVerificationStartsNeverMountsTheImage() async throws {
+        let release = try serve(.completing(bytes: 4_096, chunks: 1, pause: 0))
+        let runner = MockCommandRunner()
+        let installer = makeInstaller(runner)
+
+        installer.prepareForTermination()
+        _ = try? await installer.downloadAndVerify(
+            release, settings: UpdateDownloadSettings(stallInterval: 30)
+        ) { _ in }
+
+        XCTAssertFalse(
             runner.invocations.contains {
-                $0.executable == "/usr/bin/hdiutil" && $0.arguments.first == "detach"
+                $0.executable == "/usr/bin/hdiutil" && $0.arguments.first == "attach"
             },
-            "a quit while the image was still mounting left it mounted after the app was gone")
+            "verification mounted a disk image after the app had been told it was quitting")
     }
 
     /// Pulling the image out from under a running `codesign` makes it fail, and
@@ -491,6 +598,19 @@ final class UpdateSessionPersistenceTests: XCTestCase {
         XCTFail("timed out waiting for verification to start")
     }
 
+    private func waitUntil(
+        _ session: UpdateViewModel,
+        timeout: TimeInterval = 10,
+        _ isSatisfied: (UpdateState) -> Bool
+    ) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if isSatisfied(session.state) { return }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail("timed out; the state is \(session.state)")
+    }
+
     private func waitUntilAttachStarts(_ runner: MockCommandRunner, timeout: TimeInterval = 10) async throws {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -530,6 +650,26 @@ final class UpdateSessionPersistenceTests: XCTestCase {
 
 /// A metadata fetcher that only ever fails, for a test that needs a *check* to
 /// happen and does not care what it finds.
+/// Answers with a real, well-formed release that is older than the build asking,
+/// which is how a check reaches `.upToDate` without a network.
+private struct OlderReleaseMetadataFetcher: ReleaseMetadataFetching {
+    func fetchLatestReleaseMetadata() async throws -> Data {
+        let document: [String: Any] = [
+            "tag_name": "v0.3.0",
+            "draft": false,
+            "prerelease": false,
+            "body": "notes",
+            "assets": [[
+                "name": "EchoForge.dmg",
+                "browser_download_url":
+                    "https://github.com/hsuanchenlin/EchoForge/releases/download/v0.3.0/EchoForge.dmg",
+                "size": 30_000_000,
+            ]],
+        ]
+        return try JSONSerialization.data(withJSONObject: document)
+    }
+}
+
 private struct FailingReleaseMetadataFetcher: ReleaseMetadataFetching {
     func fetchLatestReleaseMetadata() async throws -> Data {
         throw UpdateManifestError.noPublishedRelease

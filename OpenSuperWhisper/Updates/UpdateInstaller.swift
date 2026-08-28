@@ -224,6 +224,24 @@ protocol CommandRunning: Sendable {
     /// it would deadlock, since the first thing it does is wait for this process
     /// to exit.
     func launchDetached(_ executable: String, _ arguments: [String]) throws
+
+    /// Terminates every command already running and refuses to start another
+    /// through `run`.
+    ///
+    /// A command is a child process, so it outlives the app that started it. An
+    /// `hdiutil attach` still running when the app goes away therefore finishes
+    /// and mounts an image nobody is left to detach - and stopping it has to be
+    /// a decision this runner makes, because launching and stopping have to be
+    /// mutually exclusive to be a decision at all: a check the caller makes
+    /// before calling `run` can always be overtaken by the launch it guards.
+    func terminateInFlightCommands()
+
+    /// Runs a command the refusal above does not apply to: the cleanup a quit
+    /// still has to get through once everything else has been stood down.
+    @discardableResult
+    func runDuringTermination(
+        _ executable: String, _ arguments: [String]
+    ) throws -> (status: Int32, output: String)
 }
 
 /// Fetches the SHA-256 a release publishes beside its disk image. A protocol so
@@ -279,9 +297,49 @@ struct GitHubChecksumFetcher: ChecksumFetching {
     }
 }
 
-struct SystemCommandRunner: CommandRunning {
+/// A class rather than a struct because it has to remember what it is running:
+/// terminating an in-flight command means holding on to its `Process`.
+final class SystemCommandRunner: CommandRunning, @unchecked Sendable {
+    /// What a command that was refused or killed on the way out reports. Nothing
+    /// reads it as a verdict - `UpdateInstaller` knows it is terminating - but a
+    /// non-zero status is what every caller already treats as "did not happen".
+    static let terminatedStatus: Int32 = -1
+
+    private let lock = NSLock()
+    private var inFlight: [Process] = []
+    private var isTerminating = false
+
     @discardableResult
     func run(_ executable: String, _ arguments: [String]) throws -> (status: Int32, output: String) {
+        try run(executable, arguments, ignoringTermination: false)
+    }
+
+    @discardableResult
+    func runDuringTermination(
+        _ executable: String, _ arguments: [String]
+    ) throws -> (status: Int32, output: String) {
+        try run(executable, arguments, ignoringTermination: true)
+    }
+
+    func terminateInFlightCommands() {
+        lock.lock()
+        isTerminating = true
+        let running = inFlight
+        inFlight.removeAll()
+        lock.unlock()
+
+        for process in running where process.isRunning {
+            process.terminate()
+        }
+    }
+
+    /// The launch and the sweep above take the same lock, which is the whole
+    /// point: a command that has not started when the sweep runs is refused, and
+    /// one that has is in `inFlight` and gets terminated. There is no third
+    /// outcome for the launch to slip through.
+    private func run(
+        _ executable: String, _ arguments: [String], ignoringTermination: Bool
+    ) throws -> (status: Int32, output: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
@@ -290,10 +348,32 @@ struct SystemCommandRunner: CommandRunning {
         process.standardOutput = pipe
         process.standardError = pipe
 
-        try process.run()
+        lock.lock()
+        if isTerminating, !ignoringTermination {
+            lock.unlock()
+            return (Self.terminatedStatus, "Kongweh is quitting.")
+        }
+        do {
+            try process.run()
+        } catch {
+            lock.unlock()
+            throw error
+        }
+        if !ignoringTermination {
+            inFlight.append(process)
+        }
+        lock.unlock()
+
+        defer { forget(process) }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+    }
+
+    private func forget(_ process: Process) {
+        lock.lock()
+        inFlight.removeAll { $0 === process }
+        lock.unlock()
     }
 
     func launchDetached(_ executable: String, _ arguments: [String]) throws {
@@ -408,6 +488,12 @@ final class UpdateInstaller {
         }
 
         try await verifyChecksum(of: downloaded, for: release)
+
+        // The last byte can land while the app is already going away, and
+        // `downloadAndVerify` checked cancellation before this call rather than
+        // during it. Mounting an image at that point starts work nothing is left
+        // to finish.
+        guard !isTerminating else { throw CancellationError() }
 
         let mountPoint = fileManager.temporaryDirectory
             .appendingPathComponent("EchoForgeUpdate-\(UUID().uuidString)", isDirectory: true)
@@ -569,15 +655,25 @@ final class UpdateInstaller {
     /// mounted with no app to own it. This runs the detach inline instead, on the
     /// way out, and hands the `defer` a claim that is already released.
     ///
-    /// It also marks the session as terminating, which is what keeps the detach
+    /// Standing the commands down comes first, and detaching second. Detaching
+    /// while `hdiutil attach` is still running does nothing - there is no mount
+    /// yet to take down - and the attach then completes and mounts an image the
+    /// exiting process can no longer reach. Terminating first is what makes the
+    /// detach that follows a decision about a settled state rather than a race
+    /// against one: either the attach mounted the image and this takes it back
+    /// down, or it never got that far and there is nothing to take down.
+    ///
+    /// It also marks the session as terminating, which is what keeps all of this
     /// from being mistaken for a verdict on the downloaded bytes: a `codesign` or
-    /// `ditto` still reading the image fails once it vanishes, and that failure
-    /// must not discard the partial the next launch resumes from.
+    /// `ditto` killed here, or reading an image that has just vanished, fails,
+    /// and that failure must not discard the partial the next launch resumes
+    /// from.
     func prepareForTermination() {
         isTerminating = true
+        commandRunner.terminateInFlightCommands()
         guard let mountPoint = mountedDiskImage else { return }
         mountedDiskImage = nil
-        try? commandRunner.run("/usr/bin/hdiutil", ["detach", mountPoint.path, "-force"])
+        try? commandRunner.runDuringTermination("/usr/bin/hdiutil", ["detach", mountPoint.path, "-force"])
     }
 
     // MARK: - Private
