@@ -8,9 +8,10 @@ import XCTest
 /// attach`, `codesign` and `ditto` well enough that `downloadAndVerify` can be
 /// driven end to end without a real disk image: `attach` synthesizes a fake
 /// mounted `EchoForge.app` (with an `Info.plist` matching the requested
-/// identity) at the mount point it was asked for, `codesign` reports success,
-/// and `ditto` performs a real file copy so the returned staged bundle exists
-/// on disk for assertions.
+/// identity) at the mount point it was asked for, `detach` takes it away again,
+/// `codesign` reports success for a bundle that is actually there, and `ditto`
+/// performs a real file copy so the returned staged bundle exists on disk for
+/// assertions.
 final class MockCommandRunner: CommandRunning, @unchecked Sendable {
     struct Invocation {
         let executable: String
@@ -25,6 +26,7 @@ final class MockCommandRunner: CommandRunning, @unchecked Sendable {
     /// Makes `hdiutil attach` take real time, standing in for mounting a real
     /// 200 MB image - which is what the pane has to have something to say about.
     var attachDelay: TimeInterval = 0
+    var codesignDelay: TimeInterval = 0
 
     private let lock = NSLock()
     private var _invocations: [Invocation] = []
@@ -56,9 +58,22 @@ final class MockCommandRunner: CommandRunning, @unchecked Sendable {
                 }
             }
             return (0, "")
+        case "/usr/bin/hdiutil" where arguments.first == "detach":
+            // Takes the synthesized mount away again, so a check still reading
+            // from it sees what a real one would see once the image is gone.
+            if let mountPoint = arguments.dropFirst().first {
+                try? FileManager.default.removeItem(atPath: mountPoint)
+            }
+            return (0, "")
         case "/usr/bin/ditto":
             if arguments.count == 2 {
                 try? FileManager.default.copyItem(atPath: arguments[0], toPath: arguments[1])
+            }
+            return (0, "")
+        case "/usr/bin/codesign":
+            if codesignDelay > 0 { Thread.sleep(forTimeInterval: codesignDelay) }
+            guard let bundle = arguments.last, FileManager.default.fileExists(atPath: bundle) else {
+                return (1, "code object is not signed at all")
             }
             return (0, "")
         default:

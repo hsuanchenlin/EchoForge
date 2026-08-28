@@ -306,14 +306,22 @@ final class UpdateViewModel: ObservableObject {
     /// reason: the bundle is verified bytes the user asked for and may still
     /// install after relaunching, and the one place that sweeps an abandoned one
     /// is `UpdateInstaller.removeStaleStagingDirectories`, which runs before the
-    /// next download is staged. `.verifying` is left alone too - it has to reach
-    /// its own `defer` to unmount the disk image.
+    /// next download is staged.
+    ///
+    /// `.verifying` is the one state cancelling is not enough for. Its work runs
+    /// as `Task.detached` whose value is awaited, so cancelling the task waiting
+    /// on it stops nothing, and this notification can neither delay the exit nor
+    /// await the `defer` that unmounts the disk image - so quitting used to leave
+    /// the image mounted after the app was gone. `UpdateInstaller` detaches it
+    /// inline instead, and knows not to read the resulting `codesign` failure as
+    /// a verdict against the downloaded bytes.
     func prepareForTermination() {
         switch state {
-        case .connecting, .downloading:
+        case .connecting, .downloading, .verifying:
             downloadTask?.cancel()
             downloadTask = nil
-        case .idle, .checking, .upToDate, .available, .verifying, .readyToInstall,
+            installer.prepareForTermination()
+        case .idle, .checking, .upToDate, .available, .readyToInstall,
              .installing, .failed:
             break
         }

@@ -335,6 +335,10 @@ final class UpdateInstaller {
     private let installedAppURL: URL
     private let partialStore: PartialDownloadStore
     private let checksumFetcher: ChecksumFetching
+    /// The image this installer has attached, if any, so a quit can detach it
+    /// without waiting for the `defer` that normally would.
+    private var mountedDiskImage: URL?
+    private var isTerminating = false
 
     init(
         commandRunner: CommandRunning = SystemCommandRunner(),
@@ -383,8 +387,10 @@ final class UpdateInstaller {
             // Cancelling, or a check that could not run, is not a reason to
             // throw away 212 MB: the same press that stopped it can start it
             // again where it stopped. Only a verdict against the bytes
-            // themselves discards them.
-            if let refusal = error as? UpdateInstallError, refusal.indictsDownloadedBytes {
+            // themselves discards them - and a check that failed because
+            // `prepareForTermination` pulled the disk image out from under it is
+            // not such a verdict, however much it looks like one from here.
+            if let refusal = error as? UpdateInstallError, refusal.indictsDownloadedBytes, !isTerminating {
                 partialStore.discardPartial(for: release.version)
             }
             throw error
@@ -405,6 +411,14 @@ final class UpdateInstaller {
 
         let mountPoint = fileManager.temporaryDirectory
             .appendingPathComponent("EchoForgeUpdate-\(UUID().uuidString)", isDirectory: true)
+        // Claimed *before* the attach rather than after it. `hdiutil attach` on
+        // a 222 MB image takes seconds, and for all of them the pane is already
+        // in `.verifying`; a quit in that window would otherwise find nothing to
+        // detach and leave the image mounted after the app was gone. Claiming it
+        // early costs at most one best-effort detach of a path that never
+        // mounted, on the failure paths below.
+        mountedDiskImage = mountPoint
+        defer { detachDiskImage(at: mountPoint) }
         let attach = try await run(
             "/usr/bin/hdiutil",
             ["attach", downloaded.path, "-nobrowse", "-readonly", "-mountpoint", mountPoint.path]
@@ -412,7 +426,6 @@ final class UpdateInstaller {
         guard attach.status == 0 else {
             throw UpdateInstallError.diskImageCouldNotBeOpened(attach.output)
         }
-        defer { detachDiskImage(at: mountPoint) }
 
         let mountedApp = mountPoint.appendingPathComponent("EchoForge.app", isDirectory: true)
         guard fileManager.fileExists(atPath: mountedApp.path) else {
@@ -545,6 +558,28 @@ final class UpdateInstaller {
         return script
     }
 
+    /// Unmounts a disk image this installer attached, synchronously, because the
+    /// process is about to go away.
+    ///
+    /// Verification is the one stretch that cannot simply be cancelled: it runs
+    /// as `Task.detached` work whose result is awaited, so cancelling the task
+    /// waiting on it stops nothing, and `applicationWillTerminate` can neither
+    /// delay the exit nor await the `defer` that would normally detach. Left
+    /// alone, quitting between `hdiutil attach` and that `defer` leaves the image
+    /// mounted with no app to own it. This runs the detach inline instead, on the
+    /// way out, and hands the `defer` a claim that is already released.
+    ///
+    /// It also marks the session as terminating, which is what keeps the detach
+    /// from being mistaken for a verdict on the downloaded bytes: a `codesign` or
+    /// `ditto` still reading the image fails once it vanishes, and that failure
+    /// must not discard the partial the next launch resumes from.
+    func prepareForTermination() {
+        isTerminating = true
+        guard let mountPoint = mountedDiskImage else { return }
+        mountedDiskImage = nil
+        try? commandRunner.run("/usr/bin/hdiutil", ["detach", mountPoint.path, "-force"])
+    }
+
     // MARK: - Private
 
     /// Runs a blocking command off the main actor. `Task.detached` genuinely
@@ -561,7 +596,13 @@ final class UpdateInstaller {
     /// Detaches the mounted disk image without waiting for or blocking on it,
     /// matching the original best-effort `try?` semantics while keeping the
     /// `Process` wait off the main actor.
+    ///
+    /// Does nothing if the claim has already been released, which is how the
+    /// ordinary `defer` and the synchronous detach `prepareForTermination` runs
+    /// stay one detach rather than two.
     private func detachDiskImage(at mountPoint: URL) {
+        guard mountedDiskImage == mountPoint else { return }
+        mountedDiskImage = nil
         let runner = commandRunner
         Task.detached(priority: .utility) {
             try? runner.run("/usr/bin/hdiutil", ["detach", mountPoint.path, "-force"])

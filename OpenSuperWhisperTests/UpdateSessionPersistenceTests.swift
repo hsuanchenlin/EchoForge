@@ -217,6 +217,82 @@ final class UpdateSessionPersistenceTests: XCTestCase {
             "the bytes already fetched are what makes the next launch a resume rather than a restart")
     }
 
+    /// Verification is the one stretch a quit cannot simply cancel: it runs as
+    /// detached work whose result is awaited, and `applicationWillTerminate` can
+    /// neither delay the exit nor await the `defer` that would unmount the image.
+    /// So the detach has to have already happened by the time this call returns,
+    /// not be scheduled to happen after it.
+    func testQuittingDuringVerificationSynchronouslyDetachesTheDiskImage() async throws {
+        let release = try serve(.completing(bytes: 4_096, chunks: 1, pause: 0))
+        let runner = MockCommandRunner()
+        runner.codesignDelay = 1
+        let session = UpdateViewModel(installer: makeInstaller(runner))
+
+        session.download(release, settings: UpdateDownloadSettings(stallInterval: 30))
+        try await waitUntilCodesignStarts(runner)
+        XCTAssertEqual(
+            session.state, .verifying(release),
+            "this test is only about the window the pane spends in .verifying")
+
+        session.prepareForTermination()
+
+        let detach = runner.invocations.first {
+            $0.executable == "/usr/bin/hdiutil" && $0.arguments.first == "detach"
+        }
+        XCTAssertNotNil(
+            detach,
+            "the image was left mounted with no app to own it - the `defer` that would "
+                + "have detached it never gets to run once the process exits")
+        XCTAssertTrue(detach?.arguments.contains("-force") == true)
+        XCTAssertEqual(detach?.arguments.dropFirst().first, mountPoint(from: runner))
+    }
+
+    /// The image is claimed before `hdiutil attach` is issued, not after it
+    /// returns: mounting a 222 MB image takes seconds the pane already spends in
+    /// `.verifying`, and a quit inside that window must still find something to
+    /// detach.
+    func testQuittingWhileTheDiskImageIsStillMountingStillDetachesIt() async throws {
+        let release = try serve(.completing(bytes: 4_096, chunks: 1, pause: 0))
+        let runner = MockCommandRunner()
+        runner.attachDelay = 1
+        let session = UpdateViewModel(installer: makeInstaller(runner))
+
+        session.download(release, settings: UpdateDownloadSettings(stallInterval: 30))
+        try await waitUntilAttachStarts(runner)
+
+        session.prepareForTermination()
+
+        XCTAssertTrue(
+            runner.invocations.contains {
+                $0.executable == "/usr/bin/hdiutil" && $0.arguments.first == "detach"
+            },
+            "a quit while the image was still mounting left it mounted after the app was gone")
+    }
+
+    /// Pulling the image out from under a running `codesign` makes it fail, and
+    /// that failure looks exactly like a signature verdict against the bytes -
+    /// which is the one thing that deletes the 222 MB the next launch resumes
+    /// from. A quit is not such a verdict.
+    func testQuittingDuringVerificationKeepsTheDownloadedBytes() async throws {
+        let release = try serve(.completing(bytes: 4_096, chunks: 1, pause: 0))
+        let runner = MockCommandRunner()
+        runner.codesignDelay = 0.5
+        let session = UpdateViewModel(installer: makeInstaller(runner))
+
+        session.download(release, settings: UpdateDownloadSettings(stallInterval: 30))
+        try await waitUntilCodesignStarts(runner)
+
+        session.prepareForTermination()
+
+        // The detach has already happened; this is the `codesign` that was
+        // reading the image coming back to find it gone, which is the moment the
+        // partial was being thrown away.
+        try await Task.sleep(nanoseconds: 1_500_000_000)
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: partialStore.partialFile(for: release.version).path),
+            "the quit was read as a verdict against the bytes and threw the whole download away")
+    }
+
     /// The bundle a user has already downloaded and verified survives the quit.
     /// Nothing here may delete it: the sweep that reclaims an abandoned one is
     /// `UpdateInstaller.removeStaleStagingDirectories`, and it runs before the
@@ -404,6 +480,35 @@ final class UpdateSessionPersistenceTests: XCTestCase {
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         XCTFail("timed out waiting for bytes to start arriving, state is \(session.state)")
+    }
+
+    private func waitUntilCodesignStarts(_ runner: MockCommandRunner, timeout: TimeInterval = 10) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if runner.invocations.contains(where: { $0.executable == "/usr/bin/codesign" }) { return }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail("timed out waiting for verification to start")
+    }
+
+    private func waitUntilAttachStarts(_ runner: MockCommandRunner, timeout: TimeInterval = 10) async throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if runner.invocations.contains(where: {
+                $0.executable == "/usr/bin/hdiutil" && $0.arguments.first == "attach"
+            }) { return }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTFail("timed out waiting for the disk image to start mounting")
+    }
+
+    /// The mount point `hdiutil attach` was pointed at, so a detach can be
+    /// checked against the image it is supposed to be taking down.
+    private func mountPoint(from runner: MockCommandRunner) -> String? {
+        guard let attach = runner.invocations.first(where: {
+            $0.executable == "/usr/bin/hdiutil" && $0.arguments.first == "attach"
+        }), let index = attach.arguments.firstIndex(of: "-mountpoint") else { return nil }
+        return attach.arguments[index + 1]
     }
 
     private func waitForReadyToInstall(

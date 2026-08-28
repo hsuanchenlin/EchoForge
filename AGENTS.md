@@ -133,9 +133,14 @@ the view, and the pane came back offering to start the 222 MB download again. It
 first use, so a user who never opens About never constructs an updater, and
 `AppDelegate.applicationWillTerminate` reaches it through `sharedIfCreated` for that reason.
 Quitting cancels an in-flight transfer - the partial survives in Caches, so the next launch
-resumes - and touches no staged bundle in any state, `.installing` least of all.
-`UpdateSessionPersistenceTests` holds all of it, tearing down a real `NSHostingView` because the
-failure was a SwiftUI lifetime.
+resumes - and touches no staged bundle in any state, `.installing` least of all. `.verifying` is
+the state cancelling cannot reach: it is `Task.detached` work whose value is awaited, and
+`applicationWillTerminate` can neither delay the exit nor await the `defer` that unmounts the disk
+image, so `UpdateInstaller.prepareForTermination` detaches it inline - claiming the mount *before*
+`hdiutil attach` is issued, since mounting 222 MB takes seconds the pane already spends in
+`.verifying`. The `codesign` still reading that image then fails, and it is the one signature
+failure that must not discard the partial. `UpdateSessionPersistenceTests` holds all of it, tearing
+down a real `NSHostingView` because the failure was a SwiftUI lifetime.
 
 `UpdateManifest` is the security boundary, not a parser: it is the only thing standing between
 release metadata and "replace the running application", so it accepts an exact asset name, an
