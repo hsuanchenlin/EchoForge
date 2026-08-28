@@ -37,16 +37,32 @@ final class MockCommandRunner: CommandRunning, @unchecked Sendable {
     }
 
     private var _isTerminating = false
+    private var _inFlight = 0
 
     /// Stands the in-flight command down the way killing the real process would:
     /// a delayed command wakes up, reports failure, and - this is the part that
     /// matters - never gets to the work it had not done yet. An `hdiutil attach`
     /// terminated here therefore never creates its mount, exactly as a killed one
     /// never mounts the image.
+    ///
+    /// Then it *waits* for that to have happened, which is the half a test can
+    /// otherwise only assume. `SystemCommandRunner` signals and then waits for
+    /// the process to exit, so a caller that detaches next is acting on a settled
+    /// state; a mock that returned as soon as it set a flag would let a test pass
+    /// on ordering alone while the real `hdiutil` was still mounting.
     func terminateInFlightCommands() {
         lock.lock()
         _isTerminating = true
         lock.unlock()
+
+        let deadline = Date().addingTimeInterval(SystemCommandRunner.terminationGracePeriod)
+        while Date() < deadline {
+            lock.lock()
+            let stillRunning = _inFlight
+            lock.unlock()
+            if stillRunning == 0 { return }
+            Thread.sleep(forTimeInterval: 0.005)
+        }
     }
 
     func runDuringTermination(
@@ -83,8 +99,19 @@ final class MockCommandRunner: CommandRunning, @unchecked Sendable {
         lock.lock()
         _invocations.append(Invocation(executable: executable, arguments: arguments))
         let refused = _isTerminating && !ignoringTermination
+        // Only the commands the sweep is answerable for are counted, so the
+        // cleanup that runs *after* it cannot be something it waits on.
+        let counted = !refused && !ignoringTermination
+        if counted { _inFlight += 1 }
         lock.unlock()
         if refused { return (-1, "terminated") }
+        defer {
+            if counted {
+                lock.lock()
+                _inFlight -= 1
+                lock.unlock()
+            }
+        }
 
         switch executable {
         case "/usr/bin/hdiutil" where arguments.first == "attach":
@@ -1140,5 +1167,97 @@ private final class ProgressRecorder: @unchecked Sendable {
 
     var connectingReports: [DownloadProgress] {
         all.compactMap { if case .connecting(let progress) = $0 { return progress } else { return nil } }
+    }
+}
+
+/// A flag two threads can agree on, for a test watching work it does not own.
+private final class CommandCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _hasReturned = false
+
+    var hasReturned: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _hasReturned
+    }
+
+    func noteReturned() {
+        lock.lock()
+        _hasReturned = true
+        lock.unlock()
+    }
+}
+
+/// Standing a command down is two things, and only the first is `terminate()`.
+///
+/// SIGTERM is raised and the call returns; the process is still alive when it
+/// does. `UpdateInstaller.prepareForTermination` detaches the disk image on the
+/// very next line, and that is only a decision about a settled state if the
+/// `hdiutil attach` that was mounting it has actually stopped - so the sweep
+/// waits, with a bound, because it runs on the way out and must not hang the
+/// quit.
+///
+/// Driven against real processes rather than `MockCommandRunner`, because the
+/// mock can only encode this contract; whether `SystemCommandRunner` honours it
+/// is the thing in question.
+final class SystemCommandRunnerTerminationTests: XCTestCase {
+
+    func testTerminatingWaitsForACommandThatHasNotGoneYet() throws {
+        let runner = SystemCommandRunner()
+        let completion = CommandCompletion()
+
+        // Ignores SIGTERM, so "signalled" and "gone" are far enough apart to be
+        // told apart at all. It exits on its own a moment after the wait gives
+        // up, so the test leaves nothing running behind it.
+        DispatchQueue.global().async {
+            _ = try? runner.run("/bin/sh", ["-c", "trap '' TERM; sleep 3"])
+            completion.noteReturned()
+        }
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertFalse(completion.hasReturned, "the command under test never started")
+
+        let started = Date()
+        runner.terminateInFlightCommands()
+        let waited = Date().timeIntervalSince(started)
+
+        XCTAssertGreaterThan(
+            waited, SystemCommandRunner.terminationGracePeriod / 2,
+            "the sweep returned while the command it signalled was still running, so the "
+                + "detach that follows is racing the mount rather than following it")
+        XCTAssertLessThan(
+            waited, SystemCommandRunner.terminationGracePeriod * 2,
+            "a command that will not go away must not be able to hang the quit")
+
+        let deadline = Date().addingTimeInterval(10)
+        while !completion.hasReturned, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+    }
+
+    func testACommandThatHonoursTheSignalIsNotWaitedOutInFull() throws {
+        let runner = SystemCommandRunner()
+        let completion = CommandCompletion()
+
+        DispatchQueue.global().async {
+            _ = try? runner.run("/bin/sleep", ["30"])
+            completion.noteReturned()
+        }
+        Thread.sleep(forTimeInterval: 0.5)
+
+        let started = Date()
+        runner.terminateInFlightCommands()
+        let waited = Date().timeIntervalSince(started)
+
+        XCTAssertLessThan(
+            waited, SystemCommandRunner.terminationGracePeriod / 2,
+            "the wait is for a command that has not gone yet, not a delay on every quit")
+
+        let deadline = Date().addingTimeInterval(5)
+        while !completion.hasReturned, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        XCTAssertTrue(
+            completion.hasReturned,
+            "the command outlived the sweep that was supposed to have stood it down")
     }
 }

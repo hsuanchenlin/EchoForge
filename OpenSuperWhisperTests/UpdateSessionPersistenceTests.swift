@@ -348,7 +348,17 @@ final class UpdateSessionPersistenceTests: XCTestCase {
 
         session.prepareForTermination()
 
-        // Past the moment the un-terminated attach would have mounted it.
+        // Asserted here rather than after a sleep, and that is the point: this is
+        // the instant the process would exit, so anything still to happen is
+        // something no app is left to do. A quit that merely *starts* the cleanup
+        // has not done it.
+        XCTAssertFalse(
+            FileManager.default.fileExists(atPath: mounted),
+            "the quit returned while the attach was still in flight, so the mount was "
+                + "still to come and nothing was left running to take it down")
+
+        // And past the moment the un-terminated attach would have mounted it, so
+        // a mount that merely arrives late is caught too.
         try await Task.sleep(nanoseconds: 1_500_000_000)
         XCTAssertFalse(
             FileManager.default.fileExists(atPath: mounted),
@@ -648,8 +658,6 @@ final class UpdateSessionPersistenceTests: XCTestCase {
     }
 }
 
-/// A metadata fetcher that only ever fails, for a test that needs a *check* to
-/// happen and does not care what it finds.
 /// Answers with a real, well-formed release that is older than the build asking,
 /// which is how a check reaches `.upToDate` without a network.
 private struct OlderReleaseMetadataFetcher: ReleaseMetadataFetching {
@@ -670,6 +678,8 @@ private struct OlderReleaseMetadataFetcher: ReleaseMetadataFetching {
     }
 }
 
+/// A metadata fetcher that only ever fails, for a test that needs a *check* to
+/// happen and does not care what it finds.
 private struct FailingReleaseMetadataFetcher: ReleaseMetadataFetching {
     func fetchLatestReleaseMetadata() async throws -> Data {
         throw UpdateManifestError.noPublishedRelease

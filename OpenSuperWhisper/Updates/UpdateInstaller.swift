@@ -305,6 +305,15 @@ final class SystemCommandRunner: CommandRunning, @unchecked Sendable {
     /// non-zero status is what every caller already treats as "did not happen".
     static let terminatedStatus: Int32 = -1
 
+    /// How long the sweep waits for a signalled command to actually go away.
+    ///
+    /// `hdiutil` answers SIGTERM in milliseconds, so this is a ceiling rather
+    /// than a cost. It is bounded at all because the sweep runs inside
+    /// `applicationWillTerminate`, where blocking the main thread until a command
+    /// that is ignoring the signal decides to exit would hang the quit rather
+    /// than tidy up after it.
+    static let terminationGracePeriod: TimeInterval = 2
+
     private let lock = NSLock()
     private var inFlight: [Process] = []
     private var isTerminating = false
@@ -330,6 +339,20 @@ final class SystemCommandRunner: CommandRunning, @unchecked Sendable {
 
         for process in running where process.isRunning {
             process.terminate()
+        }
+
+        // `terminate()` only raises SIGTERM; it returns long before the process
+        // it signalled is gone. Without this wait the caller's next step acts on
+        // a state that has not settled - an `hdiutil attach` that has been
+        // signalled but is still finishing its mount would be detached before
+        // that mount exists, which is the leak the signalling is here to close.
+        // Signalled first and waited on second, so several commands overlap
+        // their exits rather than queueing them.
+        let deadline = Date().addingTimeInterval(Self.terminationGracePeriod)
+        for process in running {
+            while process.isRunning, Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.005)
+            }
         }
     }
 
@@ -662,6 +685,12 @@ final class UpdateInstaller {
     /// detach that follows a decision about a settled state rather than a race
     /// against one: either the attach mounted the image and this takes it back
     /// down, or it never got that far and there is nothing to take down.
+    ///
+    /// "Settled" is the whole of what `terminateInFlightCommands` waits for, and
+    /// it waits with a bound (`SystemCommandRunner.terminationGracePeriod`)
+    /// because this runs on the way out and cannot hang the quit. A command still
+    /// alive at the end of that bound is one this cannot speak for, and the
+    /// detach below is then the same best-effort attempt it always was.
     ///
     /// It also marks the session as terminating, which is what keeps all of this
     /// from being mistaken for a verdict on the downloaded bytes: a `codesign` or

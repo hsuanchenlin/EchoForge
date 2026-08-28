@@ -146,8 +146,10 @@ second**. Detaching first is a race it loses: a command is a child process, so a
 still running outlives the app, and a detach issued against a mount that has not appeared yet takes
 down nothing before the attach finishes and mounts it. That ordering is only meaningful because
 `SystemCommandRunner` launches and sweeps under one lock - a caller-side check before `run` can
-always be overtaken by the launch it guards - and `runDuringTermination` is the one way past the
-refusal, for the detach itself. `verifyAndStage` also refuses to start mounting once termination has
+always be overtaken by the launch it guards - and because the sweep *waits* for what it signalled:
+`terminate()` only raises SIGTERM, so without a bounded wait the detach would still be racing an
+attach that had been told to stop but had not finished mounting. `runDuringTermination` is the one
+way past the refusal, for the detach itself. `verifyAndStage` also refuses to start mounting once termination has
 begun, since the last byte can land on the way out. Everything killed or refused here fails, and
 none of those failures may discard the partial. `UpdateSessionPersistenceTests` holds all of it,
 asserting the mount is *gone* rather than that a detach was issued, and tearing down a real
