@@ -224,6 +224,24 @@ protocol CommandRunning: Sendable {
     /// it would deadlock, since the first thing it does is wait for this process
     /// to exit.
     func launchDetached(_ executable: String, _ arguments: [String]) throws
+
+    /// Terminates every command already running and refuses to start another
+    /// through `run`.
+    ///
+    /// A command is a child process, so it outlives the app that started it. An
+    /// `hdiutil attach` still running when the app goes away therefore finishes
+    /// and mounts an image nobody is left to detach - and stopping it has to be
+    /// a decision this runner makes, because launching and stopping have to be
+    /// mutually exclusive to be a decision at all: a check the caller makes
+    /// before calling `run` can always be overtaken by the launch it guards.
+    func terminateInFlightCommands()
+
+    /// Runs a command the refusal above does not apply to: the cleanup a quit
+    /// still has to get through once everything else has been stood down.
+    @discardableResult
+    func runDuringTermination(
+        _ executable: String, _ arguments: [String]
+    ) throws -> (status: Int32, output: String)
 }
 
 /// Fetches the SHA-256 a release publishes beside its disk image. A protocol so
@@ -279,9 +297,72 @@ struct GitHubChecksumFetcher: ChecksumFetching {
     }
 }
 
-struct SystemCommandRunner: CommandRunning {
+/// A class rather than a struct because it has to remember what it is running:
+/// terminating an in-flight command means holding on to its `Process`.
+final class SystemCommandRunner: CommandRunning, @unchecked Sendable {
+    /// What a command that was refused or killed on the way out reports. Nothing
+    /// reads it as a verdict - `UpdateInstaller` knows it is terminating - but a
+    /// non-zero status is what every caller already treats as "did not happen".
+    static let terminatedStatus: Int32 = -1
+
+    /// How long the sweep waits for a signalled command to actually go away.
+    ///
+    /// `hdiutil` answers SIGTERM in milliseconds, so this is a ceiling rather
+    /// than a cost. It is bounded at all because the sweep runs inside
+    /// `applicationWillTerminate`, where blocking the main thread until a command
+    /// that is ignoring the signal decides to exit would hang the quit rather
+    /// than tidy up after it.
+    static let terminationGracePeriod: TimeInterval = 2
+
+    private let lock = NSLock()
+    private var inFlight: [Process] = []
+    private var isTerminating = false
+
     @discardableResult
     func run(_ executable: String, _ arguments: [String]) throws -> (status: Int32, output: String) {
+        try run(executable, arguments, ignoringTermination: false)
+    }
+
+    @discardableResult
+    func runDuringTermination(
+        _ executable: String, _ arguments: [String]
+    ) throws -> (status: Int32, output: String) {
+        try run(executable, arguments, ignoringTermination: true)
+    }
+
+    func terminateInFlightCommands() {
+        lock.lock()
+        isTerminating = true
+        let running = inFlight
+        inFlight.removeAll()
+        lock.unlock()
+
+        for process in running where process.isRunning {
+            process.terminate()
+        }
+
+        // `terminate()` only raises SIGTERM; it returns long before the process
+        // it signalled is gone. Without this wait the caller's next step acts on
+        // a state that has not settled - an `hdiutil attach` that has been
+        // signalled but is still finishing its mount would be detached before
+        // that mount exists, which is the leak the signalling is here to close.
+        // Signalled first and waited on second, so several commands overlap
+        // their exits rather than queueing them.
+        let deadline = Date().addingTimeInterval(Self.terminationGracePeriod)
+        for process in running {
+            while process.isRunning, Date() < deadline {
+                Thread.sleep(forTimeInterval: 0.005)
+            }
+        }
+    }
+
+    /// The launch and the sweep above take the same lock, which is the whole
+    /// point: a command that has not started when the sweep runs is refused, and
+    /// one that has is in `inFlight` and gets terminated. There is no third
+    /// outcome for the launch to slip through.
+    private func run(
+        _ executable: String, _ arguments: [String], ignoringTermination: Bool
+    ) throws -> (status: Int32, output: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
@@ -290,10 +371,32 @@ struct SystemCommandRunner: CommandRunning {
         process.standardOutput = pipe
         process.standardError = pipe
 
-        try process.run()
+        lock.lock()
+        if isTerminating, !ignoringTermination {
+            lock.unlock()
+            return (Self.terminatedStatus, "Kongweh is quitting.")
+        }
+        do {
+            try process.run()
+        } catch {
+            lock.unlock()
+            throw error
+        }
+        if !ignoringTermination {
+            inFlight.append(process)
+        }
+        lock.unlock()
+
+        defer { forget(process) }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+    }
+
+    private func forget(_ process: Process) {
+        lock.lock()
+        inFlight.removeAll { $0 === process }
+        lock.unlock()
     }
 
     func launchDetached(_ executable: String, _ arguments: [String]) throws {
@@ -335,6 +438,10 @@ final class UpdateInstaller {
     private let installedAppURL: URL
     private let partialStore: PartialDownloadStore
     private let checksumFetcher: ChecksumFetching
+    /// The image this installer has attached, if any, so a quit can detach it
+    /// without waiting for the `defer` that normally would.
+    private var mountedDiskImage: URL?
+    private var isTerminating = false
 
     init(
         commandRunner: CommandRunning = SystemCommandRunner(),
@@ -383,8 +490,10 @@ final class UpdateInstaller {
             // Cancelling, or a check that could not run, is not a reason to
             // throw away 212 MB: the same press that stopped it can start it
             // again where it stopped. Only a verdict against the bytes
-            // themselves discards them.
-            if let refusal = error as? UpdateInstallError, refusal.indictsDownloadedBytes {
+            // themselves discards them - and a check that failed because
+            // `prepareForTermination` pulled the disk image out from under it is
+            // not such a verdict, however much it looks like one from here.
+            if let refusal = error as? UpdateInstallError, refusal.indictsDownloadedBytes, !isTerminating {
                 partialStore.discardPartial(for: release.version)
             }
             throw error
@@ -403,8 +512,22 @@ final class UpdateInstaller {
 
         try await verifyChecksum(of: downloaded, for: release)
 
+        // The last byte can land while the app is already going away, and
+        // `downloadAndVerify` checked cancellation before this call rather than
+        // during it. Mounting an image at that point starts work nothing is left
+        // to finish.
+        guard !isTerminating else { throw CancellationError() }
+
         let mountPoint = fileManager.temporaryDirectory
             .appendingPathComponent("EchoForgeUpdate-\(UUID().uuidString)", isDirectory: true)
+        // Claimed *before* the attach rather than after it. `hdiutil attach` on
+        // a 222 MB image takes seconds, and for all of them the pane is already
+        // in `.verifying`; a quit in that window would otherwise find nothing to
+        // detach and leave the image mounted after the app was gone. Claiming it
+        // early costs at most one best-effort detach of a path that never
+        // mounted, on the failure paths below.
+        mountedDiskImage = mountPoint
+        defer { detachDiskImage(at: mountPoint) }
         let attach = try await run(
             "/usr/bin/hdiutil",
             ["attach", downloaded.path, "-nobrowse", "-readonly", "-mountpoint", mountPoint.path]
@@ -412,7 +535,6 @@ final class UpdateInstaller {
         guard attach.status == 0 else {
             throw UpdateInstallError.diskImageCouldNotBeOpened(attach.output)
         }
-        defer { detachDiskImage(at: mountPoint) }
 
         let mountedApp = mountPoint.appendingPathComponent("EchoForge.app", isDirectory: true)
         guard fileManager.fileExists(atPath: mountedApp.path) else {
@@ -545,6 +667,44 @@ final class UpdateInstaller {
         return script
     }
 
+    /// Unmounts a disk image this installer attached, synchronously, because the
+    /// process is about to go away.
+    ///
+    /// Verification is the one stretch that cannot simply be cancelled: it runs
+    /// as `Task.detached` work whose result is awaited, so cancelling the task
+    /// waiting on it stops nothing, and `applicationWillTerminate` can neither
+    /// delay the exit nor await the `defer` that would normally detach. Left
+    /// alone, quitting between `hdiutil attach` and that `defer` leaves the image
+    /// mounted with no app to own it. This runs the detach inline instead, on the
+    /// way out, and hands the `defer` a claim that is already released.
+    ///
+    /// Standing the commands down comes first, and detaching second. Detaching
+    /// while `hdiutil attach` is still running does nothing - there is no mount
+    /// yet to take down - and the attach then completes and mounts an image the
+    /// exiting process can no longer reach. Terminating first is what makes the
+    /// detach that follows a decision about a settled state rather than a race
+    /// against one: either the attach mounted the image and this takes it back
+    /// down, or it never got that far and there is nothing to take down.
+    ///
+    /// "Settled" is the whole of what `terminateInFlightCommands` waits for, and
+    /// it waits with a bound (`SystemCommandRunner.terminationGracePeriod`)
+    /// because this runs on the way out and cannot hang the quit. A command still
+    /// alive at the end of that bound is one this cannot speak for, and the
+    /// detach below is then the same best-effort attempt it always was.
+    ///
+    /// It also marks the session as terminating, which is what keeps all of this
+    /// from being mistaken for a verdict on the downloaded bytes: a `codesign` or
+    /// `ditto` killed here, or reading an image that has just vanished, fails,
+    /// and that failure must not discard the partial the next launch resumes
+    /// from.
+    func prepareForTermination() {
+        isTerminating = true
+        commandRunner.terminateInFlightCommands()
+        guard let mountPoint = mountedDiskImage else { return }
+        mountedDiskImage = nil
+        try? commandRunner.runDuringTermination("/usr/bin/hdiutil", ["detach", mountPoint.path, "-force"])
+    }
+
     // MARK: - Private
 
     /// Runs a blocking command off the main actor. `Task.detached` genuinely
@@ -561,7 +721,13 @@ final class UpdateInstaller {
     /// Detaches the mounted disk image without waiting for or blocking on it,
     /// matching the original best-effort `try?` semantics while keeping the
     /// `Process` wait off the main actor.
+    ///
+    /// Does nothing if the claim has already been released, which is how the
+    /// ordinary `defer` and the synchronous detach `prepareForTermination` runs
+    /// stay one detach rather than two.
     private func detachDiskImage(at mountPoint: URL) {
+        guard mountedDiskImage == mountPoint else { return }
+        mountedDiskImage = nil
         let runner = commandRunner
         Task.detached(priority: .utility) {
             try? runner.run("/usr/bin/hdiutil", ["detach", mountPoint.path, "-force"])

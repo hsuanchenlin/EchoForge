@@ -126,6 +126,36 @@ edited, replaced or force-updated.
 own: checking, downloading and installing are three separate user actions, and there is no
 launch-time or background check to add one to.
 
+The update session is **app-lifetime, not pane-lifetime**: `UpdateViewModel.shared`, which
+`AboutSettingsView` observes rather than owns. Settings builds only the tab that is showing, so
+while that state lived in the pane's `@StateObject` every tab switch destroyed the transfer with
+the view, and the pane came back offering to start the 222 MB download again. It is created on
+first use, so a user who never opens About never constructs an updater, and
+`AppDelegate.applicationWillTerminate` reaches it through `sharedIfCreated` for that reason, and so
+does `SettingsView.onAppear`, which drops a `.upToDate` or `.failed` from an earlier visit
+(`settingsDidOpen`): an app-lifetime session outlives the question its answers were to, and only
+those two are answers rather than work - everything in flight, `.readyToInstall` and a live
+`.available` offer all survive, and a tab switch never resets anything.
+
+Quitting cancels an in-flight transfer - the partial survives in Caches, so the next launch
+resumes - and touches no staged bundle in any state, `.installing` least of all. `.verifying` is
+the state cancelling cannot reach: it is `Task.detached` work whose value is awaited, and
+`applicationWillTerminate` can neither delay the exit nor await the `defer` that unmounts the disk
+image. So `UpdateInstaller.prepareForTermination` **stands the commands down first and detaches
+second**. Detaching first is a race it loses: a command is a child process, so an `hdiutil attach`
+still running outlives the app, and a detach issued against a mount that has not appeared yet takes
+down nothing before the attach finishes and mounts it. That ordering is only meaningful because
+`SystemCommandRunner` launches and sweeps under one lock - a caller-side check before `run` can
+always be overtaken by the launch it guards - and because the sweep *waits* for what it signalled:
+`terminate()` only raises SIGTERM, so without a bounded wait the detach would still be racing an
+attach that had been told to stop but had not finished mounting. `runDuringTermination` is the one
+way past the refusal, for the detach itself. `verifyAndStage` also refuses to start mounting once
+termination has begun, since the last byte can land on the way out. Everything killed or refused
+here fails, and none of those failures may discard the partial. `UpdateSessionPersistenceTests`
+holds all of it, asserting the mount is *gone* rather than that a detach was issued, and tearing
+down a real `NSHostingView` because the original failure was a SwiftUI lifetime; the sweep's own
+bounded wait is pinned against real processes in `SystemCommandRunnerTerminationTests`.
+
 `UpdateManifest` is the security boundary, not a parser: it is the only thing standing between
 release metadata and "replace the running application", so it accepts an exact asset name, an
 HTTPS URL on GitHub's release hosts under this repository, and a `vX.Y.Z` tag - and refuses

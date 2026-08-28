@@ -190,6 +190,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
         }
     }
 
+    /// The update session is the one thing in this app with work that can still
+    /// be moving bytes when the user quits, so it is told to stand down here -
+    /// see `UpdateViewModel.prepareForTermination` for what it does and, more
+    /// importantly, what it leaves alone.
+    ///
+    /// `sharedIfCreated` rather than `shared`: asking must not be what brings an
+    /// updater into existence on the way out of a session that never opened
+    /// About.
+    func applicationWillTerminate(_ notification: Notification) {
+        UpdateViewModel.sharedIfCreated?.prepareForTermination()
+    }
+
     private func startRecordingRetentionSchedule() {
         cleanupOutdatedRecordings()
         

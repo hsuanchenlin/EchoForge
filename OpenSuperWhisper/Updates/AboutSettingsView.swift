@@ -91,6 +91,34 @@ struct RunningApplicationTerminator: AppTerminating {
 /// requirement, and it is a property of this type rather than of the view.
 @MainActor
 final class UpdateViewModel: ObservableObject {
+    /// The app's one update session, and the only one the About pane ever uses.
+    ///
+    /// App-lifetime rather than pane-lifetime, because a download outlives the
+    /// pane that started it. Settings builds only the tab that is showing
+    /// (`SettingsSheetLayout`), so switching to Models and back destroys
+    /// `AboutSettingsView` - and while this state lived in a `@StateObject` on
+    /// that view, the destruction took the whole update with it: the task went
+    /// unreported, the staged bundle was abandoned mid-verification, and the
+    /// pane came back saying nothing was happening. A user who glanced at
+    /// another tab paid for 222 MB twice.
+    ///
+    /// Created on first use rather than at launch, which keeps the property the
+    /// rest of Settings is built around: a pane nobody opens costs nothing, and
+    /// a user who never opens About never constructs an updater.
+    private static var created: UpdateViewModel?
+
+    static var shared: UpdateViewModel {
+        if let created { return created }
+        let session = UpdateViewModel()
+        created = session
+        return session
+    }
+
+    /// The shared session *if* it exists, for the one caller that must not bring
+    /// it into being merely by asking: quitting (`AppDelegate`) has to reach an
+    /// in-flight download, and a user who never opened About has none.
+    static var sharedIfCreated: UpdateViewModel? { created }
+
     // A staged bundle must not outlive the decision to install it: whenever a
     // `.readyToInstall` state is left behind - "Not Now", a failed install, or
     // starting another check or download - the staged copy it was offering is
@@ -262,8 +290,73 @@ final class UpdateViewModel: ObservableObject {
         terminator.terminate()
     }
 
+    /// Stands the session down as the app quits.
+    ///
+    /// An in-flight transfer is cancelled so its `URLSession` goes away with the
+    /// process rather than being left to a delegate callback nobody will ever
+    /// service. Nothing is lost by that: the partial file and its validator live
+    /// in Caches (`PartialDownloadStore`), so the next launch resumes from where
+    /// this one stopped instead of starting the download again.
+    ///
+    /// What it deliberately does **not** do is touch a staged bundle, in either
+    /// state that holds one. `.installing` is the obvious one - the detached
+    /// swap script is at this moment spinning on this pid, and deleting the
+    /// bundle out from under it is precisely the failure `didSet` above is
+    /// written to avoid. `.readyToInstall` is the same decision for a quieter
+    /// reason: the bundle is verified bytes the user asked for and may still
+    /// install after relaunching, and the one place that sweeps an abandoned one
+    /// is `UpdateInstaller.removeStaleStagingDirectories`, which runs before the
+    /// next download is staged.
+    ///
+    /// `.verifying` is the one state cancelling is not enough for. Its work runs
+    /// as `Task.detached` whose value is awaited, so cancelling the task waiting
+    /// on it stops nothing, and this notification can neither delay the exit nor
+    /// await the `defer` that unmounts the disk image - so quitting used to leave
+    /// the image mounted after the app was gone. `UpdateInstaller` detaches it
+    /// inline instead, and knows not to read the resulting `codesign` failure as
+    /// a verdict against the downloaded bytes.
+    func prepareForTermination() {
+        switch state {
+        case .connecting, .downloading, .verifying:
+            downloadTask?.cancel()
+            downloadTask = nil
+            installer.prepareForTermination()
+        case .idle, .checking, .upToDate, .available, .readyToInstall,
+             .installing, .failed:
+            break
+        }
+    }
+
     func dismissMessage() {
         state = .idle
+    }
+
+    /// Clears the result of a check nobody is still waiting on, so opening
+    /// Settings does not answer a question the user has forgotten asking.
+    ///
+    /// The session is app-lifetime now, which is what keeps a download alive
+    /// across a tab switch - but it also means a `.upToDate` from breakfast is
+    /// still on screen in the evening, presented as though the check had just
+    /// run, and a `.failed` from a network that has since come back offers a
+    /// retry for a failure that no longer exists. Both are answers rather than
+    /// work, so both are dropped and the pane opens on its explainer again.
+    ///
+    /// Only those two. Everything in flight and everything holding bytes -
+    /// `.checking`, the transfer states, `.readyToInstall`, `.installing` - is
+    /// the state the persistence exists for, and `.available` is a live offer
+    /// the user has not answered yet.
+    ///
+    /// Called when the Settings *sheet* opens, not when the About pane is built:
+    /// the pane is rebuilt on every tab switch, and a result the user is in the
+    /// middle of reading must survive a glance at another tab.
+    func settingsDidOpen() {
+        switch state {
+        case .upToDate, .failed:
+            state = .idle
+        case .idle, .checking, .available, .connecting, .downloading, .verifying,
+             .readyToInstall, .installing:
+            break
+        }
     }
 
     private func discardStagedBundle(_ stagedApp: URL) {
@@ -272,8 +365,28 @@ final class UpdateViewModel: ObservableObject {
 }
 
 /// Which build this is, and the only place in the app that offers to change it.
+///
+/// The pane **observes** the update session; it does not own it. That is the
+/// whole of the fix for a download that reset every time the user looked at
+/// another tab: `@StateObject` made the session a possession of a view Settings
+/// destroys and rebuilds (`SettingsSheetLayout` builds only the selected pane),
+/// so the pane and the transfer had the same lifetime. `UpdateViewModel.shared`
+/// outlives both, and the pane simply draws whatever it finds there - which is
+/// why coming back to About mid-download shows the download rather than an
+/// invitation to start it again.
+@MainActor
 struct AboutSettingsView: View {
-    @StateObject private var viewModel = UpdateViewModel()
+    /// Injectable so a test can drive the pane against a stubbed installer
+    /// without reaching the app-lifetime session; production always takes the
+    /// default.
+    @ObservedObject var viewModel: UpdateViewModel
+
+    /// `nil` rather than `.shared` as the default: a default argument is
+    /// evaluated in the caller's context, which is not main-actor isolated, so
+    /// the session is resolved here instead.
+    init(viewModel: UpdateViewModel? = nil) {
+        _viewModel = ObservedObject(wrappedValue: viewModel ?? UpdateViewModel.shared)
+    }
 
     var body: some View {
         ScrollView {

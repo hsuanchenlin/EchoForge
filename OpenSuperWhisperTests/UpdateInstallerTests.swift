@@ -8,10 +8,11 @@ import XCTest
 /// attach`, `codesign` and `ditto` well enough that `downloadAndVerify` can be
 /// driven end to end without a real disk image: `attach` synthesizes a fake
 /// mounted `EchoForge.app` (with an `Info.plist` matching the requested
-/// identity) at the mount point it was asked for, `codesign` reports success,
-/// and `ditto` performs a real file copy so the returned staged bundle exists
-/// on disk for assertions.
-private final class MockCommandRunner: CommandRunning, @unchecked Sendable {
+/// identity) at the mount point it was asked for, `detach` takes it away again,
+/// `codesign` reports success for a bundle that is actually there, and `ditto`
+/// performs a real file copy so the returned staged bundle exists on disk for
+/// assertions.
+final class MockCommandRunner: CommandRunning, @unchecked Sendable {
     struct Invocation {
         let executable: String
         let arguments: [String]
@@ -25,6 +26,7 @@ private final class MockCommandRunner: CommandRunning, @unchecked Sendable {
     /// Makes `hdiutil attach` take real time, standing in for mounting a real
     /// 200 MB image - which is what the pane has to have something to say about.
     var attachDelay: TimeInterval = 0
+    var codesignDelay: TimeInterval = 0
 
     private let lock = NSLock()
     private var _invocations: [Invocation] = []
@@ -34,14 +36,86 @@ private final class MockCommandRunner: CommandRunning, @unchecked Sendable {
         return _invocations
     }
 
+    private var _isTerminating = false
+    private var _inFlight = 0
+
+    /// Stands the in-flight command down the way killing the real process would:
+    /// a delayed command wakes up, reports failure, and - this is the part that
+    /// matters - never gets to the work it had not done yet. An `hdiutil attach`
+    /// terminated here therefore never creates its mount, exactly as a killed one
+    /// never mounts the image.
+    ///
+    /// Then it *waits* for that to have happened, which is the half a test can
+    /// otherwise only assume. `SystemCommandRunner` signals and then waits for
+    /// the process to exit, so a caller that detaches next is acting on a settled
+    /// state; a mock that returned as soon as it set a flag would let a test pass
+    /// on ordering alone while the real `hdiutil` was still mounting.
+    func terminateInFlightCommands() {
+        lock.lock()
+        _isTerminating = true
+        lock.unlock()
+
+        let deadline = Date().addingTimeInterval(SystemCommandRunner.terminationGracePeriod)
+        while Date() < deadline {
+            lock.lock()
+            let stillRunning = _inFlight
+            lock.unlock()
+            if stillRunning == 0 { return }
+            Thread.sleep(forTimeInterval: 0.005)
+        }
+    }
+
+    func runDuringTermination(
+        _ executable: String, _ arguments: [String]
+    ) throws -> (status: Int32, output: String) {
+        try run(executable, arguments, ignoringTermination: true)
+    }
+
     func run(_ executable: String, _ arguments: [String]) throws -> (status: Int32, output: String) {
+        try run(executable, arguments, ignoringTermination: false)
+    }
+
+    /// Sleeps in slices so a command that was told to take real time notices it
+    /// has been terminated part way through, rather than only afterwards.
+    private func waitOut(_ delay: TimeInterval) -> Bool {
+        guard delay > 0 else { return !isTerminating }
+        let deadline = Date().addingTimeInterval(delay)
+        while Date() < deadline {
+            if isTerminating { return false }
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        return !isTerminating
+    }
+
+    private var isTerminating: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _isTerminating
+    }
+
+    private func run(
+        _ executable: String, _ arguments: [String], ignoringTermination: Bool
+    ) throws -> (status: Int32, output: String) {
         lock.lock()
         _invocations.append(Invocation(executable: executable, arguments: arguments))
+        let refused = _isTerminating && !ignoringTermination
+        // Only the commands the sweep is answerable for are counted, so the
+        // cleanup that runs *after* it cannot be something it waits on.
+        let counted = !refused && !ignoringTermination
+        if counted { _inFlight += 1 }
         lock.unlock()
+        if refused { return (-1, "terminated") }
+        defer {
+            if counted {
+                lock.lock()
+                _inFlight -= 1
+                lock.unlock()
+            }
+        }
 
         switch executable {
         case "/usr/bin/hdiutil" where arguments.first == "attach":
-            if attachDelay > 0 { Thread.sleep(forTimeInterval: attachDelay) }
+            guard waitOut(attachDelay) else { return (-1, "hdiutil: attach terminated") }
             if let mountIndex = arguments.firstIndex(of: "-mountpoint") {
                 let mountedApp = URL(fileURLWithPath: arguments[mountIndex + 1])
                     .appendingPathComponent("EchoForge.app", isDirectory: true)
@@ -56,9 +130,22 @@ private final class MockCommandRunner: CommandRunning, @unchecked Sendable {
                 }
             }
             return (0, "")
+        case "/usr/bin/hdiutil" where arguments.first == "detach":
+            // Takes the synthesized mount away again, so a check still reading
+            // from it sees what a real one would see once the image is gone.
+            if let mountPoint = arguments.dropFirst().first {
+                try? FileManager.default.removeItem(atPath: mountPoint)
+            }
+            return (0, "")
         case "/usr/bin/ditto":
             if arguments.count == 2 {
                 try? FileManager.default.copyItem(atPath: arguments[0], toPath: arguments[1])
+            }
+            return (0, "")
+        case "/usr/bin/codesign":
+            guard waitOut(codesignDelay) else { return (-1, "codesign terminated") }
+            guard let bundle = arguments.last, FileManager.default.fileExists(atPath: bundle) else {
+                return (1, "code object is not signed at all")
             }
             return (0, "")
         default:
@@ -80,7 +167,7 @@ private final class MockCommandRunner: CommandRunning, @unchecked Sendable {
 /// Records that the app was asked to quit instead of actually quitting the
 /// test runner.
 @MainActor
-private final class SpyTerminator: AppTerminating {
+final class SpyTerminator: AppTerminating {
     private(set) var terminateCount = 0
 
     func terminate() {
@@ -90,7 +177,7 @@ private final class SpyTerminator: AppTerminating {
 
 /// Answers every request with canned bytes, so a real network call is never
 /// made in these tests.
-private final class StubURLProtocol: URLProtocol, @unchecked Sendable {
+final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     static var responseData = Data()
     static var statusCode = 200
 
@@ -375,7 +462,7 @@ final class UpdateInstallerSwapScriptTests: XCTestCase {
 /// watchdog both live on - fires once, at the end. Only a real connection makes
 /// `URLSession` report progress the way it does against GitHub, and progress
 /// arriving *incrementally* is the whole signal being asserted here.
-private final class LoopbackDownloadServer: @unchecked Sendable {
+final class LoopbackDownloadServer: @unchecked Sendable {
     struct Script {
         /// What `Content-Length` claims.
         var announcedBytes: Int
@@ -1080,5 +1167,97 @@ private final class ProgressRecorder: @unchecked Sendable {
 
     var connectingReports: [DownloadProgress] {
         all.compactMap { if case .connecting(let progress) = $0 { return progress } else { return nil } }
+    }
+}
+
+/// A flag two threads can agree on, for a test watching work it does not own.
+private final class CommandCompletion: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _hasReturned = false
+
+    var hasReturned: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return _hasReturned
+    }
+
+    func noteReturned() {
+        lock.lock()
+        _hasReturned = true
+        lock.unlock()
+    }
+}
+
+/// Standing a command down is two things, and only the first is `terminate()`.
+///
+/// SIGTERM is raised and the call returns; the process is still alive when it
+/// does. `UpdateInstaller.prepareForTermination` detaches the disk image on the
+/// very next line, and that is only a decision about a settled state if the
+/// `hdiutil attach` that was mounting it has actually stopped - so the sweep
+/// waits, with a bound, because it runs on the way out and must not hang the
+/// quit.
+///
+/// Driven against real processes rather than `MockCommandRunner`, because the
+/// mock can only encode this contract; whether `SystemCommandRunner` honours it
+/// is the thing in question.
+final class SystemCommandRunnerTerminationTests: XCTestCase {
+
+    func testTerminatingWaitsForACommandThatHasNotGoneYet() throws {
+        let runner = SystemCommandRunner()
+        let completion = CommandCompletion()
+
+        // Ignores SIGTERM, so "signalled" and "gone" are far enough apart to be
+        // told apart at all. It exits on its own a moment after the wait gives
+        // up, so the test leaves nothing running behind it.
+        DispatchQueue.global().async {
+            _ = try? runner.run("/bin/sh", ["-c", "trap '' TERM; sleep 3"])
+            completion.noteReturned()
+        }
+        Thread.sleep(forTimeInterval: 0.5)
+        XCTAssertFalse(completion.hasReturned, "the command under test never started")
+
+        let started = Date()
+        runner.terminateInFlightCommands()
+        let waited = Date().timeIntervalSince(started)
+
+        XCTAssertGreaterThan(
+            waited, SystemCommandRunner.terminationGracePeriod / 2,
+            "the sweep returned while the command it signalled was still running, so the "
+                + "detach that follows is racing the mount rather than following it")
+        XCTAssertLessThan(
+            waited, SystemCommandRunner.terminationGracePeriod * 2,
+            "a command that will not go away must not be able to hang the quit")
+
+        let deadline = Date().addingTimeInterval(10)
+        while !completion.hasReturned, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+    }
+
+    func testACommandThatHonoursTheSignalIsNotWaitedOutInFull() throws {
+        let runner = SystemCommandRunner()
+        let completion = CommandCompletion()
+
+        DispatchQueue.global().async {
+            _ = try? runner.run("/bin/sleep", ["30"])
+            completion.noteReturned()
+        }
+        Thread.sleep(forTimeInterval: 0.5)
+
+        let started = Date()
+        runner.terminateInFlightCommands()
+        let waited = Date().timeIntervalSince(started)
+
+        XCTAssertLessThan(
+            waited, SystemCommandRunner.terminationGracePeriod / 2,
+            "the wait is for a command that has not gone yet, not a delay on every quit")
+
+        let deadline = Date().addingTimeInterval(5)
+        while !completion.hasReturned, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        XCTAssertTrue(
+            completion.hasReturned,
+            "the command outlived the sweep that was supposed to have stood it down")
     }
 }
