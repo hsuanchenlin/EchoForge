@@ -149,11 +149,12 @@ down nothing before the attach finishes and mounts it. That ordering is only mea
 always be overtaken by the launch it guards - and because the sweep *waits* for what it signalled:
 `terminate()` only raises SIGTERM, so without a bounded wait the detach would still be racing an
 attach that had been told to stop but had not finished mounting. `runDuringTermination` is the one
-way past the refusal, for the detach itself. `verifyAndStage` also refuses to start mounting once termination has
-begun, since the last byte can land on the way out. Everything killed or refused here fails, and
-none of those failures may discard the partial. `UpdateSessionPersistenceTests` holds all of it,
-asserting the mount is *gone* rather than that a detach was issued, and tearing down a real
-`NSHostingView` because the original failure was a SwiftUI lifetime.
+way past the refusal, for the detach itself. `verifyAndStage` also refuses to start mounting once
+termination has begun, since the last byte can land on the way out. Everything killed or refused
+here fails, and none of those failures may discard the partial. `UpdateSessionPersistenceTests`
+holds all of it, asserting the mount is *gone* rather than that a detach was issued, and tearing
+down a real `NSHostingView` because the original failure was a SwiftUI lifetime; the sweep's own
+bounded wait is pinned against real processes in `SystemCommandRunnerTerminationTests`.
 
 `UpdateManifest` is the security boundary, not a parser: it is the only thing standing between
 release metadata and "replace the running application", so it accepts an exact asset name, an
