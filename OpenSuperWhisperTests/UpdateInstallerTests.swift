@@ -11,7 +11,7 @@ import XCTest
 /// identity) at the mount point it was asked for, `codesign` reports success,
 /// and `ditto` performs a real file copy so the returned staged bundle exists
 /// on disk for assertions.
-private final class MockCommandRunner: CommandRunning, @unchecked Sendable {
+final class MockCommandRunner: CommandRunning, @unchecked Sendable {
     struct Invocation {
         let executable: String
         let arguments: [String]
@@ -80,7 +80,7 @@ private final class MockCommandRunner: CommandRunning, @unchecked Sendable {
 /// Records that the app was asked to quit instead of actually quitting the
 /// test runner.
 @MainActor
-private final class SpyTerminator: AppTerminating {
+final class SpyTerminator: AppTerminating {
     private(set) var terminateCount = 0
 
     func terminate() {
@@ -90,7 +90,7 @@ private final class SpyTerminator: AppTerminating {
 
 /// Answers every request with canned bytes, so a real network call is never
 /// made in these tests.
-private final class StubURLProtocol: URLProtocol, @unchecked Sendable {
+final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     static var responseData = Data()
     static var statusCode = 200
 
@@ -375,7 +375,7 @@ final class UpdateInstallerSwapScriptTests: XCTestCase {
 /// watchdog both live on - fires once, at the end. Only a real connection makes
 /// `URLSession` report progress the way it does against GitHub, and progress
 /// arriving *incrementally* is the whole signal being asserted here.
-private final class LoopbackDownloadServer: @unchecked Sendable {
+final class LoopbackDownloadServer: @unchecked Sendable {
     struct Script {
         /// What `Content-Length` claims.
         var announcedBytes: Int

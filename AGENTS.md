@@ -126,6 +126,17 @@ edited, replaced or force-updated.
 own: checking, downloading and installing are three separate user actions, and there is no
 launch-time or background check to add one to.
 
+The update session is **app-lifetime, not pane-lifetime**: `UpdateViewModel.shared`, which
+`AboutSettingsView` observes rather than owns. Settings builds only the tab that is showing, so
+while that state lived in the pane's `@StateObject` every tab switch destroyed the transfer with
+the view, and the pane came back offering to start the 222 MB download again. It is created on
+first use, so a user who never opens About never constructs an updater, and
+`AppDelegate.applicationWillTerminate` reaches it through `sharedIfCreated` for that reason.
+Quitting cancels an in-flight transfer - the partial survives in Caches, so the next launch
+resumes - and touches no staged bundle in any state, `.installing` least of all.
+`UpdateSessionPersistenceTests` holds all of it, tearing down a real `NSHostingView` because the
+failure was a SwiftUI lifetime.
+
 `UpdateManifest` is the security boundary, not a parser: it is the only thing standing between
 release metadata and "replace the running application", so it accepts an exact asset name, an
 HTTPS URL on GitHub's release hosts under this repository, and a `vX.Y.Z` tag - and refuses
