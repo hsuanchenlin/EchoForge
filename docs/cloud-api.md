@@ -16,6 +16,7 @@ an explicit acceptance of a sheet that says what will be uploaded and where.
 | Speech transcription | **On your Mac** | The audio file of each dictation, plus the language code and your "initial prompt" setting | `Cloud/CloudTranscriptionEngine.swift` |
 | Translation (the spoken `Translate to …` command) | **On your Mac** | The text of the dictation you asked to have translated | `Cloud/CloudStyleRewriter.swift` |
 | Style rewriting | On your Mac | — never offered a cloud option | `Rewriting/` |
+| Fix with AI in History | On your Mac | Never offered a cloud option | `Rewriting/TranscriptCorrection.swift` |
 | Ask panel (⌥A) | On your Mac | — never offered a cloud option | `Ask/` |
 | Screen questions (⌥S) | On your Mac | — never offered a cloud option | `Vision/` |
 | Personal terms, CJK spacing, voice snippets | On your Mac | — no model involved at all | `Utils/`, `Models/` |
@@ -35,7 +36,7 @@ Kongweh's.** Retention, whether it trains a model, who can subpoena it: read
 the policy of whoever you configure. That sentence is in the consent sheet for
 the same reason it is here.
 
-### Why only translation, out of the four model features
+### Why only translation, out of the five model features
 
 Style rewriting runs on **every** dictation once it is on, whether or not you
 were thinking about it that time. The Ask panel and screen questions carry
@@ -47,8 +48,8 @@ cloud call matches how the feature is actually used, so it is the only one
 offered.
 
 It is enforced in the type system rather than by convention:
-`OnDeviceModelFeature.cloudFeature` returns `nil` for rewriting, Ask and channel
-matching, so none of them has a reachable path to a provider.
+`OnDeviceModelFeature.cloudFeature` returns `nil` for rewriting, correction, Ask and
+channel matching, so none of them has a reachable path to a provider.
 `CloudPrivacyTests` pins it.
 
 ---

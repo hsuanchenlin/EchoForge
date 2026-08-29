@@ -45,11 +45,11 @@ enum TranscriptCorrection {
     /// What the model is told to do.
     ///
     /// `.preserving` is the shape, and it is the strictest one the guard has:
-    /// the correction must come back the same length, in the same script and the
-    /// same Chinese variant, with every number and currency symbol intact. That
-    /// is exactly the right envelope for this stage - a homophone fix changes
-    /// characters and nothing else, so anything wider would only be permission
-    /// for the model to do something the user did not ask for.
+    /// the correction must stay within that shape's length bounds, in the same
+    /// script and Chinese variant, with every number and currency symbol intact.
+    /// That is the right envelope for this stage - a homophone fix changes
+    /// characters rather than meaning, so anything wider would only be
+    /// permission for the model to do something the user did not ask for.
     ///
     /// Three hand-written texts for the same reason `StyleRewriteStyle` has
     /// them: the instruction's own script decides the answer's script, so a

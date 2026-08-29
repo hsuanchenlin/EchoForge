@@ -1,8 +1,8 @@
 # Fix with AI
 
 The ✨ action on a history card. It reads one stored transcript back to the on-device
-model and asks for the one class of error the rest of the pipeline cannot reach:
-characters the recognizer *heard* wrong. Chinese homophones - 「我**再**開會」 for
+model and asks it to use sentence context for recognition errors that deterministic
+post-processing cannot reliably infer: Chinese homophones - 「我**再**開會」 for
 「我**在**開會」 - mis-heard words, and word boundaries split in the wrong place.
 
 `OpenSuperWhisper/Rewriting/TranscriptCorrection.swift` is the stage,
@@ -47,10 +47,10 @@ must not overwrite it.
 ## The guard is the boundary
 
 `StyleRewriteShape.preserving` - the strictest shape there is, and the right one. A
-homophone fix changes characters and nothing else, so anything wider would be permission
-for something the user did not ask for. The correction has to come back the same length,
-in the same script and the same Chinese variant, with every number and currency symbol
-intact, or the row keeps what it had.
+homophone fix changes characters rather than meaning, so anything wider would be permission
+for something the user did not ask for. The correction must stay within the preserving
+shape's length bounds, in the same script and Chinese variant, with every number and
+currency symbol intact, or the row keeps what it had.
 
 The personal terms dictionary is carried through as well.
 `ProcessedText.mustSurviveTokens` is produced at dictation time and is not stored, so
