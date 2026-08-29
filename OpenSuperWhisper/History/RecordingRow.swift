@@ -16,11 +16,23 @@ import SwiftUI
 /// `fixedSize(horizontal: false, vertical: true)` and every one-line one either
 /// truncates deliberately or sits inside a `ViewThatFits` that stacks instead.
 /// `HistoryRowRenderTests` draws both tiers and reads the pixels back.
+///
+/// The one action on it that changes the row's own words is "Fix with AI"
+/// (`TranscriptCorrection`); everything about that press that outlives the card
+/// lives in `TranscriptCorrectionCoordinator`, and this view only draws it.
 struct RecordingRow: View {
     let recording: Recording
     let searchQuery: String
     let onDelete: () -> Void
     let onRegenerate: () -> Void
+    /// The in-flight state of "Fix with AI", observed rather than owned.
+    ///
+    /// A correction outlives the card that started it - history is a
+    /// `LazyVStack` and scrolling past a row tears it down - so the state lives
+    /// for the app rather than for the row. See
+    /// `TranscriptCorrectionCoordinator`. Injectable so a render test can draw
+    /// the running and the refused states without a model.
+    @ObservedObject var corrections: TranscriptCorrectionCoordinator = .shared
 
     @StateObject private var audioRecorder = AudioRecorder.shared
     @State private var showTranscription = false
@@ -67,6 +79,18 @@ struct RecordingRow: View {
         recording.isRegeneration && isPending
     }
 
+    /// Whether a "Fix with AI" press on this row is still running.
+    private var isCorrecting: Bool {
+        corrections.isCorrecting(recording.id)
+    }
+
+    /// The sentence left by a press that changed nothing - the model was
+    /// unavailable, the guard refused the answer, or the transcript was already
+    /// correct. Never a blocking alert: the row keeps every word it had.
+    private var correctionNote: String? {
+        corrections.note(for: recording.id)
+    }
+
     private var hasFailed: Bool {
         recording.status == .failed
     }
@@ -96,6 +120,12 @@ struct RecordingRow: View {
     /// Hover is the ordinary way in. The exceptions are states where an action
     /// is the point of the row rather than a convenience: audio that is playing
     /// needs its stop button, and a queued or failed row needs its delete.
+    ///
+    /// A correction in flight is deliberately *not* one of them, for the same
+    /// reason a regeneration is not: the bar is 15 pt taller than the footer
+    /// without it, so forcing it up would make every card jump as a model
+    /// started and finished. What says the press landed is `correctionStrip`,
+    /// which lives on the footer row the card already has.
     private var showsActions: Bool {
         isHovered || isPlaying || voiceOverEnabled || isPending || hasFailed
     }
@@ -132,6 +162,11 @@ struct RecordingRow: View {
         }
         .animation(.easeInOut(duration: 0.2), value: showsActions)
         .animation(.easeInOut(duration: 0.2), value: isRegenerating)
+        .animation(.easeInOut(duration: 0.2), value: isCorrecting)
+        // The third reading of `actions`, and the reason that list is data: a
+        // right-click reaches every action a pointer user can hover for and a
+        // VoiceOver user can rotor to, without a fourth hand-written copy.
+        .contextMenu { actionMenuItems }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilitySummary(now: now))
         .accessibilityActions {
@@ -165,6 +200,8 @@ struct RecordingRow: View {
         parts.append(TextUtil.formatDuration(recording.duration))
         if hasFailed { parts.append("Transcription failed") }
         if isPending { parts.append(statusText) }
+        if recording.wasCorrectedByAI { parts.append("Fixed with AI") }
+        if isCorrecting { parts.append("Fixing with AI") }
         return parts.joined(separator: ", ")
     }
 
@@ -229,6 +266,19 @@ struct RecordingRow: View {
                 accessibilityLabel: "Duration \(TextUtil.formatDuration(recording.duration))",
                 isMonospacedDigit: true
             )
+            // Beside the other two rather than in the provenance pill, because
+            // it answers a different question: provenance says what produced
+            // this row, and this says what was done to it afterwards. Writing
+            // it into the pill would overwrite the first answer with the
+            // second. See `Recording.aiCorrectedAt`.
+            if recording.wasCorrectedByAI {
+                HistoryMetadataChip(
+                    systemImage: "sparkles",
+                    text: "AI Polished",
+                    accessibilityLabel: "Fixed with AI",
+                    tint: ThemePalette.iconAccent(colorScheme)
+                )
+            }
         }
         .fixedSize()
     }
@@ -337,17 +387,29 @@ struct RecordingRow: View {
 
     private var transcriptSection: some View {
         VStack(alignment: .leading, spacing: 6) {
-            ZStack(alignment: .topLeading) {
-                TranscriptionView(
-                    transcribedText: displayText,
-                    searchQuery: searchQuery,
-                    isExpanded: $showTranscription
-                )
-
-                if isRegenerating {
+            // An overlay rather than a `ZStack` sibling, and that is load
+            // bearing: `ShimmerOverlay` is a `GeometryReader`, which reports no
+            // size of its own and takes every point it is offered - stacked
+            // beside the transcript it stretched the card to whatever height
+            // was going, so every row underneath jumped down the list and back
+            // again while a model worked. An overlay is laid out at the size of
+            // the view it covers, which is the transcript it is standing in
+            // for. `HistoryRowRenderTests` measures that the height does not
+            // move.
+            TranscriptionView(
+                transcribedText: displayText,
+                searchQuery: searchQuery,
+                isExpanded: $showTranscription
+            )
+            .overlay {
+                if isRegenerating || isCorrecting {
                     ShimmerOverlay()
                         .transition(.opacity.animation(.easeInOut(duration: 0.3)))
                 }
+            }
+
+            if let note = correctionNote {
+                correctionNoteSection(note)
             }
 
             if let original = originalTranscription {
@@ -373,6 +435,7 @@ struct RecordingRow: View {
                         HStack(alignment: .center, spacing: 8) {
                             footerTimestamp
                             if isRegenerating { regenerationStrip }
+                            if isCorrecting { correctionStrip }
                             Spacer(minLength: 0)
                         }
                         if showsActions { actionBar }
@@ -388,6 +451,7 @@ struct RecordingRow: View {
         HStack(alignment: .center, spacing: 10) {
             footerTimestamp
             if isRegenerating { regenerationStrip }
+            if isCorrecting { correctionStrip }
             Spacer(minLength: 8)
             if showsActions { actionBar }
         }
@@ -440,22 +504,65 @@ struct RecordingRow: View {
         .accessibilityLabel("Regenerating, \(statusText)")
     }
 
+    /// A correction in flight, beside the timestamp for the same reason the
+    /// regeneration strip is: the row keeps every word it had while the model
+    /// works, so the progress belongs next to the card's own metadata rather
+    /// than over the transcript it is not replacing yet.
+    ///
+    /// Indeterminate, and it has to be: the model returns the whole correction
+    /// at once, so there is no fraction to report and a bar that pretended
+    /// otherwise would be inventing one.
+    private var correctionStrip: some View {
+        HStack(spacing: 6) {
+            TranscriptionProgressRing(progress: 0, isIndeterminate: true)
+            Text("Fixing with AI…")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .transition(.opacity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Fixing with AI")
+    }
+
     /// The row's actions, as data.
     ///
-    /// One list, read twice: once to draw the hover bar and once to register
-    /// the same actions with VoiceOver. Hover is a pointer affordance and a
-    /// VoiceOver user has no pointer, so a bar that was the only way to reach
-    /// delete would be no way at all for them - and two hand-written copies of
-    /// the same four actions is how one of them silently loses a case.
+    /// One list, read three times: to draw the hover bar, to fill the
+    /// right-click menu, and to register the same actions with VoiceOver. Hover
+    /// is a pointer affordance and a VoiceOver user has no pointer, so a bar
+    /// that was the only way to reach delete would be no way at all for them -
+    /// and three hand-written copies of the same five actions is how one of
+    /// them silently loses a case.
     private var actions: [HistoryRowAction] {
-        HistoryRowActionKind.available(for: recording.status).map { kind in
-            HistoryRowAction(
-                kind: kind,
-                systemImage: kind.symbolName(isPlaying: isPlaying),
-                label: kind.label(isPlaying: isPlaying),
-                tint: kind == .play && isPlaying
-                    ? ThemePalette.failureText(colorScheme) : nil,
-                perform: { perform(kind) })
+        HistoryRowActionKind
+            .available(for: recording.status, hasTranscript: !displayText.isEmpty)
+            .map { kind in
+                HistoryRowAction(
+                    kind: kind,
+                    systemImage: kind.symbolName(isPlaying: isPlaying),
+                    label: kind.label(isPlaying: isPlaying),
+                    help: kind.help,
+                    tint: kind == .fixWithAI && recording.wasCorrectedByAI
+                        ? ThemePalette.iconAccent(colorScheme)
+                        : (kind == .play && isPlaying
+                            ? ThemePalette.failureText(colorScheme) : nil),
+                    // The one action that can be busy. A second press while the
+                    // first is running has nothing to do that the first is not
+                    // already doing, so the button says so rather than starting
+                    // a race for the same row - see
+                    // `TranscriptCorrectionCoordinator.correct`.
+                    isBusy: kind == .fixWithAI && isCorrecting,
+                    perform: { perform(kind) })
+            }
+    }
+
+    @ViewBuilder
+    private var actionMenuItems: some View {
+        ForEach(actions) { action in
+            Button(role: action.isDestructive ? .destructive : nil, action: action.perform) {
+                Label(action.label, systemImage: action.systemImage)
+            }
+            .disabled(action.isBusy)
         }
     }
 
@@ -470,6 +577,8 @@ struct RecordingRow: View {
         case .copy:
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(recording.transcription, forType: .string)
+        case .fixWithAI:
+            corrections.correct(recording)
         case .regenerate:
             onRegenerate()
         case .delete:
@@ -483,6 +592,43 @@ struct RecordingRow: View {
         ForEach(actions) { action in
             HistoryActionButton(action: action, metrics: metrics)
         }
+    }
+
+    // MARK: - What a press that changed nothing left behind
+
+    /// The sentence a "Fix with AI" press leaves when it changes no words.
+    ///
+    /// Inline on the card and dismissible, never an alert or a sheet: the press
+    /// cost the user a wait and nothing else - every word the row had is still
+    /// there - so interrupting them to say so would be the most disruptive part
+    /// of the whole feature. `docs/history-ai-fix.md` records the reasoning.
+    private func correctionNoteSection(_ note: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Image(systemName: "info.circle")
+                .font(.system(size: 10, weight: .semibold))
+            Text(note)
+                .font(.caption)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+            Button {
+                corrections.dismissNote(for: recording.id)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+            }
+            .buttonStyle(.plain)
+            .help("Dismiss")
+            .accessibilityLabel("Dismiss this message")
+        }
+        .foregroundStyle(.secondary)
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(ThemePalette.insetSurface(colorScheme))
+        )
+        .transition(.opacity)
+        .accessibilityElement(children: .combine)
     }
 
     // MARK: - The original, and the comparison
@@ -562,7 +708,9 @@ struct RecordingRow: View {
             disclosureButton(
                 title: showOriginal ? "Hide original" : "Show original",
                 isExpanded: showOriginal,
-                help: "What the transcription engine heard, before post-processing"
+                help: recording.wasCorrectedByAI
+                    ? "What this recording said before Fix with AI"
+                    : "What the transcription engine heard, before post-processing"
             ) {
                 withAnimation(.easeInOut(duration: 0.15)) { showOriginal.toggle() }
             }
@@ -570,7 +718,9 @@ struct RecordingRow: View {
             disclosureButton(
                 title: showComparison ? "Hide comparison" : "Compare",
                 isExpanded: showComparison,
-                help: "The original with the words post-processing dropped struck through"
+                help: recording.wasCorrectedByAI
+                    ? "The original with the characters Fix with AI changed struck through"
+                    : "The original with the words post-processing dropped struck through"
             ) {
                 if !showComparison {
                     comparisonSegments = TextDiffUtil.compare(
@@ -635,6 +785,10 @@ struct HistoryMetadataChip: View {
     let text: String
     var accessibilityLabel: String
     var isMonospacedDigit: Bool = false
+    /// A chip that is more than metadata. Defaults to nil, which is the row's
+    /// ordinary secondary grey; colour is never the only signal, because the
+    /// glyph and the words say the same thing.
+    var tint: Color? = nil
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -645,7 +799,7 @@ struct HistoryMetadataChip: View {
                 .font(isMonospacedDigit ? .caption2.monospacedDigit() : .caption2)
                 .lineLimit(1)
         }
-        .foregroundStyle(.secondary)
+        .foregroundStyle(tint ?? .secondary)
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
         .background(
@@ -715,20 +869,32 @@ struct HistoryActionButton: View {
 
     var body: some View {
         Button(action: action.perform) {
-            Image(systemName: action.systemImage)
-                .font(.system(size: metrics.actionIconSize, weight: .medium))
-                .foregroundStyle(foreground)
-                .frame(width: metrics.actionHitTarget, height: metrics.actionHitTarget)
-                .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
-                        .fill(isHovered
-                              ? ThemePalette.chipSurface(colorScheme)
-                              : Color.clear)
-                )
-                .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            Group {
+                if action.isBusy {
+                    // In the button's own square rather than beside it, so the
+                    // bar keeps its shape and the buttons either side do not
+                    // move under the pointer while the model works.
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.6)
+                } else {
+                    Image(systemName: action.systemImage)
+                        .font(.system(size: metrics.actionIconSize, weight: .medium))
+                        .foregroundStyle(foreground)
+                }
+            }
+            .frame(width: metrics.actionHitTarget, height: metrics.actionHitTarget)
+            .background(
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(isHovered
+                          ? ThemePalette.chipSurface(colorScheme)
+                          : Color.clear)
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
         }
         .buttonStyle(.plain)
-        .help(action.label)
+        .disabled(action.isBusy)
+        .help(action.help ?? action.label)
         .accessibilityLabel(action.label)
         .accessibilityAddTraits(.isButton)
         .onHover { hovering in
@@ -745,7 +911,11 @@ struct HistoryRowAction: Identifiable {
     let kind: HistoryRowActionKind
     let systemImage: String
     let label: String
+    /// The longer sentence for the tooltip, where the label needs one.
+    var help: String? = nil
     var tint: Color? = nil
+    /// Whether this action is already running. Only "Fix with AI" ever is.
+    var isBusy: Bool = false
     let perform: () -> Void
 
     var id: String { kind.rawValue }

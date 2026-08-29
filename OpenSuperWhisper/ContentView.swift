@@ -201,7 +201,11 @@ class ContentViewModel: ObservableObject {
         loadMore()
     }
     
-    func handleProgressUpdate(id: UUID, transcription: String?, rawTranscription: String?, progress: Float, status: RecordingStatus, isRegeneration: Bool?) {
+    func handleProgressUpdate(
+        id: UUID, transcription: String?, rawTranscription: String?,
+        clearsAICorrection: Bool, progress: Float, status: RecordingStatus,
+        isRegeneration: Bool?
+    ) {
         if let index = recordings.firstIndex(where: { $0.id == id }) {
             if let transcription = transcription {
                 recordings[index].transcription = transcription
@@ -209,6 +213,9 @@ class ContentViewModel: ObservableObject {
                 // keeping", which is a value, not a missing one.
                 recordings[index].rawTranscription = (rawTranscription?.isEmpty ?? true)
                     ? nil : rawTranscription
+                if clearsAICorrection {
+                    recordings[index].aiCorrectedAt = nil
+                }
             }
             recordings[index].progress = progress
             recordings[index].status = status
@@ -227,6 +234,15 @@ class ContentViewModel: ObservableObject {
     func handleProvenanceUpdate(id: UUID, provenance: RecordingProvenance) {
         guard let index = recordings.firstIndex(where: { $0.id == id }) else { return }
         recordings[index].provenance = provenance
+    }
+
+    func handleCorrection(
+        id: UUID, transcription: String, rawTranscription: String, aiCorrectedAt: Date
+    ) {
+        guard let index = recordings.firstIndex(where: { $0.id == id }) else { return }
+        recordings[index].transcription = transcription
+        recordings[index].rawTranscription = rawTranscription
+        recordings[index].aiCorrectedAt = aiCorrectedAt
     }
 
     func deleteRecording(_ recording: Recording) {
@@ -787,12 +803,14 @@ struct ContentView: View {
             
             let transcription = userInfo["transcription"] as? String
             let rawTranscription = userInfo["rawTranscription"] as? String
+            let clearsAICorrection = userInfo["clearsAICorrection"] as? Bool ?? false
             let isRegeneration = userInfo["isRegeneration"] as? Bool
 
             viewModel.handleProgressUpdate(
                 id: id,
                 transcription: transcription,
                 rawTranscription: rawTranscription,
+                clearsAICorrection: clearsAICorrection,
                 progress: progress,
                 status: status,
                 isRegeneration: isRegeneration
@@ -809,6 +827,16 @@ struct ContentView: View {
                   let id = userInfo["id"] as? UUID,
                   let provenance = userInfo["provenance"] as? RecordingProvenance else { return }
             viewModel.handleProvenanceUpdate(id: id, provenance: provenance)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: RecordingStore.recordingDidCorrectNotification)) { notification in
+            guard let userInfo = notification.userInfo,
+                  let id = userInfo["id"] as? UUID,
+                  let transcription = userInfo["transcription"] as? String,
+                  let rawTranscription = userInfo["rawTranscription"] as? String,
+                  let aiCorrectedAt = userInfo["aiCorrectedAt"] as? Date else { return }
+            viewModel.handleCorrection(
+                id: id, transcription: transcription,
+                rawTranscription: rawTranscription, aiCorrectedAt: aiCorrectedAt)
         }
         // There used to be a full-window scrim here whenever a model was
         // loading - "Loading Whisper Model..." over a dimmed, unusable history.

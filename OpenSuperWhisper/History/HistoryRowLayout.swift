@@ -244,18 +244,20 @@ enum HistoryTimestamp {
 
 // MARK: - Actions
 
-/// The four things a history row can do to itself, as a decision separate from
+/// The five things a history row can do to itself, as a decision separate from
 /// the buttons that carry it.
 ///
-/// Which actions a row offers depends only on its status, and getting that
-/// wrong is not a cosmetic bug: a play button on a recording that has not been
-/// written yet, or a missing delete on a row stuck in the queue, is the user
-/// unable to get out of a state. So the decision is a pure function here, and
-/// `RecordingRow` reads it twice - once to draw the hover bar, once to register
-/// the same actions with VoiceOver, which has no pointer to hover with.
+/// Which actions a row offers depends only on its status and on whether it has
+/// any words in it, and getting that wrong is not a cosmetic bug: a play button
+/// on a recording that has not been written yet, or a missing delete on a row
+/// stuck in the queue, is the user unable to get out of a state. So the decision
+/// is a pure function here, and `RecordingRow` reads it three times - to draw
+/// the hover bar, to fill the context menu, and to register the same actions
+/// with VoiceOver, which has no pointer to hover with.
 enum HistoryRowActionKind: String, CaseIterable, Sendable {
     case play
     case copy
+    case fixWithAI
     case regenerate
     case delete
 
@@ -266,14 +268,25 @@ enum HistoryRowActionKind: String, CaseIterable, Sendable {
     /// but both keep delete, which is the way out, and a failed row keeps
     /// regenerate, which is the way forward. `DictationFailureOutcome` keeps
     /// the recording precisely so that second press is possible.
-    static func available(for status: RecordingStatus) -> [HistoryRowActionKind] {
+    ///
+    /// `fixWithAI` is the one action that needs more than the status. It only
+    /// ever asks a model about words, so a completed row with nothing in it -
+    /// the "No speech detected" card - has nothing to offer it, and a failed
+    /// row's "transcript" is the app's own failure message rather than the
+    /// user's words. The same rule the stage itself applies; see
+    /// `TranscriptCorrection.request(for:)`.
+    static func available(
+        for status: RecordingStatus, hasTranscript: Bool
+    ) -> [HistoryRowActionKind] {
         switch status {
         case .pending, .converting, .transcribing:
             return [.delete]
         case .failed:
             return [.regenerate, .delete]
         case .completed:
-            return [.play, .copy, .regenerate, .delete]
+            return hasTranscript
+                ? [.play, .copy, .fixWithAI, .regenerate, .delete]
+                : [.play, .copy, .regenerate, .delete]
         }
     }
 
@@ -284,8 +297,20 @@ enum HistoryRowActionKind: String, CaseIterable, Sendable {
         switch self {
         case .play: return isPlaying ? "Stop playback" : "Play audio"
         case .copy: return "Copy transcription"
+        case .fixWithAI: return "Fix with AI"
         case .regenerate: return "Regenerate transcription"
         case .delete: return "Delete recording"
+        }
+    }
+
+    /// The longer sentence a menu row and a tooltip have room for, or nil when
+    /// the label already says everything.
+    var help: String? {
+        switch self {
+        case .fixWithAI:
+            return "Fix homophones, mis-heard characters and typos from context, on this Mac"
+        case .play, .copy, .regenerate, .delete:
+            return nil
         }
     }
 
@@ -293,6 +318,7 @@ enum HistoryRowActionKind: String, CaseIterable, Sendable {
         switch self {
         case .play: return isPlaying ? "stop.fill" : "play.fill"
         case .copy: return "doc.on.doc"
+        case .fixWithAI: return "sparkles"
         case .regenerate: return "arrow.clockwise"
         case .delete: return "trash"
         }

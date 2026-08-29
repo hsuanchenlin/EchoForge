@@ -640,6 +640,11 @@ The app is read once per session (`IndicatorViewModel.dictationTarget`) and
 reaches the pipeline through `Settings(dictationTarget:)`, whose `nil` default
 means "no app has a say": dropped files, the queue, and history regenerates.
 
+A stored transcript can also be corrected **after the fact** with the on-device-only
+✨ *Fix with AI* action on a history card. The original must remain inspectable, a failure
+must leave the row and audio unchanged, and the operation must outlive a lazily rendered row.
+`docs/history-ai-fix.md` owns the detailed stage, storage and UI contracts.
+
 Showing a user what post-processing changed is one implementation, not two: `TextDiffUtil`
 (`Utils/`) compares the stored original with the final text and `TextDiffView` styles the
 result, for both the Settings preview and the history row's "Compare". It must reproduce the

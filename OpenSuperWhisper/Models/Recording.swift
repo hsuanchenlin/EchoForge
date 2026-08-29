@@ -25,6 +25,19 @@ struct Recording: Identifiable, Codable, FetchableRecord, PersistableRecord, Equ
     /// user originally said when post-processing turns out to be wrong.
     var rawTranscription: String?
 
+    /// When the user last pressed "Fix with AI" on this row and the correction
+    /// landed. Nil until somebody presses it, and cleared again by anything that
+    /// replaces the transcript with the engine's own words.
+    ///
+    /// Its own column rather than a `RecordingProvenance` case, and that is a
+    /// decision rather than an omission: provenance records *which way of
+    /// listening* produced a row and fails closed about what became of it, so
+    /// filing a corrected dictation as something other than a dictation would
+    /// overwrite the one fact that record exists to keep. A correction is
+    /// something that happened to a row afterwards, and it is stored as such.
+    /// See `TranscriptCorrection` and `docs/history-ai-fix.md`.
+    var aiCorrectedAt: Date?
+
     /// Which of the app's ways of listening produced this row, as the stored
     /// discriminator. Nil for every row written before provenance existed, and
     /// read back as `RecordingProvenance.unknown` rather than guessed at.
@@ -40,6 +53,20 @@ struct Recording: Identifiable, Codable, FetchableRecord, PersistableRecord, Equ
     var provenanceDetail: String?
 
     var isRegeneration: Bool = false
+
+    /// Whether a correction has been applied to this row.
+    var wasCorrectedByAI: Bool { aiCorrectedAt != nil }
+
+    /// What "Fix with AI" must keep as this row's original.
+    ///
+    /// The engine's own words wherever the row already has them - a row whose
+    /// transcript was restyled at dictation time keeps that copy, and a second
+    /// press must not overwrite it with the text the first press produced. That
+    /// copy is the only record of what was actually said.
+    var originalTranscriptionForCorrection: String {
+        guard let rawTranscription, !rawTranscription.isEmpty else { return transcription }
+        return rawTranscription
+    }
 
     /// The three columns read back as one value.
     ///
@@ -59,6 +86,7 @@ struct Recording: Identifiable, Codable, FetchableRecord, PersistableRecord, Equ
     enum CodingKeys: String, CodingKey {
         case id, timestamp, fileName, transcription, duration, status, progress, sourceFileURL
         case rawTranscription
+        case aiCorrectedAt
         case provenanceKind, provenanceReason, provenanceDetail
     }
 
@@ -71,6 +99,13 @@ struct Recording: Identifiable, Codable, FetchableRecord, PersistableRecord, Equ
                lhs.status == rhs.status &&
                lhs.progress == rhs.progress &&
                lhs.transcription == rhs.transcription &&
+               // Both halves of what the card draws under the transcript: the
+               // "Show original" disclosure and the "AI Polished" chip. A
+               // correction that only added the chip - or only the original -
+               // would otherwise compare equal to the row it replaced and never
+               // be drawn.
+               lhs.rawTranscription == rhs.rawTranscription &&
+               lhs.aiCorrectedAt == rhs.aiCorrectedAt &&
                lhs.isRegeneration == rhs.isRegeneration &&
                lhs.provenanceKind == rhs.provenanceKind &&
                lhs.provenanceReason == rhs.provenanceReason &&
@@ -110,6 +145,7 @@ struct Recording: Identifiable, Codable, FetchableRecord, PersistableRecord, Equ
         static let progress = Column(CodingKeys.progress)
         static let sourceFileURL = Column(CodingKeys.sourceFileURL)
         static let rawTranscription = Column(CodingKeys.rawTranscription)
+        static let aiCorrectedAt = Column(CodingKeys.aiCorrectedAt)
         static let provenanceKind = Column(CodingKeys.provenanceKind)
         static let provenanceReason = Column(CodingKeys.provenanceReason)
         static let provenanceDetail = Column(CodingKeys.provenanceDetail)
@@ -211,6 +247,22 @@ class RecordingStore: ObservableObject {
             where !columnNames.contains(column) {
                 try db.alter(table: Recording.databaseTableName) { t in
                     t.add(column: column, .text)
+                }
+            }
+        }
+
+        /// When "Fix with AI" last corrected a row (`TranscriptCorrection`).
+        ///
+        /// Nullable with no default, for the reason every column added here is:
+        /// every recording a user already has gets NULL and reads back as a row
+        /// nobody has corrected, which is exactly what it is. Nothing is
+        /// back-filled and nothing is inferred.
+        migrator.registerMigration("v5_add_ai_correction") { db in
+            let columnNames = try db.columns(in: Recording.databaseTableName).map { $0.name }
+
+            if !columnNames.contains("aiCorrectedAt") {
+                try db.alter(table: Recording.databaseTableName) { t in
+                    t.add(column: "aiCorrectedAt", .datetime)
                 }
             }
         }
@@ -399,6 +451,11 @@ class RecordingStore: ObservableObject {
                 // progress tick carries neither, and a new transcription
                 // replaces both or the pair would describe different runs.
                 updated.rawTranscription = rawTranscription
+                // And so does the correction mark, for the same reason and one
+                // more: a regeneration replaces these words with the engine's,
+                // so a row left carrying "AI Polished" over them would be
+                // claiming a model wrote text it never saw.
+                updated.aiCorrectedAt = nil
             }
             updated.progress = progress
             updated.status = status
@@ -420,6 +477,7 @@ class RecordingStore: ObservableObject {
             // indistinguishable from "leave the previous one alone", which is
             // the one thing it must not mean here.
             userInfo["rawTranscription"] = rawTranscription ?? ""
+            userInfo["clearsAICorrection"] = true
         }
         if let isRegeneration = isRegeneration {
             userInfo["isRegeneration"] = isRegeneration
@@ -441,6 +499,8 @@ class RecordingStore: ObservableObject {
     /// and that is deliberate: it belongs to the transcription being written, so
     /// a regeneration or a failure that replaces the text must not leave the
     /// previous run's original behind describing text that is no longer there.
+    /// `aiCorrectedAt` is cleared for the same reason: the row's words are the
+    /// engine's again, and a badge saying a model wrote them would be a lie.
     func updateRecordingProgressOnlySync(_ id: UUID, transcription: String, rawTranscription: String? = nil, progress: Float, status: RecordingStatus, isRegeneration: Bool? = nil) async {
         do {
             _ = try await dbQueue.write { db -> Int in
@@ -449,6 +509,7 @@ class RecordingStore: ObservableObject {
                     .updateAll(db, [
                         Recording.Columns.transcription.set(to: transcription),
                         Recording.Columns.rawTranscription.set(to: rawTranscription),
+                        Recording.Columns.aiCorrectedAt.set(to: nil as Date?),
                         Recording.Columns.progress.set(to: progress),
                         Recording.Columns.status.set(to: status.rawValue)
                     ])
@@ -727,4 +788,61 @@ class RecordingStore: ObservableObject {
 
     static let recordingProvenanceDidUpdateNotification = Notification.Name(
         "RecordingStore.recordingProvenanceDidUpdate")
+
+    /// Writes a "Fix with AI" correction over one row.
+    ///
+    /// Its own method rather than a whole-row `update`, for the reason
+    /// `updateProvenance` is: the row may be being written by the queue at the
+    /// same moment, and this must replace three columns without carrying a stale
+    /// transcript, status or progress back over the top of them.
+    ///
+    /// The transcript given to the model is the earliest shared boundary that
+    /// can reject every stale result, including a regeneration or another
+    /// correction that lands while the model is running.
+    ///
+    /// It touches nothing else. The audio file, the duration, the provenance and
+    /// every other row are exactly as they were - a correction changes the words
+    /// on one card and keeps the words it replaced.
+    func applyCorrection(
+        _ id: UUID, transcription: String, original: String,
+        expectedTranscription: String, correctedAt: Date = Date()
+    ) async -> CorrectionCommitResult {
+        let changed: Int
+        do {
+            changed = try await dbQueue.write { db -> Int in
+                try Recording
+                    .filter(Recording.Columns.id == id)
+                    .filter(Recording.Columns.status == RecordingStatus.completed.rawValue)
+                    .filter(Recording.Columns.transcription == expectedTranscription)
+                    .updateAll(db, [
+                        Recording.Columns.transcription.set(to: transcription),
+                        Recording.Columns.rawTranscription.set(to: original),
+                        Recording.Columns.aiCorrectedAt.set(to: correctedAt),
+                    ])
+            }
+        } catch {
+            print("Failed to store the AI correction: \(error)")
+            return .failed
+        }
+
+        guard changed == 1 else { return .superseded }
+
+        if let index = recordings.firstIndex(where: { $0.id == id }) {
+            recordings[index].transcription = transcription
+            recordings[index].rawTranscription = original
+            recordings[index].aiCorrectedAt = correctedAt
+        }
+        NotificationCenter.default.post(
+            name: Self.recordingDidCorrectNotification,
+            object: nil,
+            userInfo: [
+                "id": id, "transcription": transcription, "rawTranscription": original,
+                "aiCorrectedAt": correctedAt,
+            ]
+        )
+        return .applied
+    }
+
+    static let recordingDidCorrectNotification = Notification.Name(
+        "RecordingStore.recordingDidCorrect")
 }
