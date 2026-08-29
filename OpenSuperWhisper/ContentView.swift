@@ -201,7 +201,11 @@ class ContentViewModel: ObservableObject {
         loadMore()
     }
     
-    func handleProgressUpdate(id: UUID, transcription: String?, rawTranscription: String?, progress: Float, status: RecordingStatus, isRegeneration: Bool?) {
+    func handleProgressUpdate(
+        id: UUID, transcription: String?, rawTranscription: String?,
+        clearsAICorrection: Bool, progress: Float, status: RecordingStatus,
+        isRegeneration: Bool?
+    ) {
         if let index = recordings.firstIndex(where: { $0.id == id }) {
             if let transcription = transcription {
                 recordings[index].transcription = transcription
@@ -209,6 +213,9 @@ class ContentViewModel: ObservableObject {
                 // keeping", which is a value, not a missing one.
                 recordings[index].rawTranscription = (rawTranscription?.isEmpty ?? true)
                     ? nil : rawTranscription
+                if clearsAICorrection {
+                    recordings[index].aiCorrectedAt = nil
+                }
             }
             recordings[index].progress = progress
             recordings[index].status = status
@@ -796,12 +803,14 @@ struct ContentView: View {
             
             let transcription = userInfo["transcription"] as? String
             let rawTranscription = userInfo["rawTranscription"] as? String
+            let clearsAICorrection = userInfo["clearsAICorrection"] as? Bool ?? false
             let isRegeneration = userInfo["isRegeneration"] as? Bool
 
             viewModel.handleProgressUpdate(
                 id: id,
                 transcription: transcription,
                 rawTranscription: rawTranscription,
+                clearsAICorrection: clearsAICorrection,
                 progress: progress,
                 status: status,
                 isRegeneration: isRegeneration

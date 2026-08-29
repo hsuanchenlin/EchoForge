@@ -518,6 +518,20 @@ final class TranscriptCorrectionTests: XCTestCase {
             "the scan found no transcript writes, so it proved nothing")
     }
 
+    func testReplacementNotificationClearsTheVisibleCorrectionMark() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("OpenSuperWhisper/ContentView.swift")
+        let text = try String(contentsOf: source, encoding: .utf8)
+        let handler = try XCTUnwrap(
+            text.components(separatedBy: "func handleProgressUpdate(").dropFirst().first?
+                .components(separatedBy: "func handleProvenanceUpdate").first)
+
+        XCTAssertTrue(handler.contains("clearsAICorrection: Bool"))
+        XCTAssertTrue(handler.contains("recordings[index].aiCorrectedAt = nil"))
+        XCTAssertTrue(text.contains("userInfo[\"clearsAICorrection\"] as? Bool"))
+    }
+
     /// The card has to redraw when the mark or the original appears, and SwiftUI
     /// decides that from this comparison.
     func testTheCardSeesTheMarkAndTheOriginalChange() {

@@ -477,6 +477,7 @@ class RecordingStore: ObservableObject {
             // indistinguishable from "leave the previous one alone", which is
             // the one thing it must not mean here.
             userInfo["rawTranscription"] = rawTranscription ?? ""
+            userInfo["clearsAICorrection"] = true
         }
         if let isRegeneration = isRegeneration {
             userInfo["isRegeneration"] = isRegeneration
