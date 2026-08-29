@@ -42,17 +42,23 @@ more" under it).
 
 ## Actions
 
-`HistoryRowActionKind.available(for:)` is a pure function of the recording's status,
-and it is read **twice**: once to draw the hover bar, once to register the same actions
+`HistoryRowActionKind.available(for:hasTranscript:)` is a pure function of the
+recording's status and whether it has any words in it, and it is read **three times**:
+to draw the hover bar, to fill the right-click menu, and to register the same actions
 with VoiceOver. Hover is a pointer affordance and a VoiceOver user has no pointer, so a
-bar that were the only route to delete would be no route at all - and two hand-written
-copies of the same four actions is how one of them silently loses a case.
+bar that were the only route to delete would be no route at all - and three
+hand-written copies of the same five actions is how one of them silently loses a case.
 
 Which actions a state offers is not cosmetic. A row that is still queued or running has
 nothing to play and nothing to copy, but keeps **delete**, which is the way out. A row
 that failed keeps **regenerate**, which is the way forward - `DictationFailureOutcome`
 keeps that audio precisely so the second press is possible. `HistoryRowActionTests`
 pins all of it.
+
+**Fix with AI** (`docs/history-ai-fix.md`) is the one action that needs more than the
+status: it only ever asks a model about words, so a completed row with nothing in it has
+nothing to offer it, and a failed row's "transcript" is Kongweh's own failure message
+rather than the user's words.
 
 ## Colour
 

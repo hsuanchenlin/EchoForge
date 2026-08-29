@@ -170,6 +170,10 @@ enum OnDeviceModelFeature: Equatable, Sendable {
     /// user typed themselves, and the only thing its answer can become is a row
     /// that was already there. See `YouTubeChannelModelMatch`.
     case channelMatching
+    /// Correcting one stored transcript the user pressed "Fix with AI" on:
+    /// homophones, mis-heard characters and typos, read off the sentence around
+    /// them. See `TranscriptCorrection`.
+    case correction
 
     var name: String {
         switch self {
@@ -177,6 +181,7 @@ enum OnDeviceModelFeature: Equatable, Sendable {
         case .ask: return "The Ask panel"
         case .translation: return "Translation"
         case .channelMatching: return "Channel name matching"
+        case .correction: return "Fixing with AI"
         }
     }
 
@@ -186,6 +191,7 @@ enum OnDeviceModelFeature: Equatable, Sendable {
         case .ask: return "the Ask panel"
         case .translation: return "translation"
         case .channelMatching: return "channel name matching"
+        case .correction: return "fixing with AI"
         }
     }
 
@@ -201,7 +207,7 @@ enum OnDeviceModelFeature: Equatable, Sendable {
     var cloudFeature: CloudFeature? {
         switch self {
         case .translation: return .translation
-        case .rewriting, .ask, .channelMatching: return nil
+        case .rewriting, .ask, .channelMatching, .correction: return nil
         }
     }
 
@@ -214,6 +220,8 @@ enum OnDeviceModelFeature: Equatable, Sendable {
         case .translation: return "Dictation is unaffected."
         case .channelMatching:
             return "Dictation and the channel names you stored are unaffected."
+        case .correction:
+            return "Dictation and your history are unaffected."
         }
     }
 }

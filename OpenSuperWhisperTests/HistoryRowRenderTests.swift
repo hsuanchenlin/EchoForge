@@ -133,6 +133,144 @@ final class HistoryRowRenderTests: XCTestCase {
         )
     }
 
+    // MARK: - Fix with AI
+
+    /// A corrected row says so, and keeps the way back to what it said before.
+    @MainActor
+    func testACorrectedRowShowsItsBadgeAndItsOriginalAtBothWidths() throws {
+        var recording = recording(status: .completed, transcription: "我在開會，三點結束。")
+        recording.rawTranscription = "我再開會，三點結束。"
+        recording.aiCorrectedAt = Date(timeIntervalSince1970: 1_700_000_500)
+
+        for tier in HistoryWidthTier.allCases {
+            try assertRow(
+                named: "corrected-\(tier.rawValue)",
+                recording: recording,
+                tier: tier,
+                // "Polished" rather than "AI Polished": Vision reads a capital
+                // I as a lowercase L about half the time, so an assertion on
+                // the two letters "AI" fails on a render that is perfectly
+                // legible. The word beside them is what identifies the chip.
+                showing: ["Polished", "Show original", "Compare"]
+            )
+        }
+    }
+
+    /// The press has to be visible on the card while the model works, or a slow
+    /// correction and a button that did nothing look identical.
+    @MainActor
+    func testARowBeingFixedSaysSoAtBothWidths() async throws {
+        let recording = recording(status: .completed)
+        let release = expectation(description: "the model may answer")
+        let corrections = TranscriptCorrectionCoordinator(
+            correcting: { [self] request in
+                await fulfillment(of: [release], timeout: 20)
+                return StyledTranscript(
+                    raw: request.original, transcript: request.text, final: request.text,
+                    status: .notRequested)
+            },
+            committing: { _, _, _ in }
+        )
+        XCTAssertTrue(corrections.correct(recording))
+
+        for tier in HistoryWidthTier.allCases {
+            try assertRow(
+                named: "fixing-\(tier.rawValue)",
+                recording: recording,
+                corrections: corrections,
+                tier: tier,
+                // "AI" is left out of the fragment for the reason above.
+                showing: ["Fixing with"]
+            )
+        }
+
+        release.fulfill()
+        try await settle(corrections, recording.id)
+    }
+
+    /// A press that changed nothing explains itself on the card and nowhere
+    /// else - never an alert, because the row still has every word it had.
+    @MainActor
+    func testAFixThatChangedNothingExplainsItselfOnTheCard() async throws {
+        let recording = recording(status: .completed)
+        let corrections = TranscriptCorrectionCoordinator(
+            correcting: { request in
+                StyledTranscript(
+                    raw: request.original, transcript: request.text, final: request.text,
+                    status: .unavailable(.appleIntelligenceOff))
+            },
+            committing: { _, _, _ in }
+        )
+        corrections.correct(recording)
+        try await settle(corrections, recording.id)
+
+        for tier in HistoryWidthTier.allCases {
+            try assertRow(
+                named: "fix-refused-\(tier.rawValue)",
+                recording: recording,
+                corrections: corrections,
+                tier: tier,
+                showing: ["Apple Intelligence", "quick brown fox"]
+            )
+        }
+    }
+
+    /// The shimmer must not change how tall the row is.
+    ///
+    /// It is drawn over the words the card is still showing - a correction
+    /// replaces nothing until it lands - so a card that grew while the model
+    /// worked would push every row under it down the list and back again. That
+    /// is exactly what `ShimmerOverlay` does when it is stacked beside the
+    /// transcript rather than laid over it: it is a `GeometryReader`, so it
+    /// takes every point it is offered, and the card grew by hundreds.
+    ///
+    /// The tolerance is the footer strip's progress ring, which is 15 pt where
+    /// the timestamp beside it is 13 - the same two points a regeneration
+    /// costs. Anything past that is the shimmer sizing the card again.
+    ///
+    /// Measured while the hosting view is allowed to size itself, which is the
+    /// only measurement that says what a row asks a real list for.
+    @MainActor
+    func testFixingARowDoesNotChangeItsHeight() async throws {
+        let recording = recording(status: .completed)
+        let release = expectation(description: "the model may answer")
+        let corrections = TranscriptCorrectionCoordinator(
+            correcting: { [self] request in
+                await fulfillment(of: [release], timeout: 20)
+                return StyledTranscript(
+                    raw: request.original, transcript: request.text, final: request.text,
+                    status: .notRequested)
+            },
+            committing: { _, _, _ in }
+        )
+
+        let idle = try height(
+            of: row(recording), width: Self.regularWidth, metrics: .regular)
+        XCTAssertTrue(corrections.correct(recording))
+        let fixing = try height(
+            of: row(recording, corrections: corrections),
+            width: Self.regularWidth, metrics: .regular)
+
+        XCTAssertEqual(
+            fixing, idle, accuracy: 3,
+            "the card changed height while it was being fixed")
+
+        release.fulfill()
+        try await settle(corrections, recording.id)
+    }
+
+    @MainActor
+    private func settle(
+        _ corrections: TranscriptCorrectionCoordinator, _ id: UUID,
+        file: StaticString = #filePath, line: UInt = #line
+    ) async throws {
+        for _ in 0 ..< 400 {
+            if !corrections.isCorrecting(id) { return }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTFail("the correction never finished", file: file, line: line)
+    }
+
     // MARK: - The tiers are actually different
 
     /// Two sets of numbers that produce the same picture would make the whole
@@ -209,10 +347,14 @@ final class HistoryRowRenderTests: XCTestCase {
     }
 
     @MainActor
-    private func row(_ recording: Recording) -> AnyView {
+    private func row(
+        _ recording: Recording,
+        corrections: TranscriptCorrectionCoordinator? = nil
+    ) -> AnyView {
         AnyView(
             RecordingRow(
-                recording: recording, searchQuery: "", onDelete: {}, onRegenerate: {}))
+                recording: recording, searchQuery: "", onDelete: {}, onRegenerate: {},
+                corrections: corrections ?? TranscriptCorrectionCoordinator()))
     }
 
     // MARK: - Rendering
@@ -221,6 +363,7 @@ final class HistoryRowRenderTests: XCTestCase {
     private func assertRow(
         named name: String,
         recording: Recording,
+        corrections: TranscriptCorrectionCoordinator? = nil,
         tier: HistoryWidthTier,
         scheme: ColorScheme = .light,
         showing fragments: [String],
@@ -228,7 +371,7 @@ final class HistoryRowRenderTests: XCTestCase {
     ) throws {
         let width = tier == .compact ? Self.compactWidth : Self.regularWidth
         let hosting = try hostingView(
-            for: row(recording), width: width,
+            for: row(recording, corrections: corrections), width: width,
             metrics: HistoryRowMetrics.metrics(for: tier), scheme: scheme)
 
         let rep = try XCTUnwrap(

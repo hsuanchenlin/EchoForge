@@ -640,6 +640,24 @@ The app is read once per session (`IndicatorViewModel.dictationTarget`) and
 reaches the pipeline through `Settings(dictationTarget:)`, whose `nil` default
 means "no app has a say": dropped files, the queue, and history regenerates.
 
+A stored transcript can also be corrected **after the fact**: the ✨ *Fix with AI* action on
+a history card (`Rewriting/TranscriptCorrection.swift`), which asks the on-device model for the
+one class of error the rest of the pipeline cannot reach - characters the recognizer heard
+wrong. `docs/history-ai-fix.md` is its whole story. It is a sibling of `StyleRewriteService`
+the way `TranslationRewrite` is, sharing that stage's guard, availability and hard budget, and
+three things there are absolute. It is **on-device only** - `OnDeviceModelFeature.correction`
+has no `cloudFeature`, because a history row is every dictation the user ever made. It can only
+correct a transcript or **leave it alone**, so a press costs a wait and never a recording, and
+every failure is a sentence on the card rather than an alert. And **the original is kept** as
+`rawTranscription`, which is what the row's existing "Show original" and "Compare" read - a row
+post-processing already changed keeps the engine's own words rather than the earlier stage's
+output. The mark is `Recording.aiCorrectedAt`, its own nullable column rather than a
+`RecordingProvenance` case: provenance records which way of listening produced a row, and a
+correction is something that happened to it afterwards. A regeneration clears it in the same
+write that replaces the transcript. `TranscriptCorrectionCoordinator` is app-lifetime, not
+row-lifetime, because History is a `LazyVStack` and scrolling past a card would otherwise
+cancel the press.
+
 Showing a user what post-processing changed is one implementation, not two: `TextDiffUtil`
 (`Utils/`) compares the stored original with the final text and `TextDiffView` styles the
 result, for both the Settings preview and the history row's "Compare". It must reproduce the

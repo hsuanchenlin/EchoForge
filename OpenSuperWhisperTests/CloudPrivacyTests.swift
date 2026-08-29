@@ -118,6 +118,10 @@ final class CloudPrivacyTests: IsolatedPreferencesTestCase {
     func testRewritingAndAskHaveNoCloudPathAtAll() {
         XCTAssertNil(OnDeviceModelFeature.rewriting.cloudFeature)
         XCTAssertNil(OnDeviceModelFeature.ask.cloudFeature)
+        // A history row is every dictation the user ever made, and "Fix with
+        // AI" is a button on one. It reads the whole transcript, so it is
+        // on-device only for exactly the reason rewriting is.
+        XCTAssertNil(OnDeviceModelFeature.correction.cloudFeature)
         XCTAssertEqual(OnDeviceModelFeature.translation.cloudFeature, .translation)
 
         // Even with everything configured for the cloud, neither can produce a

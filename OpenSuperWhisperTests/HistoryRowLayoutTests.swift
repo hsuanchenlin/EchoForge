@@ -163,17 +163,27 @@ final class HistoryRowLayoutTests: XCTestCase {
 
 /// Which actions a history row offers, as the pure decision the card reads.
 ///
-/// It is read twice - once to draw the hover bar, once to register the same
-/// actions with VoiceOver, which has no pointer to hover with - so a mistake
-/// here is a mistake in both places at once. Getting it wrong is not cosmetic:
-/// a row that offers to play audio it has not written yet fails when pressed,
-/// and a queued row with no delete is a row the user cannot get out of.
+/// It is read three times - to draw the hover bar, to fill the context menu,
+/// and to register the same actions with VoiceOver, which has no pointer to
+/// hover with - so a mistake here is a mistake in three places at once. Getting
+/// it wrong is not cosmetic: a row that offers to play audio it has not written
+/// yet fails when pressed, and a queued row with no delete is a row the user
+/// cannot get out of.
 final class HistoryRowActionTests: XCTestCase {
 
-    /// A finished recording is the only state where everything applies.
-    func testAFinishedRowOffersAllFour() {
+    /// A finished recording with words in it is the only state where everything
+    /// applies.
+    func testAFinishedRowOffersAllFive() {
         XCTAssertEqual(
-            HistoryRowActionKind.available(for: .completed),
+            HistoryRowActionKind.available(for: .completed, hasTranscript: true),
+            [.play, .copy, .fixWithAI, .regenerate, .delete])
+    }
+
+    /// "No speech detected" is a finished row with nothing in it, and there is
+    /// nothing for a model to fix. Everything else it can still do.
+    func testAFinishedRowWithNoWordsCannotBeFixed() {
+        XCTAssertEqual(
+            HistoryRowActionKind.available(for: .completed, hasTranscript: false),
             [.play, .copy, .regenerate, .delete])
     }
 
@@ -181,17 +191,29 @@ final class HistoryRowActionTests: XCTestCase {
     /// the way out has to stay open.
     func testARunningRowOffersOnlyTheWayOut() {
         for status in [RecordingStatus.pending, .converting, .transcribing] {
-            XCTAssertEqual(
-                HistoryRowActionKind.available(for: status), [.delete],
-                "a \(status.rawValue) row offered an action it cannot perform")
+            for hasTranscript in [false, true] {
+                XCTAssertEqual(
+                    HistoryRowActionKind.available(
+                        for: status, hasTranscript: hasTranscript),
+                    [.delete],
+                    "a \(status.rawValue) row offered an action it cannot perform")
+            }
         }
     }
 
     /// `DictationFailureOutcome` keeps the audio of a failed dictation exactly
     /// so the user can switch engine and press regenerate.
-    func testAFailedRowCanBeRetried() {
-        XCTAssertEqual(
-            HistoryRowActionKind.available(for: .failed), [.regenerate, .delete])
+    ///
+    /// It does not offer "Fix with AI", and that is the point of the second
+    /// case: a failed row's "transcript" is the app's own failure message, so
+    /// handing it to a model would be asking it to correct Kongweh's words.
+    func testAFailedRowCanBeRetriedButNotFixed() {
+        for hasTranscript in [false, true] {
+            XCTAssertEqual(
+                HistoryRowActionKind.available(
+                    for: .failed, hasTranscript: hasTranscript),
+                [.regenerate, .delete])
+        }
     }
 
     /// Every state keeps delete, in every state, without exception.
@@ -200,8 +222,20 @@ final class HistoryRowActionTests: XCTestCase {
             RecordingStatus.pending, .converting, .transcribing, .completed, .failed,
         ] {
             XCTAssertTrue(
-                HistoryRowActionKind.available(for: status).contains(.delete),
+                HistoryRowActionKind.available(for: status, hasTranscript: true)
+                    .contains(.delete),
                 "a \(status.rawValue) row cannot be deleted")
+        }
+    }
+
+    /// The one action with a tooltip longer than its label, because "Fix with
+    /// AI" says nothing about what it fixes or where it runs.
+    func testFixWithAIExplainsItselfAndRunsOnThisMac() {
+        let help = HistoryRowActionKind.fixWithAI.help
+        XCTAssertNotNil(help)
+        XCTAssertTrue(help?.contains("this Mac") == true, "the tooltip must say where it runs")
+        for kind in HistoryRowActionKind.allCases where kind != .fixWithAI {
+            XCTAssertNil(kind.help, "\(kind.rawValue) grew a tooltip its label already carries")
         }
     }
 

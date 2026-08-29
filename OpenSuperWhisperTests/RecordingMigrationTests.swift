@@ -34,7 +34,8 @@ final class RecordingMigrationTests: XCTestCase {
     func testMigrationOrderIsStable() {
         XCTAssertEqual(
             RecordingStore.makeMigrator().migrations,
-            ["v1", "v2_add_status", "v3_add_raw_transcription", "v4_add_provenance"],
+            ["v1", "v2_add_status", "v3_add_raw_transcription", "v4_add_provenance",
+             "v5_add_ai_correction"],
             "Migrations are identified by name and applied in order; renaming or reordering one re-runs it on databases that already have it."
         )
     }
@@ -56,6 +57,7 @@ final class RecordingMigrationTests: XCTestCase {
             Set(names),
             ["id", "timestamp", "fileName", "transcription", "duration",
              "status", "progress", "sourceFileURL", "rawTranscription",
+             "aiCorrectedAt",
              "provenanceKind", "provenanceReason", "provenanceDetail"]
         )
     }
@@ -118,6 +120,52 @@ final class RecordingMigrationTests: XCTestCase {
         XCTAssertEqual(stored.progress, 1.0)
         XCTAssertEqual(stored.sourceFileURL, "/Users/someone/Downloads/interview.m4a")
         XCTAssertNil(stored.rawTranscription, "The upgrade must not invent a raw transcription for recordings made before it.")
+        XCTAssertNil(
+            stored.aiCorrectedAt,
+            "The upgrade must not claim a model touched a recording made before it existed.")
+    }
+
+    // MARK: - v5: the AI correction mark
+
+    func testFreshDatabaseHasNullableCorrectionColumn() throws {
+        try RecordingStore.makeMigrator().migrate(dbQueue)
+
+        let column = try XCTUnwrap(try columnInfo(named: "aiCorrectedAt"))
+        XCTAssertFalse(
+            column.isNotNull,
+            "Nobody has corrected the recordings they already have, so the column must accept NULL.")
+        XCTAssertNil(
+            column.defaultValueSQL,
+            "A default would file every existing recording as one a model had rewritten.")
+    }
+
+    func testACorrectedRecordingRoundTrips() throws {
+        try RecordingStore.makeMigrator().migrate(dbQueue)
+        let correctedAt = Date(timeIntervalSince1970: 1_700_000_500)
+        var recording = makeRecording(transcription: "我在開會")
+        recording.rawTranscription = "我再開會"
+        recording.aiCorrectedAt = correctedAt
+
+        try dbQueue.write { try recording.insert($0) }
+        let stored = try XCTUnwrap(try dbQueue.read { try Recording.fetchOne($0) })
+
+        XCTAssertEqual(stored.transcription, "我在開會")
+        XCTAssertEqual(stored.rawTranscription, "我再開會")
+        XCTAssertEqual(
+            stored.aiCorrectedAt?.timeIntervalSince1970 ?? 0,
+            correctedAt.timeIntervalSince1970, accuracy: 0.001)
+        XCTAssertTrue(stored.wasCorrectedByAI)
+    }
+
+    func testAnUncorrectedRecordingIsNotMarked() throws {
+        try RecordingStore.makeMigrator().migrate(dbQueue)
+        let recording = makeRecording(transcription: "nobody has pressed anything here")
+
+        try dbQueue.write { try recording.insert($0) }
+        let stored = try XCTUnwrap(try dbQueue.read { try Recording.fetchOne($0) })
+
+        XCTAssertNil(stored.aiCorrectedAt)
+        XCTAssertFalse(stored.wasCorrectedByAI)
     }
 
     func testUpgradeAppliesOnlyTheNewMigration() throws {
@@ -130,7 +178,8 @@ final class RecordingMigrationTests: XCTestCase {
         let applied = try dbQueue.read { try migrator.appliedIdentifiers($0) }
         XCTAssertEqual(
             applied,
-            ["v1", "v2_add_status", "v3_add_raw_transcription", "v4_add_provenance"])
+            ["v1", "v2_add_status", "v3_add_raw_transcription", "v4_add_provenance",
+             "v5_add_ai_correction"])
         XCTAssertNotNil(try columnInfo(named: "rawTranscription"))
     }
 
