@@ -33,7 +33,7 @@ final class TranscriptCorrectionCoordinator: ObservableObject {
     /// testable without a model or a database.
     typealias Correcting = @MainActor (TranscriptCorrectionRequest) async -> StyledTranscript
     /// Writes an accepted correction to the row it came from.
-    typealias Committing = @MainActor (UUID, String, String) async -> Void
+    typealias Committing = @MainActor (UUID, String, String, String) async -> CorrectionCommitResult
 
     private let correcting: Correcting
     private let committing: Committing
@@ -46,9 +46,10 @@ final class TranscriptCorrectionCoordinator: ObservableObject {
                 terms: PersonalTermsStore.shared.activeTerms
             )
         },
-        committing: @escaping Committing = { id, text, original in
+        committing: @escaping Committing = { id, text, original, expected in
             await RecordingStore.shared.applyCorrection(
-                id, transcription: text, original: original)
+                id, transcription: text, original: original,
+                expectedTranscription: expected)
         }
     ) {
         self.correcting = correcting
@@ -83,11 +84,30 @@ final class TranscriptCorrectionCoordinator: ObservableObject {
             // Written before the spinner comes down, so the card never shows a
             // finished press over the words it is about to replace.
             if case .corrected(let text, let original) = outcome {
-                await committing(id, text, original)
+                let commit = await committing(id, text, original, request.text)
+                notes[id] = commit.note
+            } else {
+                notes[id] = outcome.note
             }
-            notes[id] = outcome.note
             inFlight.remove(id)
         }
         return true
+    }
+}
+
+enum CorrectionCommitResult: Equatable {
+    case applied
+    case superseded
+    case failed
+
+    var note: String? {
+        switch self {
+        case .applied:
+            return nil
+        case .superseded:
+            return "This transcript changed while Fixing with AI, so the newer version was kept."
+        case .failed:
+            return "Fixing with AI could not save the correction. The transcript was left unchanged."
+        }
     }
 }

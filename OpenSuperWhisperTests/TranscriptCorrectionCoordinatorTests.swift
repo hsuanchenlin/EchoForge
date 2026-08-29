@@ -76,7 +76,10 @@ final class TranscriptCorrectionCoordinatorTests: XCTestCase {
         let writes = Writes()
         let coordinator = TranscriptCorrectionCoordinator(
             correcting: { [self] request in styled(request, corrected: "我在開會") },
-            committing: { id, text, original in writes.record(id, text, original) }
+            committing: { id, text, original, _ in
+                writes.record(id, text, original)
+                return .applied
+            }
         )
 
         XCTAssertTrue(coordinator.correct(recording))
@@ -93,6 +96,23 @@ final class TranscriptCorrectionCoordinatorTests: XCTestCase {
             "a correction that landed has nothing to explain")
     }
 
+    func testTheWriteComparesAgainstTheTranscriptGivenToTheModel() async throws {
+        let recording = self.recording(transcription: "我再開會")
+        var expectedTranscription: String?
+        let coordinator = TranscriptCorrectionCoordinator(
+            correcting: { [self] request in styled(request, corrected: "我在開會") },
+            committing: { _, _, _, expected in
+                expectedTranscription = expected
+                return .applied
+            }
+        )
+
+        coordinator.correct(recording)
+        try await waitUntilFinished(coordinator, recording.id)
+
+        XCTAssertEqual(expectedTranscription, "我再開會")
+    }
+
     /// A row post-processing already changed keeps the engine's own words, not
     /// the text the earlier stage produced.
     func testTheStoredOriginalIsTheEnginesWordsWhereTheRowHasThem() async throws {
@@ -100,7 +120,10 @@ final class TranscriptCorrectionCoordinatorTests: XCTestCase {
         let writes = Writes()
         let coordinator = TranscriptCorrectionCoordinator(
             correcting: { [self] request in styled(request, corrected: "我在開會。") },
-            committing: { id, text, original in writes.record(id, text, original) }
+            committing: { id, text, original, _ in
+                writes.record(id, text, original)
+                return .applied
+            }
         )
 
         coordinator.correct(recording)
@@ -121,7 +144,7 @@ final class TranscriptCorrectionCoordinatorTests: XCTestCase {
                 await self.fulfillment(of: [release], timeout: 5)
                 return styled(request, corrected: "我在開會")
             },
-            committing: { _, _, _ in }
+            committing: { _, _, _, _ in .applied }
         )
 
         XCTAssertFalse(coordinator.isCorrecting(recording.id))
@@ -148,7 +171,7 @@ final class TranscriptCorrectionCoordinatorTests: XCTestCase {
                 await self.fulfillment(of: [release], timeout: 5)
                 return styled(request, corrected: "我在開會")
             },
-            committing: { _, _, _ in }
+            committing: { _, _, _, _ in .applied }
         )
 
         XCTAssertTrue(coordinator.correct(recording))
@@ -168,7 +191,10 @@ final class TranscriptCorrectionCoordinatorTests: XCTestCase {
             correcting: { [self] request in
                 kept(request, status: .unavailable(.appleIntelligenceOff))
             },
-            committing: { _, _, _ in XCTFail("nothing may be written when nothing changed") }
+            committing: { _, _, _, _ in
+                XCTFail("nothing may be written when nothing changed")
+                return .failed
+            }
         )
 
         coordinator.correct(recording)
@@ -179,11 +205,42 @@ final class TranscriptCorrectionCoordinatorTests: XCTestCase {
 
     // MARK: - Failures are non-blocking
 
+    func testASupersededWriteKeepsTheNewerRowAndLeavesANote() async throws {
+        let recording = self.recording()
+        let coordinator = TranscriptCorrectionCoordinator(
+            correcting: { [self] request in styled(request, corrected: "我在開會") },
+            committing: { _, _, _, _ in .superseded }
+        )
+
+        coordinator.correct(recording)
+        try await waitUntilFinished(coordinator, recording.id)
+
+        let note = try XCTUnwrap(coordinator.note(for: recording.id))
+        XCTAssertTrue(note.contains("newer version was kept"))
+    }
+
+    func testAFailedWriteLeavesTheRowUnchangedAndLeavesANote() async throws {
+        let recording = self.recording()
+        let coordinator = TranscriptCorrectionCoordinator(
+            correcting: { [self] request in styled(request, corrected: "我在開會") },
+            committing: { _, _, _, _ in .failed }
+        )
+
+        coordinator.correct(recording)
+        try await waitUntilFinished(coordinator, recording.id)
+
+        let note = try XCTUnwrap(coordinator.note(for: recording.id))
+        XCTAssertTrue(note.contains("could not save"))
+    }
+
     func testAFailedCorrectionLeavesASentenceAndWritesNothing() async throws {
         let recording = self.recording()
         let coordinator = TranscriptCorrectionCoordinator(
             correcting: { [self] request in kept(request, status: .failed("the model refused")) },
-            committing: { _, _, _ in XCTFail("a failed correction must not touch the row") }
+            committing: { _, _, _, _ in
+                XCTFail("a failed correction must not touch the row")
+                return .failed
+            }
         )
 
         coordinator.correct(recording)
@@ -199,7 +256,7 @@ final class TranscriptCorrectionCoordinatorTests: XCTestCase {
             correcting: { [self] request in
                 kept(request, status: .unavailable(.unsupportedSystem))
             },
-            committing: { _, _, _ in }
+            committing: { _, _, _, _ in .applied }
         )
 
         coordinator.correct(recording)
@@ -214,7 +271,7 @@ final class TranscriptCorrectionCoordinatorTests: XCTestCase {
         let recording = self.recording()
         let coordinator = TranscriptCorrectionCoordinator(
             correcting: { [self] request in kept(request, status: .failed("offline")) },
-            committing: { _, _, _ in }
+            committing: { _, _, _, _ in .applied }
         )
 
         coordinator.correct(recording)
@@ -239,7 +296,7 @@ final class TranscriptCorrectionCoordinatorTests: XCTestCase {
                 }
                 return kept(request, status: status)
             },
-            committing: { _, _, _ in }
+            committing: { _, _, _, _ in .applied }
         )
 
         coordinator.correct(recording)
@@ -264,7 +321,7 @@ final class TranscriptCorrectionCoordinatorTests: XCTestCase {
                 asked = true
                 return kept(request, status: .notRequested)
             },
-            committing: { _, _, _ in }
+            committing: { _, _, _, _ in .applied }
         )
 
         for recording in [
@@ -291,7 +348,10 @@ final class TranscriptCorrectionCoordinatorTests: XCTestCase {
                     ? styled(request, corrected: "我在開會")
                     : kept(request, status: .failed("offline"))
             },
-            committing: { id, text, original in writes.record(id, text, original) }
+            committing: { id, text, original, _ in
+                writes.record(id, text, original)
+                return .applied
+            }
         )
 
         coordinator.correct(first)

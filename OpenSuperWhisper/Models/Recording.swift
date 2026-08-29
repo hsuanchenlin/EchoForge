@@ -795,16 +795,24 @@ class RecordingStore: ObservableObject {
     /// same moment, and this must replace three columns without carrying a stale
     /// transcript, status or progress back over the top of them.
     ///
+    /// The transcript given to the model is the earliest shared boundary that
+    /// can reject every stale result, including a regeneration or another
+    /// correction that lands while the model is running.
+    ///
     /// It touches nothing else. The audio file, the duration, the provenance and
     /// every other row are exactly as they were - a correction changes the words
     /// on one card and keeps the words it replaced.
     func applyCorrection(
-        _ id: UUID, transcription: String, original: String, correctedAt: Date = Date()
-    ) async {
+        _ id: UUID, transcription: String, original: String,
+        expectedTranscription: String, correctedAt: Date = Date()
+    ) async -> CorrectionCommitResult {
+        let changed: Int
         do {
-            _ = try await dbQueue.write { db -> Int in
+            changed = try await dbQueue.write { db -> Int in
                 try Recording
                     .filter(Recording.Columns.id == id)
+                    .filter(Recording.Columns.status == RecordingStatus.completed.rawValue)
+                    .filter(Recording.Columns.transcription == expectedTranscription)
                     .updateAll(db, [
                         Recording.Columns.transcription.set(to: transcription),
                         Recording.Columns.rawTranscription.set(to: original),
@@ -813,8 +821,10 @@ class RecordingStore: ObservableObject {
             }
         } catch {
             print("Failed to store the AI correction: \(error)")
-            return
+            return .failed
         }
+
+        guard changed == 1 else { return .superseded }
 
         if let index = recordings.firstIndex(where: { $0.id == id }) {
             recordings[index].transcription = transcription
@@ -829,6 +839,7 @@ class RecordingStore: ObservableObject {
                 "aiCorrectedAt": correctedAt,
             ]
         )
+        return .applied
     }
 
     static let recordingDidCorrectNotification = Notification.Name(

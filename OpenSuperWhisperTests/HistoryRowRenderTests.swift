@@ -169,7 +169,7 @@ final class HistoryRowRenderTests: XCTestCase {
                     raw: request.original, transcript: request.text, final: request.text,
                     status: .notRequested)
             },
-            committing: { _, _, _ in }
+            committing: { _, _, _, _ in .applied }
         )
         XCTAssertTrue(corrections.correct(recording))
 
@@ -199,7 +199,7 @@ final class HistoryRowRenderTests: XCTestCase {
                     raw: request.original, transcript: request.text, final: request.text,
                     status: .unavailable(.appleIntelligenceOff))
             },
-            committing: { _, _, _ in }
+            committing: { _, _, _, _ in .applied }
         )
         corrections.correct(recording)
         try await settle(corrections, recording.id)
@@ -241,7 +241,7 @@ final class HistoryRowRenderTests: XCTestCase {
                     raw: request.original, transcript: request.text, final: request.text,
                     status: .notRequested)
             },
-            committing: { _, _, _ in }
+            committing: { _, _, _, _ in .applied }
         )
 
         let idle = try height(
