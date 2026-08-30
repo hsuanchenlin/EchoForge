@@ -75,6 +75,11 @@ The one shape that is not a style is `translating`, which the spoken
 two rows of the table above, because changing the language is what it is for,
 and inherits every other one.
 
+Voice edit (⌥E) is a sibling of this stage rather than a style inside it, with
+its own shape (`editing`) and its own spoken instruction. `docs/selection-edit.md`
+is its whole story. The guard is still the boundary: a voice edit may omit, but
+nothing may invent.
+
 The one exception to "may omit" is the personal terms dictionary. Those entries
 are the user's own statement about how their own vocabulary is spelled, so every
 style has to keep them - see `StyleRewriteGuardTests`.

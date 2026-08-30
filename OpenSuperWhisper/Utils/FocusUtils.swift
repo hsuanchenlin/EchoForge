@@ -43,6 +43,22 @@ class FocusUtils {
         AXUIElementSetMessagingTimeout(element, axCallTimeoutSeconds)
         return element
     }
+
+    /// The currently selected text in the focused element, or `nil` when there
+    /// is no focused element, the attribute is unsupported, or the selection is
+    /// empty. Does not touch the clipboard.
+    ///
+    /// First source for a voice edit (`SelectedTextExtractor`). The AX timeout
+    /// is the same 0.25 s cap the caret lookup uses, so a busy focused app
+    /// cannot stall the press.
+    static func selectedText() -> String? {
+        guard let element = getFocusedElement() else { return nil }
+        var value: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(
+            element, kAXSelectedTextAttribute as CFString, &value)
+        guard error == .success, let string = value as? String else { return nil }
+        return SelectedTextExtractor.usable(string)
+    }
     
     static func getCaretRect(for element: AXUIElement) -> CGRect? {
         // Получаем выделенный текстовый диапазон у фокусированного элемента

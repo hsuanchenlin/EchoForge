@@ -25,11 +25,14 @@ class IndicatorWindowManager: IndicatorViewDelegate {
     /// - Parameter purpose: what the key that started this session captures.
     ///   Carried on the view model so the transcription it eventually runs is
     ///   built for the right thing - see `DictationPurpose`.
-    func prepare(purpose: DictationPurpose = .dictation) -> IndicatorViewModel {
+    func prepare(
+        purpose: DictationPurpose = .dictation,
+        selectionEdit: SelectedTextCapture? = nil
+    ) -> IndicatorViewModel {
         NotificationCenter.default.post(name: .indicatorWindowWillShow, object: nil)
         KeyboardShortcuts.enable(.escape)
 
-        let newViewModel = IndicatorViewModel(purpose: purpose)
+        let newViewModel = IndicatorViewModel(purpose: purpose, selectionEdit: selectionEdit)
         newViewModel.delegate = self
         viewModel = newViewModel
         sessionUsesCapsule = CapsuleHUDWindowController.isEnabled

@@ -32,12 +32,22 @@ final class TranslationRewriteTests: XCTestCase {
         }
 
         XCTAssertTrue(StyleRewriteShape.translating.mayChangeLanguage)
+        XCTAssertTrue(StyleRewriteShape.editing.mayChangeLanguage)
         XCTAssertEqual(
             StyleRewriteGuard.check(
                 candidate: "The meeting is at three.",
                 transcript: "會議是三點開始。",
                 mustSurvive: [],
                 shape: .translating
+            ).acceptedText,
+            "The meeting is at three."
+        )
+        XCTAssertEqual(
+            StyleRewriteGuard.check(
+                candidate: "The meeting is at three.",
+                transcript: "會議是三點開始。",
+                mustSurvive: [],
+                shape: .editing
             ).acceptedText,
             "The meeting is at three."
         )

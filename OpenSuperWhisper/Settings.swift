@@ -867,9 +867,10 @@ struct Settings {
 
     /// What this recording session was captured for. See `DictationPurpose`.
     ///
-    /// It is the switch the whole pipeline turns on, and the two purposes have
-    /// no path into each other: a `.dictation` session can only produce text and
-    /// a `.youTubeCommand` session can only produce a channel to open.
+    /// It is the switch the whole pipeline turns on, and the purposes have
+    /// no path into each other: a `.dictation` session can only produce text,
+    /// a `.youTubeCommand` session can only produce a channel to open, and a
+    /// `.selectionEdit` session can only rewrite captured text.
     var purpose: DictationPurpose
 
     /// The YouTube channels this utterance may open a video from, or `nil` when
@@ -920,8 +921,10 @@ struct Settings {
     ///   - routesSpokenIntents: whether this path reads the transcript for a
     ///     spoken command. Only live dictation passes `true`; see the property.
     ///   - purpose: what the session was captured for. `.dictation` - the
-    ///     default - is every path in the app but one: the YouTube command
-    ///     hotkey, which is the only caller that passes `.youTubeCommand`.
+    ///     default - is every path in the app but two: the YouTube command
+    ///     hotkey, which is the only caller that passes `.youTubeCommand`,
+    ///     and the voice-edit hotkey, which is the only caller that passes
+    ///     `.selectionEdit`.
     init(
         purpose: DictationPurpose = .dictation,
         dictationTarget: DictationTargetApp? = nil,
@@ -1942,6 +1945,36 @@ struct SettingsView: View {
                             .font(.caption)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(.controlBackgroundColor).opacity(0.3))
+                .cornerRadius(12)
+
+                // Voice edit. Its own section and its own key, beside Ask
+                // rather than inside Recording Behavior: it changes what a
+                // press does with already-written text, which is a different
+                // kind of setting from how dictation is triggered.
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Voice Edit")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Edit selection or clipboard")
+                                    .font(.subheadline)
+                                Text("Highlight text in any app, press the shortcut, and speak an instruction - the selection is replaced with the rewritten text. If nothing is highlighted, the clipboard is edited instead. Uses the same on-device model as rewriting.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            Spacer()
+                            KeyboardShortcuts.Recorder("", name: .editSelection)
+                                .frame(width: 150)
+                        }
                     }
                 }
                 .padding()

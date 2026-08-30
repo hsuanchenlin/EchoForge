@@ -526,8 +526,8 @@ resolves the three gates (`spokenIntentsEnabled`, `routesSpokenIntents`,
 dictation can be, and it has a **hotkey of its own** (⌥Y): hold it, name a
 channel from the allowlist, and its newest video opens in Chrome.
 `docs/youtube-latest-video.md` is its whole story. Four things carry it.
-`DictationPurpose` is the first and the others rest on it: two keys, two
-purposes, nothing crossing between them - `SpokenIntentRouter` has no case that
+`DictationPurpose` is the first and the others rest on it: each key has one
+purpose, nothing crossing between them - `SpokenIntentRouter` has no case that
 opens anything, so no wording of a dictation can reach a browser, and a
 `.youTubeCommand` capture never reaches the rewriting, Ask, snippet or
 translation stages and has no path back into the user's document. The allowlist
@@ -581,9 +581,25 @@ lapsed, which is always, because this panel opens after a transcription rather t
 key press. The key monitor stands down while an input method is composing, since this app's
 users type Chinese.
 
+`OpenSuperWhisper/Rewriting/SelectionEditRewrite.swift` is **voice edit** (⌥E):
+highlight text in any app, speak an instruction, and the selection is replaced
+with the rewrite. `docs/selection-edit.md` is its whole story. Three things
+there are absolute. It has **its own key and `DictationPurpose.selectionEdit`**,
+so a dictation cannot become an edit of whatever happens to be highlighted, and
+the spoken instruction is never pasted - only the rewrite of the captured text
+is. Capture is three sources in order (Accessibility selected text, a simulated
+⌘C that restores the pasteboard, then the clipboard as it stood) and the HUD
+names which one fired. And it is on-device only, enforced by
+`OnDeviceModelFeature.selectionEdit` having no `cloudFeature`; `StyleRewriteGuard`
+with `StyleRewriteShape.editing` is the boundary, so a refused rewrite leaves
+the selection as it was. History stores the original as `rawTranscription`, the
+rewrite as `transcription`, and the spoken instruction on
+`RecordingProvenance.selectionEdit`, which is what Compare and "Show original"
+already read.
+
 `OpenSuperWhisper/Ask/` is the floating Ask panel (⌥A, or a spoken question) and
 `docs/ask-panel.md` is its story. **⌥A records**: the press opens the panel and
-starts the microphone, the way the two dictation keys and ⌥S do, and a second
+starts the microphone, the way the two dictation keys, ⌥E and ⌥S do, and a second
 press ends the question - it is not a show/hide toggle, and the panel is closed
 with Esc or Close and by nothing else (discarding a recording gives the
 microphone back and keeps the card). Every listening path goes through a call

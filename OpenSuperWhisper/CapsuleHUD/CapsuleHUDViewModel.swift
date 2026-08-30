@@ -124,6 +124,12 @@ struct CapsuleHUDMode: Equatable {
         }
         return CapsuleHUDMode(label: "YouTube: \(trimmed)")
     }
+
+    /// "Selection" or "Clipboard" - the chip names the source, and the card
+    /// (and this capsule's recording headline) names the gerund.
+    static func selectionEdit(_ source: SelectedTextSource) -> CapsuleHUDMode {
+        CapsuleHUDMode(label: source.capsuleLabel)
+    }
 }
 
 /// The capsule's state machine, and the only thing that decides what it shows.

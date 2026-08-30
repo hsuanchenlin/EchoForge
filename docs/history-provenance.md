@@ -18,6 +18,7 @@ underneath it, with no disclosure to open.
 | **YouTube command - opened** | The YouTube command shortcut, and the channel's newest video opened in Chrome. The sentence names the channel and the video. |
 | **YouTube command - not opened** | The YouTube command shortcut, and **nothing was opened**. The sentence says why and what to do about it. |
 | **File transcription** | A file you dropped on the window or opened with Kongweh, or a dictation whose audio was queued because the engine was busy with another one. |
+| **Voice edit** | The voice-edit shortcut (⌥E). The sentence under the label is the instruction you spoke. Compare and "Show original" show the highlighted text against the rewrite that replaced it. |
 | **Older recording** | Made before Kongweh recorded any of this, so the app does not know. It is never guessed at: an entry from before the upgrade says "older recording" rather than being relabelled as something it might not have been. |
 
 Use the filter beside the search box to show one kind at a time. **Not opened**

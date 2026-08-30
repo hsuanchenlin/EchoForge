@@ -170,6 +170,38 @@ final class HistoryRowRenderTests: XCTestCase {
 
     /// A corrected row says so, and keeps the way back to what it said before.
     @MainActor
+    func testAVoiceEditRowShowsTheDiffBackToTheHighlightedText() throws {
+        var recording = recording(
+            status: .completed,
+            transcription: "- Ship on Friday\n- Budget is $2,500"
+        )
+        recording.rawTranscription = "We should ship on Friday and the budget is $2,500."
+        recording.provenance = .selectionEdit(instruction: "make it concise bullet points")
+
+        for tier in HistoryWidthTier.allCases {
+            try assertRow(
+                named: "voice-edit-\(tier.rawValue)",
+                recording: recording,
+                tier: tier,
+                showing: ["Voice edit", "make it concise bullet points", "Show original", "Compare"]
+            )
+        }
+
+        let segments = TextDiffUtil.compare(
+            original: try XCTUnwrap(recording.rawTranscription),
+            revised: recording.transcription
+        )
+        XCTAssertEqual(
+            segments.filter { $0.kind != .removed }.map(\.text).joined(),
+            recording.transcription
+        )
+        XCTAssertTrue(
+            segments.contains { $0.kind == .removed },
+            "Compare must show the highlighted text that was replaced"
+        )
+    }
+
+    @MainActor
     func testACorrectedRowShowsItsBadgeAndItsOriginalAtBothWidths() throws {
         var recording = recording(status: .completed, transcription: "我在開會，三點結束。")
         recording.rawTranscription = "我再開會，三點結束。"

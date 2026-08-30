@@ -82,6 +82,16 @@ final class HistoryProvenanceRenderTests: XCTestCase {
     /// Every row made before this existed. It must say it does not know, not
     /// pick one of the other four.
     @MainActor
+    func testAVoiceEditShowsTheInstructionWithoutAClick() throws {
+        try assertRow(
+            named: "voice-edit",
+            transcription: "- Ship on Friday\n- Budget is $2,500",
+            provenance: .selectionEdit(instruction: "make it concise bullet points"),
+            showing: ["Voice edit", "make it concise bullet points"]
+        )
+    }
+
+    @MainActor
     func testARecordingFromBeforeProvenanceSaysSo() throws {
         try assertRow(
             named: "legacy",
