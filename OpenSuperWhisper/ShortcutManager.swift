@@ -38,7 +38,7 @@ extension KeyboardShortcuts.Name {
 
     /// Moves dictation to the next engine that is ready, wrapping around.
     ///
-    /// ⌥M by default - free alongside ⌥`, ⌥A and ⌥S, and M for model, which is
+    /// ⌥M by default - free alongside ⌥`, ⌥A, ⌥S, ⌥Y and ⌥E, and M for model, which is
     /// what a user calls this. Its own shortcut for the same reason the two above
     /// have theirs: it is a decision made *while* working in another app, which is
     /// exactly when opening Settings to change engine costs more than the switch is
@@ -57,7 +57,7 @@ extension KeyboardShortcuts.Name {
     /// a video instead of typing what was said. With two keys the app never has
     /// to guess: what this key captures can only ever open an allowlisted
     /// channel, and what the dictation key captures can only ever be typed.
-    /// ⌥Y by default, free alongside ⌥`, ⌥A, ⌥S and ⌥M.
+    /// ⌥Y by default, free alongside ⌥`, ⌥A, ⌥S, ⌥M and ⌥E.
     /// See `DictationPurpose` and `docs/youtube-latest-video.md`.
     static let youTubeCommand = Self("youTubeCommand", default: .init(.y, modifiers: .option))
 

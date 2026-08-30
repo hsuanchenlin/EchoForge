@@ -191,7 +191,7 @@ class AudioRecorder: NSObject, ObservableObject {
 
     /// Starts a recording, or refuses because one is already in flight.
     ///
-    /// Four keys reach this one instance - the two dictation keys, ⌥A and ⌥S -
+    /// Five keys reach this one instance - the two dictation keys, ⌥A, ⌥S and ⌥E -
     /// so who holds the microphone is decided **here** rather than in each
     /// caller. Starting a second recording used to discard the first: the audio
     /// was deleted and `currentRecordingURL` re-pointed at the newcomer, so the

@@ -107,4 +107,6 @@ Mac.
 - `docs/youtube-latest-video.md` - the command itself: the shortcut, the
   grammar, the allowlist and the safety rules.
 - `docs/ask-panel.md` - the Ask panel.
+- `docs/selection-edit.md` - voice edit: the shortcut, the capture, and what is
+  stored on the row.
 - `docs/spoken-intents.md` - what else a dictation can be.

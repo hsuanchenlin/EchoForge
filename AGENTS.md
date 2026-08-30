@@ -426,9 +426,10 @@ sends nothing at all. `CloudEndpoint` is the security boundary the way `UpdateMa
 HTTPS or loopback (a local Ollama is a legitimate provider), no credentials, no query.
 
 Two features and no more: transcription (`EngineKind.cloud` behind `TranscriptionEngine`) and
-translation (`CloudStyleRewriter` behind `StyleRewriting`). Rewriting, Ask, screen queries and
-YouTube channel-name matching have **no** cloud path, enforced by
-`OnDeviceModelFeature.cloudFeature` returning `nil` rather than by convention.
+translation (`CloudStyleRewriter` behind `StyleRewriting`). Every other model feature -
+rewriting, correction, Ask, screen queries, voice edit, YouTube channel-name matching - has
+**no** cloud path, enforced by `OnDeviceModelFeature.cloudFeature` returning `nil` rather
+than by convention.
 Transcription's on/off is `selectedEngine == .cloud` and there is deliberately no
 second preference beside it; translation, which has no engine, gets `cloudTranslationEnabled`.
 Consent is separate from both (`CloudConsent`) because "the toggle was on" and "the person agreed"
