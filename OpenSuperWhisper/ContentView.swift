@@ -1395,10 +1395,15 @@ struct MainRecordButton: View {
 }
 
 enum ThemePalette {
+    /// Light mode cannot use `NSColor.windowBackgroundColor`: on current macOS
+    /// that token resolves to white, which is also the card fill, so a history
+    /// list has no canvas for the cards to sit on and a hover wash-out has
+    /// nowhere to contrast against. The grouped gray is the canvas; cards stay
+    /// white.
     static func windowBackground(_ scheme: ColorScheme) -> Color {
         scheme == .dark
             ? Color(NSColor.underPageBackgroundColor)
-            : .white
+            : Color(red: 0.955, green: 0.960, blue: 0.972)
     }
 
     static func panelSurface(_ scheme: ColorScheme) -> Color {
@@ -1427,17 +1432,18 @@ enum ThemePalette {
 
     // MARK: - History cards
 
-    /// A history card's fill, which lifts a shade under the pointer.
+    /// A history card's fill. Light mode stays white under the pointer: the
+    /// hover is the firmer stroke and the elevated shadow, not a fill that
+    /// washes the card into the canvas. Dark mode still lifts a shade, because
+    /// a white fill there would be a flash.
     ///
     /// The lift is deliberately small. A card is a container for text the user
     /// is reading, and a hover state strong enough to notice out of the corner
     /// of the eye is a hover state that makes the words harder to read.
     static func cardSurface(_ scheme: ColorScheme, hovered: Bool) -> Color {
-        guard hovered else { return cardBackground(scheme) }
-        return scheme == .dark
-            ? Color(nsColor: NSColor.controlBackgroundColor
-                .blended(withFraction: 0.07, of: .white) ?? .controlBackgroundColor)
-            : Color(red: 0.975, green: 0.982, blue: 0.996)
+        guard hovered, scheme == .dark else { return cardBackground(scheme) }
+        return Color(nsColor: NSColor.controlBackgroundColor
+            .blended(withFraction: 0.07, of: .white) ?? .controlBackgroundColor)
     }
 
     /// A history card's border. Hover firms it up; a failed row keeps a warm
