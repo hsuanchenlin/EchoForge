@@ -63,8 +63,12 @@ rather than the user's words.
 ## Colour
 
 Every colour comes from `ThemePalette`, per scheme, and none of them carries meaning on
-its own. The failed card has a warm border *and* a badge that says "Transcription
-failed" in words; the destructive action tints under the pointer *and* is labelled
-"Delete recording". Dark mode is not a filter over the light one - the card fill, the
-border and the failure tint are each chosen for their own ground, because a soft grey
-shadow over a dark surface reads as a smudge and system red on a dark ground vibrates.
+its own. Light cards sit on a grouped canvas gray, not on white: the window, the card
+fill and the hover fill used to be the same `#FFFFFF`, so a hovered row washed out into
+the window. Hover in light mode keeps the white fill and lifts the card with the stroke
+and the shadow instead. The failed card has a warm border *and* a badge that says
+"Transcription failed" in words; the destructive action tints under the pointer *and* is
+labelled "Delete recording". Dark mode is not a filter over the light one - the card
+fill, the border and the failure tint are each chosen for their own ground, because a
+soft grey shadow over a dark surface reads as a smudge and system red on a dark ground
+vibrates.

@@ -133,6 +133,39 @@ final class HistoryRowRenderTests: XCTestCase {
         )
     }
 
+    /// The defect the palette exists to prevent: a light card drawn on a white
+    /// window has no canvas, so hover has nothing to lift off. The corner of
+    /// this render is the window; a point just inside the top edge is the card.
+    @MainActor
+    func testALightCardSitsOnAGroupedCanvasNotOnWhite() throws {
+        let hosting = try hostingView(
+            for: row(recording(status: .completed)),
+            width: Self.regularWidth,
+            metrics: .regular,
+            scheme: .light)
+        let rep = try XCTUnwrap(
+            hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds),
+            "no bitmap to draw the light card into")
+        hosting.cacheDisplay(in: hosting.bounds, to: rep)
+        let image = try XCTUnwrap(rep.cgImage, "no image behind the light card")
+        try write(image, named: "completed-regular-canvas")
+
+        let raster = try Raster(image)
+        let scale = CGFloat(raster.width) / hosting.bounds.width
+        let canvas = raster[1, 1]
+        let card = raster[raster.width / 2, max(1, Int((6 * scale).rounded()))]
+
+        XCTAssertLessThan(
+            luminance(canvas), 0.99,
+            "the window canvas at the corner is white; the card has no ground")
+        XCTAssertGreaterThan(
+            luminance(card), 0.995,
+            "the card fill is not crisp white")
+        XCTAssertGreaterThan(
+            luminance(card) - luminance(canvas), 0.015,
+            "the light card is not distinct from the window canvas")
+    }
+
     // MARK: - Fix with AI
 
     /// A corrected row says so, and keeps the way back to what it said before.
@@ -429,7 +462,7 @@ final class HistoryRowRenderTests: XCTestCase {
         var root = AnyView(
             content
                 .frame(width: width)
-                .background(Color(nsColor: .windowBackgroundColor))
+                .background(ThemePalette.windowBackground(scheme))
                 .environment(\.colorScheme, scheme))
         if let metrics {
             root = AnyView(root.environment(\.historyRowMetrics, metrics))
@@ -484,5 +517,45 @@ final class HistoryRowRenderTests: XCTestCase {
     /// about either, and neither changes whether the words are on screen.
     private func normalized(_ text: String) -> String {
         text.lowercased().filter { !$0.isWhitespace }
+    }
+
+    /// Flattened RGBA, y increasing downwards, so a corner sample is (1, 1)
+    /// and not an origin that depends on the bitmap's colour space.
+    private struct Raster {
+        let width: Int
+        let height: Int
+        private let pixels: [UInt8]
+
+        init(_ image: CGImage) throws {
+            let pixelWidth = image.width
+            let pixelHeight = image.height
+            var buffer = [UInt8](repeating: 0, count: pixelWidth * pixelHeight * 4)
+            buffer.withUnsafeMutableBytes { raw in
+                guard
+                    let context = CGContext(
+                        data: raw.baseAddress, width: pixelWidth, height: pixelHeight,
+                        bitsPerComponent: 8, bytesPerRow: pixelWidth * 4,
+                        space: CGColorSpaceCreateDeviceRGB(),
+                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+                else { return }
+                context.draw(
+                    image, in: CGRect(x: 0, y: 0, width: pixelWidth, height: pixelHeight))
+            }
+            width = pixelWidth
+            height = pixelHeight
+            pixels = buffer
+        }
+
+        subscript(x: Int, y: Int) -> (UInt8, UInt8, UInt8) {
+            let offset = (y * width + x) * 4
+            return (pixels[offset], pixels[offset + 1], pixels[offset + 2])
+        }
+    }
+
+    private func luminance(_ pixel: (UInt8, UInt8, UInt8)) -> CGFloat {
+        let r = CGFloat(pixel.0) / 255
+        let g = CGFloat(pixel.1) / 255
+        let b = CGFloat(pixel.2) / 255
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
     }
 }
