@@ -59,6 +59,51 @@ class FocusUtils {
         guard error == .success, let string = value as? String else { return nil }
         return SelectedTextExtractor.usable(string)
     }
+
+    static func selectionEditTarget() -> SelectionEditTarget? {
+        guard let application = NSWorkspace.shared.frontmostApplication,
+              let focusedElement = getFocusedElement()
+        else { return nil }
+
+        let appElement = AXUIElementCreateApplication(application.processIdentifier)
+        AXUIElementSetMessagingTimeout(appElement, axCallTimeoutSeconds)
+        var focusedWindowValue: CFTypeRef?
+        let windowResult = AXUIElementCopyAttributeValue(
+            appElement, kAXFocusedWindowAttribute as CFString, &focusedWindowValue)
+        let focusedWindow: AXUIElement?
+        if windowResult == .success, let focusedWindowValue {
+            focusedWindow = (focusedWindowValue as! AXUIElement)
+        } else {
+            focusedWindow = nil
+        }
+
+        return SelectionEditTarget(
+            processIdentifier: application.processIdentifier,
+            focusedElement: focusedElement,
+            focusedWindow: focusedWindow,
+            selectedRange: selectedRange(of: focusedElement)
+        )
+    }
+
+    static func selectionEditTargetIsCurrent(_ target: SelectionEditTarget) -> Bool {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier
+                == target.processIdentifier,
+              let current = selectionEditTarget()
+        else { return false }
+        return current == target
+    }
+
+    private static func selectedRange(of element: AXUIElement) -> CFRange? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(
+            element, kAXSelectedTextRangeAttribute as CFString, &value) == .success,
+              let value
+        else { return nil }
+        let rangeValue = value as! AXValue
+        var range = CFRange()
+        guard AXValueGetValue(rangeValue, .cfRange, &range) else { return nil }
+        return range
+    }
     
     static func getCaretRect(for element: AXUIElement) -> CGRect? {
         // Получаем выделенный текстовый диапазон у фокусированного элемента

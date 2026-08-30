@@ -674,7 +674,7 @@ class IndicatorViewModel: ObservableObject {
 
         if styled.status.didRewrite, rewritten != capture.text {
             guard await ClipboardUtil.pasteText(
-                rewritten, targetProcessIdentifier: capture.targetProcessIdentifier)
+                rewritten, target: capture.target)
             else {
                 self.result = nil
                 showAutoDismissingMessage(.commandFailed("Target app unavailable"))

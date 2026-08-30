@@ -19,16 +19,49 @@ enum SelectedTextSource: String, Equatable, Sendable {
     }
 }
 
+struct SelectionEditTarget: @unchecked Sendable, Equatable {
+    let processIdentifier: pid_t
+    let focusedElement: AXUIElement
+    let focusedWindow: AXUIElement?
+    let selectedRange: CFRange?
+
+    static func == (lhs: SelectionEditTarget, rhs: SelectionEditTarget) -> Bool {
+        lhs.processIdentifier == rhs.processIdentifier
+            && CFEqual(lhs.focusedElement, rhs.focusedElement)
+            && Self.equal(lhs.focusedWindow, rhs.focusedWindow)
+            && Self.equal(lhs.selectedRange, rhs.selectedRange)
+    }
+
+    private static func equal(_ lhs: AXUIElement?, _ rhs: AXUIElement?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil): return true
+        case let (lhs?, rhs?): return CFEqual(lhs, rhs)
+        default: return false
+        }
+    }
+
+    private static func equal(_ lhs: CFRange?, _ rhs: CFRange?) -> Bool {
+        switch (lhs, rhs) {
+        case (nil, nil): return true
+        case let (lhs?, rhs?):
+            return lhs.location == rhs.location && lhs.length == rhs.length
+        default: return false
+        }
+    }
+}
+
 /// The text a voice-edit session will rewrite, and where it was taken from.
 struct SelectedTextCapture: Equatable, Sendable {
     let text: String
     let source: SelectedTextSource
-    let targetProcessIdentifier: pid_t?
+    let target: SelectionEditTarget?
 
-    init(text: String, source: SelectedTextSource, targetProcessIdentifier: pid_t? = nil) {
+    init(
+        text: String, source: SelectedTextSource, target: SelectionEditTarget? = nil
+    ) {
         self.text = text
         self.source = source
-        self.targetProcessIdentifier = targetProcessIdentifier
+        self.target = target
     }
 
     /// The card and the capsule while the user is speaking the instruction.
@@ -64,22 +97,20 @@ enum SelectedTextExtractor {
         accessibilityText: () -> String? = { FocusUtils.selectedText() },
         copiedSelection: () -> String? = { ClipboardUtil.copySelectedText() },
         clipboardText: () -> String? = { ClipboardUtil.currentString() },
-        targetProcessIdentifier: () -> pid_t? = {
-            NSWorkspace.shared.frontmostApplication?.processIdentifier
-        }
+        target: () -> SelectionEditTarget? = { FocusUtils.selectionEditTarget() }
     ) -> SelectedTextCapture? {
-        let target = targetProcessIdentifier()
+        let selectionTarget = target()
         if let text = usable(accessibilityText()) {
             return SelectedTextCapture(
-                text: text, source: .selection, targetProcessIdentifier: target)
+                text: text, source: .selection, target: selectionTarget)
         }
         if let text = usable(copiedSelection()) {
             return SelectedTextCapture(
-                text: text, source: .selection, targetProcessIdentifier: target)
+                text: text, source: .selection, target: selectionTarget)
         }
         if let text = usable(clipboardText()) {
             return SelectedTextCapture(
-                text: text, source: .clipboard, targetProcessIdentifier: target)
+                text: text, source: .clipboard, target: selectionTarget)
         }
         return nil
     }

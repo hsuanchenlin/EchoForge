@@ -9,7 +9,8 @@ final class SelectedTextExtractorTests: XCTestCase {
         let capture = SelectedTextExtractor.capture(
             accessibilityText: { "highlighted in Xcode" },
             copiedSelection: { "copied by Cmd+C" },
-            clipboardText: { "old clipboard" }
+            clipboardText: { "old clipboard" },
+            target: { nil }
         )
 
         XCTAssertEqual(
@@ -23,7 +24,8 @@ final class SelectedTextExtractorTests: XCTestCase {
         let capture = SelectedTextExtractor.capture(
             accessibilityText: { nil },
             copiedSelection: { "copied from Slack" },
-            clipboardText: { "old clipboard" }
+            clipboardText: { "old clipboard" },
+            target: { nil }
         )
 
         XCTAssertEqual(
@@ -36,7 +38,8 @@ final class SelectedTextExtractorTests: XCTestCase {
         let capture = SelectedTextExtractor.capture(
             accessibilityText: { "   " },
             copiedSelection: { nil },
-            clipboardText: { "text I copied earlier" }
+            clipboardText: { "text I copied earlier" },
+            target: { nil }
         )
 
         XCTAssertEqual(
@@ -48,14 +51,20 @@ final class SelectedTextExtractorTests: XCTestCase {
     }
 
     func testCaptureKeepsTheApplicationThatOwnedTheSelection() {
+        let target = SelectionEditTarget(
+            processIdentifier: 42,
+            focusedElement: AXUIElementCreateSystemWide(),
+            focusedWindow: nil,
+            selectedRange: CFRange(location: 3, length: 8)
+        )
         let capture = SelectedTextExtractor.capture(
             accessibilityText: { "selected" },
             copiedSelection: { nil },
             clipboardText: { nil },
-            targetProcessIdentifier: { 42 }
+            target: { target }
         )
 
-        XCTAssertEqual(capture?.targetProcessIdentifier, 42)
+        XCTAssertEqual(capture?.target, target)
     }
 
     func testWhitespaceOnlyIsTreatedAsEmpty() {
@@ -63,7 +72,8 @@ final class SelectedTextExtractorTests: XCTestCase {
             SelectedTextExtractor.capture(
                 accessibilityText: { " \n\t " },
                 copiedSelection: { "" },
-                clipboardText: { nil }
+                clipboardText: { nil },
+                target: { nil }
             )
         )
     }
@@ -73,7 +83,8 @@ final class SelectedTextExtractorTests: XCTestCase {
             SelectedTextExtractor.capture(
                 accessibilityText: { nil },
                 copiedSelection: { nil },
-                clipboardText: { nil }
+                clipboardText: { nil },
+                target: { nil }
             )
         )
     }
