@@ -657,19 +657,15 @@ class IndicatorViewModel: ObservableObject {
         )
         newRecording.provenance = .selectionEdit(instruction: instruction)
 
-        let audioWasStored: Bool
         do {
             try recorder.moveTemporaryRecording(from: audioURL, to: newRecording.url)
-            audioWasStored = true
+            try await recordingStore.addRecordingSync(newRecording)
         } catch {
-            print("Voice edit: could not keep the audio: \(error)")
-            audioWasStored = false
-        }
-
-        if audioWasStored {
-            await MainActor.run {
-                self.recordingStore.addRecording(newRecording)
-            }
+            try? FileManager.default.removeItem(at: newRecording.url)
+            print("Voice edit: could not save history: \(error)")
+            self.result = nil
+            showAutoDismissingMessage(.commandFailed("Could not save edit"))
+            return
         }
 
         if styled.status.didRewrite, rewritten != capture.text {

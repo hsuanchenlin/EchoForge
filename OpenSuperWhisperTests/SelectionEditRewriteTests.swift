@@ -9,6 +9,19 @@ import XCTest
 /// Mac running these tests may have no on-device model at all.
 final class SelectionEditRewriteTests: XCTestCase {
 
+    func testHistoryPersistencePrecedesSelectionReplacement() throws {
+        let sourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("OpenSuperWhisper/Indicator/IndicatorWindow.swift")
+        let source = try String(contentsOf: sourceURL, encoding: .utf8)
+        let method = try XCTUnwrap(source.range(of: "private func completeSelectionEdit"))
+        let body = source[method.lowerBound...]
+        let persistence = try XCTUnwrap(body.range(of: "try await recordingStore.addRecordingSync"))
+        let paste = try XCTUnwrap(body.range(of: "ClipboardUtil.pasteText"))
+
+        XCTAssertLessThan(persistence.lowerBound, paste.lowerBound)
+    }
+
     private struct FixedRewriter: StyleRewriting {
         let output: String
         func rewrite(_ request: StyleRewriteRequest) async throws -> String { output }
