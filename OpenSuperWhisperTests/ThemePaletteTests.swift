@@ -6,10 +6,10 @@ import XCTest
 
 /// The history list's light-mode ground, as numbers a test can disagree with.
 ///
-/// The defect: `windowBackground`, `cardBackground` and the hovered
-/// `cardSurface` were all white, so a hovered history card washed out into the
-/// window. `ThemePalette` is the one place those colours are chosen, so the
-/// contrast is asserted here rather than by eyeballing a screenshot.
+/// The defect: `windowBackground` and `cardBackground` were white and the
+/// hovered `cardSurface` was near-white, so a hovered history card washed out
+/// into the window. `ThemePalette` is the one place those colours are chosen,
+/// so the contrast is asserted here rather than by eyeballing a screenshot.
 final class ThemePaletteTests: XCTestCase {
 
     /// The canvas has to be a grouped gray. `NSColor.windowBackgroundColor` is

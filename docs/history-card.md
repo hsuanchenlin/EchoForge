@@ -63,8 +63,8 @@ rather than the user's words.
 ## Colour
 
 Every colour comes from `ThemePalette`, per scheme, and none of them carries meaning on
-its own. Light cards sit on a grouped canvas gray, not on white: the window, the card
-fill and the hover fill used to be the same `#FFFFFF`, so a hovered row washed out into
+its own. Light cards sit on a grouped canvas gray, not on white: the window and card
+used to be white while the hover fill was near-white, so a hovered row washed out into
 the window. Hover in light mode keeps the white fill and lifts the card with the stroke
 and the shadow instead. The failed card has a warm border *and* a badge that says
 "Transcription failed" in words; the destructive action tints under the pointer *and* is
