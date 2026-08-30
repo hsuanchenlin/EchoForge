@@ -369,6 +369,16 @@ class IndicatorViewModel: ObservableObject {
         recordingSession = nil
 
         if isTranscriptionBusy {
+            if purpose == .selectionEdit {
+                Task { [weak self] in
+                    guard let self,
+                          let tempURL = await self.recorder.stopRecording(session)
+                    else { return }
+                    try? FileManager.default.removeItem(at: tempURL)
+                }
+                showBusyMessage(.startRefused)
+                return
+            }
             // The engine is busy with another transcription: keep the user's audio
             // and put it into the queue instead of deleting it.
             Task { [weak self] in
@@ -647,18 +657,29 @@ class IndicatorViewModel: ObservableObject {
         )
         newRecording.provenance = .selectionEdit(instruction: instruction)
 
+        let audioWasStored: Bool
         do {
             try recorder.moveTemporaryRecording(from: audioURL, to: newRecording.url)
+            audioWasStored = true
         } catch {
             print("Voice edit: could not keep the audio: \(error)")
+            audioWasStored = false
         }
 
-        await MainActor.run {
-            self.recordingStore.addRecording(newRecording)
+        if audioWasStored {
+            await MainActor.run {
+                self.recordingStore.addRecording(newRecording)
+            }
         }
 
         if styled.status.didRewrite, rewritten != capture.text {
-            ClipboardUtil.pasteText(rewritten)
+            guard await ClipboardUtil.pasteText(
+                rewritten, targetProcessIdentifier: capture.targetProcessIdentifier)
+            else {
+                self.result = nil
+                showAutoDismissingMessage(.commandFailed("Target app unavailable"))
+                return
+            }
             self.result = .inserted(styleNotice: nil)
             print("Voice edit: \(instruction) -> \(rewritten)")
             await MainActor.run {

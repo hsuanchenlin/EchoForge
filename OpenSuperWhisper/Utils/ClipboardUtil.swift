@@ -24,8 +24,19 @@ class ClipboardUtil {
     /// The voice-edit path's paste. Named separately from `insertText` so that
     /// path is greppable, and so a later change to dictation insertion cannot
     /// silently change what a voice edit does to the document.
-    static func pasteText(_ text: String) {
+    @discardableResult
+    static func pasteText(_ text: String, targetProcessIdentifier: pid_t? = nil) async -> Bool {
+        guard let targetProcessIdentifier else { return false }
+        guard let target = NSRunningApplication(processIdentifier: targetProcessIdentifier),
+              target.activate()
+        else { return false }
+
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier
+                == targetProcessIdentifier
+        else { return false }
         insertText(text)
+        return true
     }
 
     /// The current string on the general pasteboard, if any.
@@ -58,9 +69,7 @@ class ClipboardUtil {
         }
         guard pasteboard.changeCount != changeCount else { return nil }
         let copied = pasteboard.string(forType: .string)
-        if let saved {
-            restorePasteboardContents(saved, to: pasteboard)
-        }
+        restorePasteboardContents(saved, to: pasteboard)
         return SelectedTextExtractor.usable(copied)
     }
 
@@ -91,10 +100,8 @@ class ClipboardUtil {
         // process the paste, and only if the pasteboard still holds our text:
         // a different changeCount means the user (or another app) took over
         // the clipboard and restoring would clobber their data.
-        if let contents = savedContents {
-            DispatchQueue.main.asyncAfter(deadline: .now() + clipboardRestoreDelay) {
-                restoreIfUnchanged(contents, expectedChangeCount: changeCountAfterCopy, pasteboard: pasteboard)
-            }
+        DispatchQueue.main.asyncAfter(deadline: .now() + clipboardRestoreDelay) {
+            restoreIfUnchanged(savedContents, expectedChangeCount: changeCountAfterCopy, pasteboard: pasteboard)
         }
     }
 
@@ -211,10 +218,8 @@ class ClipboardUtil {
         return nil
     }
     
-    static func saveCurrentPasteboardContents(from pasteboard: NSPasteboard = .general) -> PasteboardContents? {
+    static func saveCurrentPasteboardContents(from pasteboard: NSPasteboard = .general) -> PasteboardContents {
         let types = pasteboard.types ?? []
-        
-        guard !types.isEmpty else { return nil }
         
         var savedContents: [NSPasteboard.PasteboardType: Any] = [:]
         
@@ -228,7 +233,7 @@ class ClipboardUtil {
             }
         }
         
-        return (!savedContents.isEmpty) ? (savedContents, types) : nil
+        return (savedContents, types)
     }
     
     static func restorePasteboardContents(_ contents: PasteboardContents, to pasteboard: NSPasteboard = .general) {

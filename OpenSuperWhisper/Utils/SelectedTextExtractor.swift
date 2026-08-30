@@ -1,4 +1,4 @@
-import Foundation
+import Cocoa
 
 /// Where the text a voice edit will rewrite came from.
 ///
@@ -23,6 +23,13 @@ enum SelectedTextSource: String, Equatable, Sendable {
 struct SelectedTextCapture: Equatable, Sendable {
     let text: String
     let source: SelectedTextSource
+    let targetProcessIdentifier: pid_t?
+
+    init(text: String, source: SelectedTextSource, targetProcessIdentifier: pid_t? = nil) {
+        self.text = text
+        self.source = source
+        self.targetProcessIdentifier = targetProcessIdentifier
+    }
 
     /// The card and the capsule while the user is speaking the instruction.
     var hudStatusText: String {
@@ -56,16 +63,23 @@ enum SelectedTextExtractor {
     static func capture(
         accessibilityText: () -> String? = { FocusUtils.selectedText() },
         copiedSelection: () -> String? = { ClipboardUtil.copySelectedText() },
-        clipboardText: () -> String? = { ClipboardUtil.currentString() }
+        clipboardText: () -> String? = { ClipboardUtil.currentString() },
+        targetProcessIdentifier: () -> pid_t? = {
+            NSWorkspace.shared.frontmostApplication?.processIdentifier
+        }
     ) -> SelectedTextCapture? {
+        let target = targetProcessIdentifier()
         if let text = usable(accessibilityText()) {
-            return SelectedTextCapture(text: text, source: .selection)
+            return SelectedTextCapture(
+                text: text, source: .selection, targetProcessIdentifier: target)
         }
         if let text = usable(copiedSelection()) {
-            return SelectedTextCapture(text: text, source: .selection)
+            return SelectedTextCapture(
+                text: text, source: .selection, targetProcessIdentifier: target)
         }
         if let text = usable(clipboardText()) {
-            return SelectedTextCapture(text: text, source: .clipboard)
+            return SelectedTextCapture(
+                text: text, source: .clipboard, targetProcessIdentifier: target)
         }
         return nil
     }

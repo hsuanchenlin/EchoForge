@@ -47,6 +47,17 @@ final class SelectedTextExtractorTests: XCTestCase {
         XCTAssertEqual(capture?.capsuleLabel, "Clipboard")
     }
 
+    func testCaptureKeepsTheApplicationThatOwnedTheSelection() {
+        let capture = SelectedTextExtractor.capture(
+            accessibilityText: { "selected" },
+            copiedSelection: { nil },
+            clipboardText: { nil },
+            targetProcessIdentifier: { 42 }
+        )
+
+        XCTAssertEqual(capture?.targetProcessIdentifier, 42)
+    }
+
     func testWhitespaceOnlyIsTreatedAsEmpty() {
         XCTAssertNil(
             SelectedTextExtractor.capture(
@@ -71,6 +82,25 @@ final class SelectedTextExtractorTests: XCTestCase {
 /// The ⌘C probe restores the pasteboard, so using copy as a fallback cannot
 /// clobber what the user had.
 final class ClipboardUtilCopySelectedTextTests: XCTestCase {
+
+    func testSuccessfulCopyRestoresAnOriginallyEmptyPasteboard() {
+        let pasteboard = NSPasteboard.withUniqueName()
+        pasteboard.clearContents()
+
+        let copied = ClipboardUtil.copySelectedText(
+            pasteboard: pasteboard,
+            copy: {
+                pasteboard.declareTypes([.string], owner: nil)
+                pasteboard.setString("highlighted", forType: .string)
+            },
+            wait: 0
+        )
+
+        XCTAssertEqual(copied, "highlighted")
+        XCTAssertTrue(pasteboard.types?.isEmpty ?? true)
+        XCTAssertNil(pasteboard.string(forType: .string))
+        pasteboard.releaseGlobally()
+    }
 
     func testASuccessfulCopyReturnsTheNewStringAndRestoresTheOriginal() {
         let pasteboard = NSPasteboard.withUniqueName()
