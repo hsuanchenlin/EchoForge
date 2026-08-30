@@ -94,6 +94,42 @@ final class SelectedTextExtractorTests: XCTestCase {
 /// clobber what the user had.
 final class ClipboardUtilCopySelectedTextTests: XCTestCase {
 
+    func testSelectionValidationUsesCopyFallbackWhenAXIsUnavailable() {
+        let capture = SelectedTextCapture(text: "original selection", source: .selection)
+
+        XCTAssertTrue(
+            ClipboardUtil.selectionStillMatches(
+                capture,
+                accessibilityText: { nil },
+                copiedSelection: { "original selection" }
+            )
+        )
+    }
+
+    func testSelectionValidationRejectsAChangedCopyFallbackSelection() {
+        let capture = SelectedTextCapture(text: "original selection", source: .selection)
+
+        XCTAssertFalse(
+            ClipboardUtil.selectionStillMatches(
+                capture,
+                accessibilityText: { nil },
+                copiedSelection: { "another selection" }
+            )
+        )
+    }
+
+    func testClipboardCaptureRejectsANewSelection() {
+        let capture = SelectedTextCapture(text: "clipboard text", source: .clipboard)
+
+        XCTAssertFalse(
+            ClipboardUtil.selectionStillMatches(
+                capture,
+                accessibilityText: { "new selection" },
+                copiedSelection: { nil }
+            )
+        )
+    }
+
     func testSuccessfulCopyRestoresAnOriginallyEmptyPasteboard() {
         let pasteboard = NSPasteboard.withUniqueName()
         pasteboard.clearContents()

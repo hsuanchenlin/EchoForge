@@ -25,17 +25,34 @@ class ClipboardUtil {
     /// path is greppable, and so a later change to dictation insertion cannot
     /// silently change what a voice edit does to the document.
     @discardableResult
-    static func pasteText(_ text: String, target: SelectionEditTarget?) async -> Bool {
-        guard let target,
+    static func pasteText(_ text: String, replacing capture: SelectedTextCapture) async -> Bool {
+        guard let target = capture.target,
               let application = NSRunningApplication(
                 processIdentifier: target.processIdentifier),
               application.activate()
         else { return false }
 
         try? await Task.sleep(nanoseconds: 150_000_000)
-        guard FocusUtils.selectionEditTargetIsCurrent(target) else { return false }
+        guard FocusUtils.selectionEditTargetIsCurrent(target),
+              selectionStillMatches(capture)
+        else { return false }
         insertText(text)
         return true
+    }
+
+    static func selectionStillMatches(
+        _ capture: SelectedTextCapture,
+        accessibilityText: () -> String? = { FocusUtils.selectedText() },
+        copiedSelection: () -> String? = { copySelectedText() }
+    ) -> Bool {
+        let currentSelection = SelectedTextExtractor.usable(accessibilityText())
+            ?? SelectedTextExtractor.usable(copiedSelection())
+        switch capture.source {
+        case .selection:
+            return currentSelection == capture.text
+        case .clipboard:
+            return currentSelection == nil
+        }
     }
 
     /// The current string on the general pasteboard, if any.
