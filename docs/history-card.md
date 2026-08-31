@@ -72,3 +72,12 @@ labelled "Delete recording". Dark mode is not a filter over the light one - the 
 fill, the border and the failure tint are each chosen for their own ground, because a
 soft grey shadow over a dark surface reads as a smudge and system red on a dark ground
 vibrates.
+
+A palette entry that **computes with** a dynamic system colour rather than handing it to
+SwiftUI has to resolve it under the appearance it means first. `NSColor.blended` is not a
+dynamic operation: it resolves its receiver at the moment it is called, so a blend written
+against the bare token reads `controlBackgroundColor` under whatever appearance is ambient -
+white in a light-appearance process - and 7% of the way from white to white is white. That
+is how the dark hover fill became the flash the small lift exists to avoid.
+`ThemePalette.resolved(_:in:)` is the pin, and `ThemePaletteTests` reads the resolved
+components back per scheme so an eagerly blended token fails at test time.
