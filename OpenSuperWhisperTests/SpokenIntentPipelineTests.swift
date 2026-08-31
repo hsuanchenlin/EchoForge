@@ -38,6 +38,30 @@ final class SpokenIntentPipelineTests: IsolatedPreferencesTestCase {
         XCTAssertNil(Settings(routesSpokenIntents: true).youTubeChannels)
         XCTAssertNil(Settings().youTubeChannels)
         XCTAssertNotNil(Settings(purpose: .youTubeCommand).youTubeChannels)
+        XCTAssertNil(Settings(purpose: .selectionEdit).youTubeChannels)
+        XCTAssertFalse(Settings(purpose: .selectionEdit, routesSpokenIntents: true).routesSpokenIntents)
+    }
+
+    /// The spoken words are the instruction, not the text to insert. The
+    /// pipeline must not restyle them, route them as Ask, or mark them as
+    /// something to paste.
+    func testAVoiceEditCaptureReturnsTheInstructionAndInsertsNothing() async {
+        let styled = await SpokenIntentPipeline.apply(
+            to: processed("make it concise bullet points"),
+            settings: Settings(purpose: .selectionEdit)
+        )
+
+        XCTAssertEqual(
+            styled.intent,
+            .selectionEdit(instruction: "make it concise bullet points")
+        )
+        XCTAssertFalse(styled.intent.insertsText)
+        XCTAssertEqual(styled.final, "make it concise bullet points")
+        XCTAssertEqual(styled.status, .notRequested)
+        XCTAssertEqual(
+            styled.intent.provenance,
+            .selectionEdit(instruction: "make it concise bullet points")
+        )
     }
 
     // MARK: - What the pipeline does with each reading

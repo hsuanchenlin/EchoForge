@@ -228,14 +228,15 @@ Two things are worth knowing before you rely on it:
 ## Reading your history
 
 Every entry in the main window carries a label saying which key produced it and what
-became of the words: **Dictation**, **Ask**, **YouTube command - opened**, or
-**YouTube command - not opened**, including a picker you were shown and closed. A command that opened nothing shows the reason right
-under the label - which spelling was heard, and what to change - and the filter beside
-the search box narrows the list to one kind at a time. Entries recorded before this
-existed say **Older recording**: Kongweh does not guess what they were.
+became of the words - a dictation, a question, a voice edit, a YouTube command that
+opened something or did not, including a picker you were shown and closed. A command
+that opened nothing shows the reason right under the label - which spelling was heard,
+and what to change - and the filter beside the search box narrows the list to one kind
+at a time. Entries recorded before this existed say **Older recording**: Kongweh does
+not guess what they were.
 
 That is where to look first when a shortcut seemed to do nothing
-([details](history-provenance.md)).
+([details](history-provenance.md), which lists every label).
 
 ## Using a cloud provider instead (optional)
 

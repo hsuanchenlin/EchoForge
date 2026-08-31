@@ -34,16 +34,21 @@ enum SpokenIntentOutcome: Equatable, Sendable {
     /// history, which is the only durable surface that can tell the user a model
     /// was - or was not - consulted about their failed command.
     case openLatestVideo(YouTubeCommandResolution)
+    /// The utterance the voice-edit hotkey captured. **The instruction is never
+    /// inserted** - the rewrite of the selected text is, and that paste happens
+    /// after this outcome, on the session that holds the capture. Only a
+    /// `.selectionEdit` session can produce it. See `SelectionEditRewrite`.
+    case selectionEdit(instruction: String)
 
     /// Whether the text goes into whatever the user was typing in.
     ///
-    /// False for the two outcomes that are not text at all. A question belongs
-    /// to the Ask panel, and a command capture was never on its way to a
-    /// document: it was spoken into its own hotkey, and pasting it would be the
-    /// app doing the one thing the user did not ask for.
+    /// False for the outcomes that are not the words to insert. A question
+    /// belongs to the Ask panel, a command capture was never on its way to a
+    /// document, and a voice-edit instruction is the instruction - pasting it
+    /// would type those words instead of replacing the selection.
     var insertsText: Bool {
         switch self {
-        case .ask, .openLatestVideo: return false
+        case .ask, .openLatestVideo, .selectionEdit: return false
         case .dictation, .translated, .snippet: return true
         }
     }
@@ -58,6 +63,8 @@ enum SpokenIntentOutcome: Equatable, Sendable {
         case .snippet(let keyword): return .snippet(named: keyword)
         case .openLatestVideo(let command):
             return .openLatestVideo(from: command.spokenName)
+        case .selectionEdit:
+            return nil
         }
     }
 
@@ -72,6 +79,8 @@ enum SpokenIntentOutcome: Equatable, Sendable {
         case .dictation, .translated, .snippet: return .dictation
         case .ask: return .ask
         case .openLatestVideo(let command): return .pendingCommand(command)
+        case .selectionEdit(let instruction):
+            return .selectionEdit(instruction: instruction)
         }
     }
 }
@@ -108,6 +117,7 @@ extension SpokenIntentOutcome {
 /// SpokenIntentPipeline.apply()          off unless the caller asks and the
 ///          │                            user switched it on
 ///          ├── purpose == .youTubeCommand ─► the channel to open, no text
+///          ├── purpose == .selectionEdit ──► the spoken instruction, no paste
 ///          ├── .dictate ─────────► StyleRewriteService.apply()  the chosen style
 ///          ├── .translate ───────► TranslationRewrite.apply()   the spoken target
 ///          ├── .snippet ─────────► the stored template, byte for byte
@@ -133,6 +143,20 @@ enum SpokenIntentPipeline {
         // question, no snippet, no translation, and no text on its way out.
         if settings.purpose == .youTubeCommand {
             return await youTubeCommand(to: processed, settings: settings)
+        }
+        // The voice-edit hotkey's capture leaves here before anything else
+        // runs. The spoken words are the instruction, not the text to insert,
+        // so no style, no question, no snippet, no translation, and no paste
+        // of the instruction itself. The session that holds the selected text
+        // is what runs `SelectionEditRewrite` afterwards.
+        if settings.purpose == .selectionEdit {
+            return StyledTranscript(
+                raw: processed.raw,
+                transcript: processed.final,
+                final: processed.final,
+                status: .notRequested,
+                intent: .selectionEdit(instruction: processed.final)
+            )
         }
 
         guard settings.routesSpokenIntents else {

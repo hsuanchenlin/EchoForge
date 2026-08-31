@@ -7,11 +7,12 @@ import FoundationModels
 /// One rewrite to attempt.
 ///
 /// It carries the finished prompt as well as the pieces it was built from,
-/// because there are two stages that ask this model - restyling and the spoken
-/// `Translate to …` command - and their session rules are opposites: one says
-/// *never translate this*, the other says *translate all of it*. A backend that
-/// rebuilt the prompt from `language` would have to know which stage it was
-/// serving; given the finished text, it does not.
+/// because there are several stages that ask this model - restyling, the spoken
+/// `Translate to …` command, and voice edit - and their session rules differ:
+/// restyling says *never translate this*, translation says *translate all of
+/// it*, and voice edit follows a spoken instruction that may ask for either.
+/// A backend that rebuilt the prompt from `language` would have to know which
+/// stage it was serving; given the finished text, it does not.
 struct StyleRewriteRequest: Equatable, Sendable {
     /// The deterministic pipeline's output - what the user will get if this
     /// fails.
@@ -35,7 +36,7 @@ struct StyleRewriteRequest: Equatable, Sendable {
     /// - Parameters:
     ///   - sessionInstructions: the stage's own rules. Defaults to the
     ///     restyling ones, which is what every caller but `TranslationRewrite`
-    ///     wants.
+    ///     and `SelectionEditRewrite` wants.
     ///   - instructionLabel: defaults to the restyling heading in `language`.
     init(
         text: String,
@@ -174,6 +175,9 @@ enum OnDeviceModelFeature: Equatable, Sendable {
     /// homophones, mis-heard characters and typos, read off the sentence around
     /// them. See `TranscriptCorrection`.
     case correction
+    /// Applying a spoken instruction to selected or clipboard text. See
+    /// `SelectionEditRewrite`.
+    case selectionEdit
 
     var name: String {
         switch self {
@@ -182,6 +186,7 @@ enum OnDeviceModelFeature: Equatable, Sendable {
         case .translation: return "Translation"
         case .channelMatching: return "Channel name matching"
         case .correction: return "Fixing with AI"
+        case .selectionEdit: return "Voice edit"
         }
     }
 
@@ -192,6 +197,7 @@ enum OnDeviceModelFeature: Equatable, Sendable {
         case .translation: return "translation"
         case .channelMatching: return "channel name matching"
         case .correction: return "fixing with AI"
+        case .selectionEdit: return "voice edit"
         }
     }
 
@@ -207,7 +213,7 @@ enum OnDeviceModelFeature: Equatable, Sendable {
     var cloudFeature: CloudFeature? {
         switch self {
         case .translation: return .translation
-        case .rewriting, .ask, .channelMatching, .correction: return nil
+        case .rewriting, .ask, .channelMatching, .correction, .selectionEdit: return nil
         }
     }
 
@@ -222,6 +228,8 @@ enum OnDeviceModelFeature: Equatable, Sendable {
             return "Dictation and the channel names you stored are unaffected."
         case .correction:
             return "Dictation and your history are unaffected."
+        case .selectionEdit:
+            return "Dictation and the selected text are unaffected."
         }
     }
 }

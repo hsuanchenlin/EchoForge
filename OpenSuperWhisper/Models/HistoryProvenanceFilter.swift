@@ -17,6 +17,7 @@ enum HistoryProvenanceFilter: String, CaseIterable, Identifiable, Sendable {
     case ask
     case youTubeCommandOpened
     case youTubeCommandNotOpened
+    case selectionEdit
     case fileTranscription
     case unknown
 
@@ -31,6 +32,7 @@ enum HistoryProvenanceFilter: String, CaseIterable, Identifiable, Sendable {
         case .ask: return RecordingProvenanceKind.ask.label
         case .youTubeCommandOpened: return RecordingProvenanceKind.youTubeCommandOpened.label
         case .youTubeCommandNotOpened: return RecordingProvenanceKind.youTubeCommandNotOpened.label
+        case .selectionEdit: return RecordingProvenanceKind.selectionEdit.label
         case .fileTranscription: return RecordingProvenanceKind.fileTranscription.label
         case .unknown: return RecordingProvenanceKind.unknown.label
         }
@@ -47,6 +49,7 @@ enum HistoryProvenanceFilter: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .youTubeCommandOpened: return "Opened"
         case .youTubeCommandNotOpened: return "Not opened"
+        case .selectionEdit: return "Voice edit"
         case .fileTranscription: return "Files"
         case .unknown: return "Older"
         default: return title
@@ -66,6 +69,7 @@ enum HistoryProvenanceFilter: String, CaseIterable, Identifiable, Sendable {
         case .ask: return [.ask]
         case .youTubeCommandOpened: return [.youTubeCommandOpened]
         case .youTubeCommandNotOpened: return [.youTubeCommandNotOpened]
+        case .selectionEdit: return [.selectionEdit]
         case .fileTranscription: return [.fileTranscription]
         case .unknown: return [.unknown]
         }

@@ -16,11 +16,16 @@ enum StyleRewriteShape: String, Equatable, Sendable {
     case condensing
     /// Same content, different layout - bullets, headings, numbered steps.
     case restructuring
-    /// Same content, another language. The one shape whose whole purpose is to
-    /// change the script the text is written in, which is what every other
-    /// shape's guard exists to refuse. Reached only by the spoken
-    /// `Translate to …` command - see `TranslationRewrite`.
+    /// Same content, another language. The one dictation shape whose whole
+    /// purpose is to change the script the text is written in, which is what
+    /// every other dictation shape's guard exists to refuse. Reached only by
+    /// the spoken `Translate to …` command - see `TranslationRewrite`.
     case translating
+    /// Follow a spoken instruction on already-written text. Length, language,
+    /// omission and list markers are whatever the instruction asked for, so
+    /// those four rules are the ones this shape relaxes. Reached only by the
+    /// voice-edit hotkey - see `SelectionEditRewrite`.
+    case editing
 
     /// Accepted length of the rewrite as a fraction of the input's length.
     ///
@@ -45,30 +50,36 @@ enum StyleRewriteShape: String, Equatable, Sendable {
         case .condensing: return 0.15 ... 1.1
         case .restructuring: return 0.4 ... 2.5
         case .translating: return 0.1 ... 8.0
+        // A voice edit may turn a sentence into a Swift struct or a paragraph
+        // into three bullets. The bounds still catch the extremes - a model
+        // answering "OK." or returning an essay about the text.
+        case .editing: return 0.05 ... 12.0
         }
     }
 
     /// Whether the guard ignores list markers the rewrite added.
     ///
-    /// Only the restructuring shape may introduce `1.` / `-` at the start of a
+    /// Restructuring and voice-edit may introduce `1.` / `-` at the start of a
     /// line. Everywhere else a digit that was not in the input is an invented
     /// number, which is exactly what the guard exists to catch.
-    var mayAddListMarkers: Bool { self == .restructuring }
+    var mayAddListMarkers: Bool { self == .restructuring || self == .editing }
 
     /// Whether the rewrite may leave content out.
     ///
     /// A summary may omit a number it was given; nothing may ever invent one.
     /// The asymmetry is the whole rule - see `StyleRewriteGuard`.
-    var mayOmitContent: Bool { self == .condensing }
+    var mayOmitContent: Bool { self == .condensing || self == .editing }
 
     /// Whether the rewrite may be written in another language than the input.
     ///
-    /// True for exactly one shape, and stated here rather than tested for at
-    /// the call site because this enum is the single place a guard rule is
-    /// relaxed. Everything else the guard checks - numbers, currency symbols,
-    /// dictionary terms, length, the model addressing the user - still applies
-    /// to a translation, so this widens one rule and removes none.
-    var mayChangeLanguage: Bool { self == .translating }
+    /// True for the two shapes whose whole purpose is to say so, and stated
+    /// here rather than tested for at the call site because this enum is the
+    /// single place a guard rule is relaxed. A translation always changes
+    /// language; a voice edit does when the spoken instruction asks it to.
+    /// Everything else the guard checks - numbers, currency symbols,
+    /// dictionary terms, length, the model addressing the user - still applies,
+    /// so this widens one rule and removes none.
+    var mayChangeLanguage: Bool { self == .translating || self == .editing }
 }
 
 /// One style's instruction, in each language the model is asked in.

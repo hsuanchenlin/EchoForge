@@ -38,7 +38,7 @@ extension KeyboardShortcuts.Name {
 
     /// Moves dictation to the next engine that is ready, wrapping around.
     ///
-    /// ⌥M by default - free alongside ⌥`, ⌥A and ⌥S, and M for model, which is
+    /// ⌥M by default - free alongside ⌥`, ⌥A, ⌥S, ⌥Y and ⌥E, and M for model, which is
     /// what a user calls this. Its own shortcut for the same reason the two above
     /// have theirs: it is a decision made *while* working in another app, which is
     /// exactly when opening Settings to change engine costs more than the switch is
@@ -57,9 +57,22 @@ extension KeyboardShortcuts.Name {
     /// a video instead of typing what was said. With two keys the app never has
     /// to guess: what this key captures can only ever open an allowlisted
     /// channel, and what the dictation key captures can only ever be typed.
-    /// ⌥Y by default, free alongside ⌥`, ⌥A, ⌥S and ⌥M.
+    /// ⌥Y by default, free alongside ⌥`, ⌥A, ⌥S, ⌥M and ⌥E.
     /// See `DictationPurpose` and `docs/youtube-latest-video.md`.
     static let youTubeCommand = Self("youTubeCommand", default: .init(.y, modifiers: .option))
+
+    /// Records a **voice edit** and nothing else: highlight text in any app,
+    /// press it, speak an instruction, and the selection is replaced with the
+    /// rewritten text. If nothing is highlighted, the clipboard is edited
+    /// instead.
+    ///
+    /// Its own key rather than a mode of the dictation shortcut, for the same
+    /// reason ⌥Y is: a dictation is words on their way into somebody's
+    /// document; this is an instruction applied to words that are already
+    /// there. Sharing one key would make every dictation ambiguous. ⌥E by
+    /// default, free alongside ⌥`, ⌥A, ⌥S, ⌥M and ⌥Y.
+    /// See `DictationPurpose.selectionEdit` and `docs/selection-edit.md`.
+    static let editSelection = Self("editSelection", default: .init(.e, modifiers: .option))
 }
 
 class ShortcutManager {
@@ -130,6 +143,19 @@ class ShortcutManager {
         }
 
         KeyboardShortcuts.onKeyUp(for: .youTubeCommand) { [weak self] in
+            self?.handleKeyUp()
+        }
+
+        // Same press/hold machinery as dictation and the YouTube command, and
+        // carrying `.selectionEdit` all the way to `Settings`. Independent of
+        // the three exclusive trigger modes below, like ⌥A, ⌥S and ⌥Y: it is
+        // reached the same way whether dictation is on a key, a modifier or a
+        // mouse button.
+        KeyboardShortcuts.onKeyDown(for: .editSelection) { [weak self] in
+            self?.handleKeyDown(purpose: .selectionEdit)
+        }
+
+        KeyboardShortcuts.onKeyUp(for: .editSelection) { [weak self] in
             self?.handleKeyUp()
         }
 
@@ -261,10 +287,31 @@ class ShortcutManager {
 
         Task { @MainActor in
             if self.activeVm == nil {
+                // A voice edit has to know what it is rewriting before the
+                // overlay is drawn, so the HUD can say "Editing Selection..."
+                // rather than "Recording...". AX is capped at 0.25 s per call;
+                // the ⌘C fallback waits up to 200 ms. Capture first so a
+                // press with nothing to edit never takes the microphone.
+                let capture: SelectedTextCapture?
+                if purpose == .selectionEdit {
+                    capture = SelectedTextExtractor.capture()
+                } else {
+                    capture = nil
+                }
+
                 // Start recording immediately: resolving the caret position talks to
                 // the focused app via AX IPC and can hang for seconds if that app
                 // is busy - the first words must not be lost because of it.
-                let vm = IndicatorWindowManager.shared.prepare(purpose: purpose)
+                let vm = IndicatorWindowManager.shared.prepare(
+                    purpose: purpose, selectionEdit: capture)
+                if purpose == .selectionEdit, capture == nil {
+                    vm.showNothingToEdit()
+                    let cursorPosition = FocusUtils.getCurrentCursorPosition()
+                    let anchorPoint = await Self.resolveAnchorPoint(timeoutNanoseconds: 150_000_000)
+                    let indicatorPoint = anchorPoint ?? cursorPosition
+                    IndicatorWindowManager.shared.presentWindow(for: vm, nearPoint: indicatorPoint)
+                    return
+                }
                 vm.startRecording()
                 self.activeVm = vm
                 self.activePurpose = purpose

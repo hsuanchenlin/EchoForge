@@ -30,10 +30,12 @@ SpokenIntentPipeline.apply()               SPOKEN-COMMAND ROUTING
         │                                  "insert [trigger]" expands a voice snippet
         │                                  and skips the stage below entirely
         │                                  a YouTube command capture (⌥Y, its own
-        │                                  key) leaves here before any of that
+        │                                  key) leaves here before any of that,
+        │                                  and so does a voice-edit capture (⌥E)
         │                                  see docs/spoken-intents.md,
         │                                  docs/voice-snippets.md,
-        │                                  docs/youtube-latest-video.md
+        │                                  docs/youtube-latest-video.md,
+        │                                  docs/selection-edit.md
         ▼
 StyleRewriteService.apply()                REWRITING STAGE
         │                                  off by default, on-device model

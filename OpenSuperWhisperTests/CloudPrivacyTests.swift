@@ -122,6 +122,7 @@ final class CloudPrivacyTests: IsolatedPreferencesTestCase {
         // AI" is a button on one. It reads the whole transcript, so it is
         // on-device only for exactly the reason rewriting is.
         XCTAssertNil(OnDeviceModelFeature.correction.cloudFeature)
+        XCTAssertNil(OnDeviceModelFeature.selectionEdit.cloudFeature)
         XCTAssertEqual(OnDeviceModelFeature.translation.cloudFeature, .translation)
 
         // Even with everything configured for the cloud, neither can produce a
@@ -132,6 +133,7 @@ final class CloudPrivacyTests: IsolatedPreferencesTestCase {
 
         XCTAssertFalse(StyleRewriterFactory.makeRewriter(for: .rewriting) is CloudStyleRewriter)
         XCTAssertFalse(StyleRewriterFactory.makeRewriter(for: .ask) is CloudStyleRewriter)
+        XCTAssertFalse(StyleRewriterFactory.makeRewriter(for: .selectionEdit) is CloudStyleRewriter)
     }
 
     /// The availability sentence must not claim a translation runs on this Mac

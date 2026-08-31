@@ -180,8 +180,15 @@ class IndicatorViewModel: ObservableObject {
     /// happens to the words has to be decided by the press that captured them.
     /// A `.youTubeCommand` session never inserts anything into
     /// `dictationTarget`; the app is still captured because the session's other
-    /// machinery is shared, and it is simply not used.
+    /// machinery is shared, and it is simply not used. A `.selectionEdit`
+    /// session pastes into it, but the words it pastes are the rewrite of the
+    /// captured text, not the spoken instruction.
     let purpose: DictationPurpose
+
+    /// The text a voice-edit session will rewrite, captured before recording
+    /// started. Nil on every other purpose, and nil on a voice-edit press that
+    /// found nothing to edit (those never take the microphone).
+    private(set) var selectionEdit: SelectedTextCapture?
 
     /// What this dictation produced, once it is known. Read by whoever is showing
     /// the session when it ends; `nil` while it is still running, and left `nil`
@@ -206,10 +213,12 @@ class IndicatorViewModel: ObservableObject {
     
     init(
         purpose: DictationPurpose = .dictation,
-        dictationTarget: DictationTargetApp? = AppDetector.currentTarget()
+        dictationTarget: DictationTargetApp? = AppDetector.currentTarget(),
+        selectionEdit: SelectedTextCapture? = nil
     ) {
         self.purpose = purpose
         self.dictationTarget = dictationTarget
+        self.selectionEdit = selectionEdit
         self.recordingStore = RecordingStore.shared
         self.transcriptionService = TranscriptionService.shared
         self.transcriptionQueue = TranscriptionQueue.shared
@@ -257,6 +266,22 @@ class IndicatorViewModel: ObservableObject {
     
     func showBusyMessage(_ reason: BusyReason) {
         showAutoDismissingMessage(.busy(reason))
+    }
+
+    /// A voice-edit press that found no selection and no clipboard text.
+    ///
+    /// Its own entry rather than starting a recording that would have nothing
+    /// to rewrite: taking the microphone to say so would be the app holding
+    /// hardware for a refusal.
+    func showNothingToEdit() {
+        showAutoDismissingMessage(.commandFailed("Nothing to edit"))
+    }
+
+    /// The line the card shows while capturing, so a voice edit is not drawn
+    /// as an ordinary dictation.
+    var recordingHeadline: String {
+        if isConfirmingCancel { return "Press Esc to cancel" }
+        return selectionEdit?.hudStatusText ?? "Recording..."
     }
 
     private func showAutoDismissingMessage(_ message: RecordingState) {
@@ -344,6 +369,16 @@ class IndicatorViewModel: ObservableObject {
         recordingSession = nil
 
         if isTranscriptionBusy {
+            if purpose == .selectionEdit {
+                Task { [weak self] in
+                    guard let self,
+                          let tempURL = await self.recorder.stopRecording(session)
+                    else { return }
+                    try? FileManager.default.removeItem(at: tempURL)
+                }
+                showBusyMessage(.startRefused)
+                return
+            }
             // The engine is busy with another transcription: keep the user's audio
             // and put it into the queue instead of deleting it.
             Task { [weak self] in
@@ -392,6 +427,14 @@ class IndicatorViewModel: ObservableObject {
                         try? FileManager.default.removeItem(at: tempURL)
                         self.result = .noSpeech
                         print("No speech detected, dictation discarded")
+                    } else if self.purpose == .selectionEdit {
+                        // The spoken words are the instruction. The rewrite of
+                        // the captured text is what is stored and pasted, so
+                        // this branch must not fall through to `insertText` of
+                        // the instruction.
+                        await self.completeSelectionEdit(
+                            instruction: text, audioURL: tempURL, duration: duration)
+                        return
                     } else {
                         let timestamp = Date()
                         let fileName = "\(Int(timestamp.timeIntervalSince1970)).wav"
@@ -574,6 +617,100 @@ class IndicatorViewModel: ObservableObject {
         service: .live, chooser: YouTubeChannelPickerPresenter()
     )
 
+    /// Applies the spoken instruction to the captured text, stores both, and
+    /// pastes the rewrite in place of the selection.
+    ///
+    /// Owns the end of the session the way `runOpenLatestVideo` does: a
+    /// rewrite that lands hides through `didFinishDecoding`, and a rewrite
+    /// that is refused puts its own message up on its own timer.
+    private func completeSelectionEdit(
+        instruction: String, audioURL: URL, duration: TimeInterval
+    ) async {
+        guard let capture = selectionEdit else {
+            try? FileManager.default.removeItem(at: audioURL)
+            showAutoDismissingMessage(.commandFailed("Nothing to edit"))
+            return
+        }
+
+        let settings = Settings(purpose: .selectionEdit, dictationTarget: dictationTarget)
+        let styled = await SelectionEditRewrite.apply(
+            original: capture.text,
+            instruction: instruction,
+            settings: settings,
+            terms: PersonalTermsStore.shared.activeTerms
+        )
+
+        let timestamp = Date()
+        let fileName = "\(Int(timestamp.timeIntervalSince1970)).wav"
+        let recordingId = UUID()
+        let rewritten = styled.final
+        var newRecording = Recording(
+            id: recordingId,
+            timestamp: timestamp,
+            fileName: fileName,
+            transcription: rewritten,
+            duration: duration,
+            status: .completed,
+            progress: 1.0,
+            sourceFileURL: nil,
+            rawTranscription: capture.text == rewritten ? nil : capture.text
+        )
+        newRecording.provenance = .selectionEdit(instruction: instruction)
+
+        do {
+            try recorder.moveTemporaryRecording(from: audioURL, to: newRecording.url)
+            try await recordingStore.addRecordingSync(newRecording)
+        } catch {
+            try? FileManager.default.removeItem(at: newRecording.url)
+            print("Voice edit: could not save history: \(error)")
+            self.result = nil
+            showAutoDismissingMessage(.commandFailed("Could not save edit"))
+            return
+        }
+
+        if styled.status.didRewrite, rewritten != capture.text {
+            guard await ClipboardUtil.pasteText(
+                rewritten, replacing: capture)
+            else {
+                self.result = nil
+                showAutoDismissingMessage(.commandFailed("Target app unavailable"))
+                return
+            }
+            self.result = .inserted(styleNotice: nil)
+            print("Voice edit: \(instruction) -> \(rewritten)")
+            await MainActor.run {
+                self.delegate?.didFinishDecoding()
+            }
+            return
+        }
+
+        if styled.status.didRewrite {
+            // The model returned the captured text unchanged. Pasting it would
+            // replace a rich-text selection with a plain-string copy of itself.
+            self.result = .inserted(styleNotice: nil)
+            await MainActor.run {
+                self.delegate?.didFinishDecoding()
+            }
+            return
+        }
+
+        self.result = nil
+        showAutoDismissingMessage(.commandFailed(Self.shortEditFailure(styled.status)))
+    }
+
+    /// One line for the card when a voice edit kept the original.
+    static func shortEditFailure(_ status: StyleRewriteStatus) -> String {
+        switch status {
+        case .unavailable: return "Model unavailable"
+        case .timedOut: return "Edit timed out"
+        case .rejected: return "Kept the original"
+        case .transcriptTooLong: return "Text too long"
+        case .nothingToRewrite: return "Nothing to edit"
+        case .failed: return "Edit failed"
+        case .notRequested, .applied: return "Kept the original"
+        }
+    }
+
 
     /// One sentence for a failed dictation, on the surface that has room for one.
     ///
@@ -746,7 +883,7 @@ struct IndicatorWindow: View {
                             .foregroundColor(.orange)
                             .transition(.opacity)
                     } else {
-                        Text("Recording...")
+                        Text(viewModel.recordingHeadline)
                             .font(.system(size: 13, weight: .semibold))
                             .transition(.opacity)
                     }

@@ -18,6 +18,77 @@ class ClipboardUtil {
         pasteboard.setString(text, forType: .string)
     }
 
+    /// Replaces the current selection (or pastes at the caret) with `text`, then
+    /// restores the original clipboard.
+    ///
+    /// The voice-edit path's paste. Named separately from `insertText` so that
+    /// path is greppable, and so a later change to dictation insertion cannot
+    /// silently change what a voice edit does to the document.
+    @discardableResult
+    static func pasteText(_ text: String, replacing capture: SelectedTextCapture) async -> Bool {
+        guard let target = capture.target,
+              let application = NSRunningApplication(
+                processIdentifier: target.processIdentifier),
+              application.activate()
+        else { return false }
+
+        try? await Task.sleep(nanoseconds: 150_000_000)
+        guard FocusUtils.selectionEditTargetIsCurrent(target),
+              selectionStillMatches(capture)
+        else { return false }
+        insertText(text)
+        return true
+    }
+
+    static func selectionStillMatches(
+        _ capture: SelectedTextCapture,
+        accessibilityText: () -> String? = { FocusUtils.selectedText() },
+        copiedSelection: () -> String? = { copySelectedText() }
+    ) -> Bool {
+        let currentSelection = SelectedTextExtractor.usable(accessibilityText())
+            ?? SelectedTextExtractor.usable(copiedSelection())
+        switch capture.source {
+        case .selection:
+            return currentSelection == capture.text
+        case .clipboard:
+            return currentSelection == nil
+        }
+    }
+
+    /// The current string on the general pasteboard, if any.
+    static func currentString(from pasteboard: NSPasteboard = .general) -> String? {
+        pasteboard.string(forType: .string)
+    }
+
+    /// Copies the current selection via a simulated ⌘C and returns the copied
+    /// string, restoring the pasteboard afterwards.
+    ///
+    /// Returns `nil` when the pasteboard did not change, which is how "nothing
+    /// was selected" is detected. The original clipboard is restored either
+    /// way, so a probe copy cannot clobber what the user had.
+    ///
+    /// `copy` and `wait` are seams for tests: production posts the key event
+    /// and waits up to 200 ms for the focused app to service it. A unit test
+    /// must not post ⌘C into whatever happens to be frontmost.
+    static func copySelectedText(
+        pasteboard: NSPasteboard = .general,
+        copy: () -> Void = { simulateCopy() },
+        wait: TimeInterval = 0.2
+    ) -> String? {
+        let saved = saveCurrentPasteboardContents(from: pasteboard)
+        let changeCount = pasteboard.changeCount
+        copy()
+        let deadline = Date().addingTimeInterval(wait)
+        while Date() < deadline {
+            if pasteboard.changeCount != changeCount { break }
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        guard pasteboard.changeCount != changeCount else { return nil }
+        let copied = pasteboard.string(forType: .string)
+        restorePasteboardContents(saved, to: pasteboard)
+        return SelectedTextExtractor.usable(copied)
+    }
+
     /// Pastes text and keeps it in clipboard (does not restore original clipboard)
     static func insertTextAndKeepInClipboard(_ text: String) {
         let pasteboard = NSPasteboard.general
@@ -45,10 +116,8 @@ class ClipboardUtil {
         // process the paste, and only if the pasteboard still holds our text:
         // a different changeCount means the user (or another app) took over
         // the clipboard and restoring would clobber their data.
-        if let contents = savedContents {
-            DispatchQueue.main.asyncAfter(deadline: .now() + clipboardRestoreDelay) {
-                restoreIfUnchanged(contents, expectedChangeCount: changeCountAfterCopy, pasteboard: pasteboard)
-            }
+        DispatchQueue.main.asyncAfter(deadline: .now() + clipboardRestoreDelay) {
+            restoreIfUnchanged(savedContents, expectedChangeCount: changeCountAfterCopy, pasteboard: pasteboard)
         }
     }
 
@@ -64,33 +133,37 @@ class ClipboardUtil {
     private static func simulatePaste() {
         sendCmdV()
     }
+
+    static func simulateCopy() {
+        sendCmdC()
+    }
+
+    private static func sendCmdC() {
+        sendCommandKey(character: "c", qwertyKeyCode: 8)
+    }
     
     private static func sendCmdV() {
-        // QWERTY keycode for V
-        let qwertyKeyCodeV: CGKeyCode = 9
-        
-        // Determine the correct keycode for Cmd+V
-        let keyCodeV: CGKeyCode
-        
+        sendCommandKey(character: "v", qwertyKeyCode: 9)
+    }
+
+    private static func sendCommandKey(character: Character, qwertyKeyCode: CGKeyCode) {
+        let keyCode: CGKeyCode
         if isQwertyCommandLayout() {
-            // For layouts like "Dvorak - QWERTY ⌘" that use QWERTY for Command shortcuts
-            keyCodeV = qwertyKeyCodeV
-        } else if let foundKeycode = findKeycodeForCharacter("v") {
-            // For layouts where shortcuts follow the layout (Dvorak Left/Right Hand)
-            keyCodeV = foundKeycode
+            keyCode = qwertyKeyCode
+        } else if let foundKeycode = findKeycodeForCharacter(character) {
+            keyCode = foundKeycode
         } else {
-            // Fallback for non-Latin layouts (Russian, etc.) - use QWERTY keycode
-            keyCodeV = qwertyKeyCodeV
+            keyCode = qwertyKeyCode
         }
-        
+
         guard let source = CGEventSource(stateID: .combinedSessionState),
-              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCodeV, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCodeV, keyDown: false)
+              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: keyCode, keyDown: false)
         else { return }
-        
+
         keyDown.flags = .maskCommand
         keyUp.flags = .maskCommand
-        
+
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
     }
@@ -161,10 +234,8 @@ class ClipboardUtil {
         return nil
     }
     
-    static func saveCurrentPasteboardContents(from pasteboard: NSPasteboard = .general) -> PasteboardContents? {
+    static func saveCurrentPasteboardContents(from pasteboard: NSPasteboard = .general) -> PasteboardContents {
         let types = pasteboard.types ?? []
-        
-        guard !types.isEmpty else { return nil }
         
         var savedContents: [NSPasteboard.PasteboardType: Any] = [:]
         
@@ -178,7 +249,7 @@ class ClipboardUtil {
             }
         }
         
-        return (!savedContents.isEmpty) ? (savedContents, types) : nil
+        return (savedContents, types)
     }
     
     static func restorePasteboardContents(_ contents: PasteboardContents, to pasteboard: NSPasteboard = .general) {

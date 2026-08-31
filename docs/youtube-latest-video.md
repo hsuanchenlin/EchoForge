@@ -29,9 +29,10 @@ feature's safety story rather than an ergonomic preference:
 
 `DictationPurpose` is where that split is written down, and it is carried on
 `Settings` rather than read from preferences, so the decision belongs to the
-press that captured the words. Everything else in the app - a dropped file, a
-queued recording, a regenerate from history, the Ask panel's own follow-up - is
-`.dictation` and cannot become anything else.
+press that captured the words. The voice-edit key has a purpose of its own for
+the same reason (`docs/selection-edit.md`); everything else in the app - a
+dropped file, a queued recording, a regenerate from history, the Ask panel's
+own follow-up - is `.dictation` and cannot become anything else.
 
 Because the key already says what the utterance is for, **the marker is
 optional**: saying the channel name on its own is the whole command. A marker is

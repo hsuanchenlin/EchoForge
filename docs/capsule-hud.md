@@ -112,7 +112,11 @@ command key started (`docs/youtube-latest-video.md`) is chipped `YouTube` from
 `beginSession` on - the key already said what the words are for, so the chip
 never promises a rewrite - and the channel the user named joins it during the
 decode (`YouTube: Veritasium`, or plain `YouTube` past the same
-trigger-length cap). Style labels are
+trigger-length cap). A voice edit (`docs/selection-edit.md`) is chipped the
+same way and for the same reason, `Selection` or `Clipboard` from
+`beginSession` on: its key already said the spoken words are an instruction
+about text that is already written, so nothing during the decode renames it.
+Style labels are
 `StyleRewriteStyle.shortName` and language names come from `LanguageUtil`,
 because those files own every user-facing word about a style and a language,
 and a surface that shortens `name` itself is a second copy that drifts.

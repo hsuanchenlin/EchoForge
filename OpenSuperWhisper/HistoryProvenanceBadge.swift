@@ -60,7 +60,7 @@ struct HistoryProvenanceBadge: View {
         switch provenance.kind {
         case .youTubeCommandOpened: return .green
         case .youTubeCommandNotOpened: return .orange
-        case .ask: return ThemePalette.iconAccent(colorScheme)
+        case .ask, .selectionEdit: return ThemePalette.iconAccent(colorScheme)
         case .dictation, .fileTranscription, .unknown: return .secondary
         }
     }
@@ -68,7 +68,7 @@ struct HistoryProvenanceBadge: View {
 
 /// The control above the history list.
 ///
-/// A menu rather than a segmented row because there are seven choices and the
+/// A menu rather than a segmented row because there are eight choices and the
 /// window is 450 pt wide; the current choice is in the label, so the filter is
 /// legible without opening it - a list that is silently filtered is a list that
 /// looks empty for no reason.

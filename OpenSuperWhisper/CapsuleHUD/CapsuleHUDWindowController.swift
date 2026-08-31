@@ -101,6 +101,9 @@ final class CapsuleHUDWindowController {
         switch indicatorViewModel.purpose {
         case .youTubeCommand:
             mode = CapsuleHUDMode.openLatestVideo(from: "")
+        case .selectionEdit:
+            mode = CapsuleHUDMode.selectionEdit(
+                indicatorViewModel.selectionEdit?.source ?? .selection)
         case .dictation:
             let settings = Settings(dictationTarget: indicatorViewModel.dictationTarget)
             mode = CapsuleHUDMode.forStyleRewrite(settings.styleRewrite)

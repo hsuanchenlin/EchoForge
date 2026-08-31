@@ -38,7 +38,7 @@ Three things happen on ⌥S, and the order is the feature:
    recording and asks the question, the same way the recording hotkey toggles.
 
 None of that happens while something else already holds the microphone. One
-`AudioRecorder` serves the dictation keys, the YouTube command key, ⌥A and ⌥S,
+`AudioRecorder` serves the dictation keys, the YouTube command key, ⌥A, ⌥S and ⌥E,
 and a press that would seize a recording in flight is refused instead: no
 screenshot is taken and no panel is opened. `docs/ask-panel.md` owns that rule,
 including why a refusal says so only on a card that is already up.

@@ -48,6 +48,10 @@ enum RecordingProvenance: Equatable, Sendable {
     /// The YouTube command hotkey, and nothing was opened. `reason` classifies
     /// it for the UI and for tests; `message` is the actionable sentence.
     case youTubeCommandNotOpened(reason: YouTubeCommandRefusal, message: String)
+    /// The voice-edit hotkey. `instruction` is what was spoken; the original
+    /// and rewritten texts live on the row as `rawTranscription` and
+    /// `transcription`, which is what Compare and "Show original" already read.
+    case selectionEdit(instruction: String)
 
     /// The stored discriminator. One string per case, and these strings are
     /// **persisted**: renaming one relabels every row a user already has.
@@ -59,6 +63,7 @@ enum RecordingProvenance: Equatable, Sendable {
         case .ask: return .ask
         case .youTubeCommandOpened: return .youTubeCommandOpened
         case .youTubeCommandNotOpened: return .youTubeCommandNotOpened
+        case .selectionEdit: return .selectionEdit
         }
     }
 
@@ -78,6 +83,8 @@ enum RecordingProvenance: Equatable, Sendable {
             return summary.isEmpty ? nil : summary
         case .youTubeCommandNotOpened(_, let message):
             return message.isEmpty ? nil : message
+        case .selectionEdit(let instruction):
+            return instruction.isEmpty ? nil : instruction
         }
     }
 
@@ -117,6 +124,8 @@ enum RecordingProvenance: Equatable, Sendable {
         case .ask: return .ask
         case .youTubeCommandOpened:
             return .youTubeCommandOpened(summary: detail ?? "")
+        case .selectionEdit:
+            return .selectionEdit(instruction: detail ?? "")
         case .youTubeCommandNotOpened:
             // A refusal with no reason is a row this build cannot describe, and
             // "not opened, and I cannot say why" is worse than saying the row
@@ -141,6 +150,7 @@ enum RecordingProvenanceKind: String, CaseIterable, Sendable {
     case ask
     case youTubeCommandOpened
     case youTubeCommandNotOpened
+    case selectionEdit
 }
 
 extension RecordingProvenanceKind {
@@ -158,6 +168,7 @@ extension RecordingProvenanceKind {
         case .ask: return "Ask"
         case .youTubeCommandOpened: return "YouTube command - opened"
         case .youTubeCommandNotOpened: return "YouTube command - not opened"
+        case .selectionEdit: return "Voice edit"
         }
     }
 
@@ -172,6 +183,7 @@ extension RecordingProvenanceKind {
         case .ask: return "questionmark.bubble"
         case .youTubeCommandOpened: return "play.rectangle.fill"
         case .youTubeCommandNotOpened: return "exclamationmark.triangle.fill"
+        case .selectionEdit: return "pencil.and.outline"
         }
     }
 
@@ -184,6 +196,7 @@ extension RecordingProvenanceKind {
         switch self {
         case .youTubeCommandOpened: return "YouTube command, opened"
         case .youTubeCommandNotOpened: return "YouTube command, nothing was opened"
+        case .selectionEdit: return "Voice edit"
         default: return label
         }
     }
@@ -362,6 +375,10 @@ extension RecordingProvenance {
                 reason: .engineBusy,
                 message: "The transcription engine was busy, so this was queued as a plain transcription and the command never ran. Nothing was opened. Try the shortcut again once the queue is clear."
             )
+        case .selectionEdit:
+            return .selectionEdit(
+                instruction: "The transcription engine was busy, so this was queued as a plain transcription and the edit never ran. Try the shortcut again once the queue is clear."
+            )
         }
     }
 
@@ -380,6 +397,10 @@ extension RecordingProvenance {
             return .youTubeCommandNotOpened(
                 reason: .notTranscribed,
                 message: "This command could not be transcribed, so there was never a channel name to look up and nothing was opened. \(reason)"
+            )
+        case .selectionEdit:
+            return .selectionEdit(
+                instruction: "This edit could not be transcribed, so the instruction was never applied and the selection was left as it was. \(reason)"
             )
         }
     }

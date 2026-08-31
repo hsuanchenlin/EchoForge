@@ -6,7 +6,7 @@ dictating "Ask: …" with spoken commands switched on
 (`docs/screen-context.md`).
 
 **⌥A records.** The press opens the panel *and* starts the microphone, the way
-the dictation key, the YouTube command key and ⌥S all do; a second press ends
+the dictation key, the YouTube command key, ⌥E and ⌥S all do; a second press ends
 the question. It is deliberately no longer a show/hide toggle - a key that
 closed an open panel could not also be a key that always starts listening - so
 the panel is closed with Esc or the **Close** button, and by nothing else.
@@ -173,8 +173,8 @@ recording at a moment nobody is speaking to it.
 **The microphone is owned, not shared, and `RecordingSessionClaim` is that
 ownership.** `AudioRecorder.startRecording` claims it and hands back a
 `RecordingSession`, or nil when something already holds it - so neither side can
-take a capture from the other: ⌥A cannot seize a dictation, and ⌥` or ⌥Y cannot
-seize the panel's question. That second half was the one missing while each
+take a capture from the other: ⌥A cannot seize a dictation, and ⌥`, ⌥Y or ⌥E
+cannot seize the panel's question. That second half was the one missing while each
 caller guarded itself: the Ask panel checked, the dictation keys never did, and a
 ⌥` press deleted the question the panel was recording while the card went on
 saying "Listening…". A rule enforced by every caller separately is a rule one of

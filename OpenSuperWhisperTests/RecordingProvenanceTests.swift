@@ -25,6 +25,7 @@ final class RecordingProvenanceTests: XCTestCase {
             .youTubeCommandOpened(summary: "Opened “A video” from Veritasium in Chrome."),
             .youTubeCommandNotOpened(
                 reason: .channelUnknown, message: "No allowlisted YouTube channel answers to that."),
+            .selectionEdit(instruction: "make it concise bullet points"),
         ]
 
         for provenance in cases {
@@ -74,7 +75,7 @@ final class RecordingProvenanceTests: XCTestCase {
         XCTAssertEqual(
             Set(RecordingProvenanceKind.allCases.map(\.rawValue)),
             ["unknown", "dictation", "fileTranscription", "ask",
-             "youTubeCommandOpened", "youTubeCommandNotOpened"]
+             "youTubeCommandOpened", "youTubeCommandNotOpened", "selectionEdit"]
         )
     }
 
@@ -104,6 +105,22 @@ final class RecordingProvenanceTests: XCTestCase {
             SpokenIntentOutcome.translated(
                 SpokenTranslationTarget(languageCode: "es")).provenance,
             .dictation)
+    }
+
+    func testAVoiceEditStoresTheSpokenInstructionAsTheDetail() {
+        let provenance = RecordingProvenance.selectionEdit(
+            instruction: "make it concise bullet points")
+        XCTAssertEqual(provenance.kind, .selectionEdit)
+        XCTAssertEqual(provenance.kind.label, "Voice edit")
+        XCTAssertEqual(provenance.detail, "make it concise bullet points")
+        XCTAssertFalse(provenance.isYouTubeCommand)
+
+        let columns = provenance.columns
+        XCTAssertEqual(
+            RecordingProvenance.stored(
+                kind: columns.kind, reason: columns.reason, detail: columns.detail),
+            provenance
+        )
     }
 
     func testAQuestionIsFiledAsAskAndIsNotADictation() {
@@ -297,6 +314,7 @@ final class RecordingProvenanceTests: XCTestCase {
         for provenance: RecordingProvenance in [
             .unknown, .dictation, .fileTranscription, .ask,
             .youTubeCommandOpened(summary: "Opened “A video” from Veritasium in Chrome."),
+            .selectionEdit(instruction: "make it concise"),
         ] {
             XCTAssertEqual(provenance.reTranscribed(), provenance)
         }
@@ -311,5 +329,17 @@ final class RecordingProvenanceTests: XCTestCase {
 
         XCTAssertEqual(
             RecordingProvenance.notTranscribed(for: .dictation, reason: "whatever"), .dictation)
+
+        let edit = RecordingProvenance.notTranscribed(
+            for: .selectionEdit, reason: "No transcription engine is ready.")
+        XCTAssertEqual(edit.kind, .selectionEdit)
+        XCTAssertEqual(
+            try XCTUnwrap(edit.detail).contains("No transcription engine is ready."), true)
+    }
+
+    func testAQueuedVoiceEditSaysTheEditNeverRan() {
+        let provenance = RecordingProvenance.queued(for: .selectionEdit)
+        XCTAssertEqual(provenance.kind, .selectionEdit)
+        XCTAssertEqual(try XCTUnwrap(provenance.detail).contains("never ran"), true)
     }
 }
