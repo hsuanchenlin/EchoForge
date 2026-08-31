@@ -1440,10 +1440,29 @@ enum ThemePalette {
     /// The lift is deliberately small. A card is a container for text the user
     /// is reading, and a hover state strong enough to notice out of the corner
     /// of the eye is a hover state that makes the words harder to read.
+    /// The dark lift is blended against the token resolved **as dark**, not
+    /// against whatever appearance happens to be current. `blended` is not a
+    /// dynamic operation: it resolves its receiver there and then, so a blend
+    /// written against the bare token reads `controlBackgroundColor` under the
+    /// ambient appearance - white in a light-appearance process - and 7% of the
+    /// way from white to white is white. That turned the dark hover fill into
+    /// the flash this lift exists to avoid. `ThemePaletteTests` pins it.
     static func cardSurface(_ scheme: ColorScheme, hovered: Bool) -> Color {
         guard hovered, scheme == .dark else { return cardBackground(scheme) }
-        return Color(nsColor: NSColor.controlBackgroundColor
+        return Color(nsColor: resolved(NSColor.controlBackgroundColor, in: .darkAqua)
             .blended(withFraction: 0.07, of: .white) ?? .controlBackgroundColor)
+    }
+
+    /// A dynamic system colour pinned to one appearance, for the cases that
+    /// have to compute with its components rather than hand it to SwiftUI to
+    /// resolve at draw time.
+    private static func resolved(_ color: NSColor, in appearance: NSAppearance.Name) -> NSColor {
+        guard let appearance = NSAppearance(named: appearance) else { return color }
+        var resolved = color
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = color.usingColorSpace(.sRGB) ?? color
+        }
+        return resolved
     }
 
     /// A history card's border. Hover firms it up; a failed row keeps a warm
