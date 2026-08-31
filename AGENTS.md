@@ -109,16 +109,19 @@ notes written for a version nobody bumped to, or a bump that did not move past t
 release, fail at test time rather than at publish time.
 
 Publishing is the last step and it happens **on `master`**, not on the release branch. Every
-`vX.Y.Z` tag points at the squashed release commit the release PR produced, so the GitHub
-release - tag `vX.Y.Z`, name `EchoForge X.Y.Z`, body the notes file verbatim, assets
-`EchoForge.dmg` and `EchoForge.dmg.sha256` and nothing else - is created only after that PR
-is merged. 0.9.1 was published off that convention, as tag `0.9.1` with the name
-`Kongweh 0.9.1` and a hand-written body rather than the notes file; the updater survived it
-only because `AppVersion` tolerates a tag with no `v`. Which spelling holds from here is a
-decision nobody has made, so read the last release before assuming. The two assets are the
-pair from one `Scripts/build_release.sh` run and are never rebuilt between hashing and
-upload, for the reason `docs/release_build.md` measures. Older releases and tags are never
-edited, replaced or force-updated.
+tag points at the squashed release commit the release PR produced, so the GitHub release -
+name `EchoForge X.Y.Z`, body the notes file verbatim, assets `EchoForge.dmg` and
+`EchoForge.dmg.sha256` and nothing else - is created only after that PR is merged. The tag
+carried a `v` through `v0.8.5` and has been **bare `X.Y.Z`** since: 0.9.1 dropped it off
+convention, and 0.9.2, 0.9.3 and 0.9.4 kept it dropped, so bare is now the convention rather
+than the accident it started as. The updater reads either, because `AppVersion` tolerates a
+tag with no `v`. 0.9.1's other two departures did not stick - it was named `Kongweh 0.9.1`
+with a hand-written body, and 0.9.2 onward are `EchoForge X.Y.Z` with the notes file verbatim.
+The two assets are the pair from one `Scripts/build_release.sh` run and are never rebuilt
+between hashing and upload, for the reason `docs/release_build.md` measures; that run leaves
+them in the **repository root**, not in `build/`, which is the derived-data directory it
+deletes on every invocation. Older releases and tags are never edited, replaced or
+force-updated.
 
 ## Updates
 
