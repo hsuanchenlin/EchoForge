@@ -489,6 +489,18 @@ symbols, dictionary terms, length). `StyleRewriteShape` is the only place a rule
 and a style may omit but nothing may invent. Do not weaken either half - the tests assert
 the refusals.
 
+The stage is **on by default**, with `StyleRewriteCatalog.defaultStyleID` ("polish", the style
+that changes the user's words least), and the two rules above are what make that safe rather
+than a gamble - so neither may be relaxed to suit it. Being on by default makes `.unavailable`
+the ordinary case rather than a corner, since every dictation on a Mac without the on-device
+model takes it: it still pastes the deterministic transcript, `prewarmIfAvailable` is gated on
+`canRun` so nothing downloads a model, and `StyledTranscript.dictationStyleNotice` is the one
+place that drops that status from the overlay badge - a fact about the Mac, repeated on every
+press, that Settings → Style already says where it can be acted on. Every other kept-the-original
+status still badges, and so does `.unavailable` on a spoken `Translate to …`.
+`ReadyToSendDefaultsTests` pins both this default and the capsule's, including the half that
+makes them safe: a default fills in for an unset key and never overwrites a stored answer.
+
 Style identifiers in `StyleRewriteCatalog` are persisted in preferences; renaming one resets
 the user's choice. Instructions there are written for how the model actually behaves, not
 how it should - the comments record what was measured.
@@ -708,8 +720,8 @@ EchoForge rename did exactly that once, on purpose (it is what lets an upstream 
 ## Dictation overlays
 
 A dictation is shown either as the caret-anchored card (`OpenSuperWhisper/Indicator/`) or as the
-floating capsule at the top of the screen (`OpenSuperWhisper/CapsuleHUD/`, off by default) - one or
-the other, never both, because they are two presentations of the same session.
+floating capsule at the top of the screen (`OpenSuperWhisper/CapsuleHUD/`, **on by default**) - one
+or the other, never both, because they are two presentations of the same session.
 `IndicatorWindowManager` is the single place that decides, and it reads `capsuleHUDEnabled` **once**
 per session into `sessionUsesCapsule`; a preference flipped mid-recording would otherwise leave a
 session with two overlays or none. Nothing in `CapsuleHUD/` starts, stops or alters a dictation.

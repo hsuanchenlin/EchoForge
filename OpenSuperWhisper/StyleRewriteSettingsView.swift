@@ -179,7 +179,7 @@ struct StyleRewriteSettingsView: View {
         VStack(alignment: .leading, spacing: 6) {
             Toggle("Rewrite dictation with a style", isOn: $model.isEnabled)
                 .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
-            Text("Off by default. Rewriting is the only step that can change what your words mean, so when it is unavailable, too slow, or its result fails the safety checks, your transcript is used exactly as transcribed.")
+            Text("On by default, using Grammar & Polishing. Rewriting is the only step that can change what your words mean, so when it is unavailable, too slow, or its result fails the safety checks, your transcript is used exactly as transcribed.")
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

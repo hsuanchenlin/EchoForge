@@ -161,20 +161,28 @@ final class AppPreferences {
     /// same session, and two of them on screen at once is duplicated feedback
     /// rather than more of it. See `CapsuleHUDWindowController`.
     ///
-    /// Off by default. Every existing install already has feedback where its
-    /// owner learned to look for it, and moving it to the top of the screen is
-    /// their choice to make rather than a default to change under them.
-    @UserDefault(key: "capsuleHUDEnabled", defaultValue: false)
+    /// **On by default.** The capsule is the overlay that can be seen: it sits
+    /// at a fixed place at the top of the screen and says how loud the user is,
+    /// how long they have been talking and what is happening to the words, where
+    /// the card is a small badge beside a caret the user is not looking at while
+    /// they speak. It replaces the card rather than joining it, so switching it
+    /// on adds nothing to the screen - it moves what was already there.
+    ///
+    /// A stored value still wins: this is the default for an install that has
+    /// never expressed a preference, and anyone who turned it off keeps the
+    /// card. `Settings → Shortcuts → Recording Behavior → Floating capsule HUD`
+    /// is where it is turned back off.
+    @UserDefault(key: "capsuleHUDEnabled", defaultValue: true)
     var capsuleHUDEnabled: Bool
 
     /// Whether a dictation is read for a spoken command - "Ask: …",
     /// "Translate to Spanish: …" - before the words are inserted.
     ///
-    /// Off by default, for the same reason `capsuleHUDEnabled` and
-    /// `appAwareStyleEnabled` are: it changes what happens to the user's words,
-    /// and an install where dictation already goes where its owner expects must
-    /// keep doing that. The Ask panel's own shortcut works either way - it is
-    /// this routing, not the panel, that the toggle is about.
+    /// Off by default, for the same reason `appAwareStyleEnabled` is: it puts a
+    /// second reading on every dictation, so a sentence that merely begins
+    /// "ask…" stops being pasted and becomes a question. The Ask panel's own
+    /// shortcut works either way - it is this routing, not the panel, that the
+    /// toggle is about.
     /// See `SpokenIntentRouter` and `docs/spoken-intents.md`.
     @UserDefault(key: "spokenIntentsEnabled", defaultValue: false)
     var spokenIntentsEnabled: Bool
@@ -329,12 +337,25 @@ final class AppPreferences {
     /// Whether the transcript is rewritten into a style after the deterministic
     /// stages have run.
     ///
-    /// Off by default, and it stays off on its own merits: it is the one stage
-    /// that can change the meaning of what the user said, it needs an on-device
-    /// model most Macs running this app do not have, and everything above it
-    /// works without it. Turning it off must never turn off
-    /// `safeCorrectionEnabled` - they are peers, not parent and child.
-    @UserDefault(key: "styleRewriteEnabled", defaultValue: false)
+    /// **On by default**, with `StyleRewriteCatalog.defaultStyleID` - the
+    /// grammar-and-polishing style, the one that changes the user's words least.
+    /// Dictation that arrives already punctuated and free of "um" is what the
+    /// feature is for, and a polish nobody switched on is a polish nobody gets.
+    ///
+    /// Three existing properties are what make that default safe rather than a
+    /// gamble, and none of them may be weakened for it. `StyleRewriteGuard`
+    /// still checks every rewrite against the transcript, so a style may omit
+    /// and nothing may invent. A Mac that cannot run the on-device model still
+    /// gets the deterministic transcript - `StyleRewriteService.apply` returns
+    /// `.unrewritten` on `.unavailable` - and nothing here downloads a model:
+    /// `StyleRewriterFactory.prewarmIfAvailable` is gated on `canRun`. And it
+    /// stays on-device, because `OnDeviceModelFeature.rewriting.cloudFeature`
+    /// is `nil`, leaving no reachable provider path.
+    ///
+    /// A stored value still wins, so an install that turned rewriting off keeps
+    /// it off. Turning it off must never turn off `safeCorrectionEnabled` -
+    /// they are peers, not parent and child.
+    @UserDefault(key: "styleRewriteEnabled", defaultValue: true)
     var styleRewriteEnabled: Bool
 
     /// The chosen style's identifier, from `StyleRewriteCatalog`.
@@ -355,10 +376,10 @@ final class AppPreferences {
 
     /// Whether the app being dictated into may choose the rewriting style.
     ///
-    /// Off by default, and for the same reason `capsuleHUDEnabled` is: an
-    /// install that already has a style chosen must keep using it. Switching
-    /// this on is the user saying that Slack and Mail should not get the same
-    /// words, and it changes nothing at all while `styleRewriteEnabled` is off.
+    /// Off by default: the style the user chose is the style they get, in every
+    /// app, until they say otherwise. Switching this on is the user saying that
+    /// Slack and Mail should not get the same words, and it changes nothing at
+    /// all while `styleRewriteEnabled` is off.
     /// See `AppStyleMappingStore`.
     @UserDefault(key: "appAwareStyleEnabled", defaultValue: false)
     var appAwareStyleEnabled: Bool

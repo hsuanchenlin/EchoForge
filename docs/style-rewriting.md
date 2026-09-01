@@ -3,9 +3,20 @@
 Rewriting a transcript into a style the user chose - formal, concise, bullets,
 or an instruction they wrote themselves - using the on-device language model.
 
-It is off by default and it can change what the user's words mean - a power it
-shares only with its sibling `TranslationRewrite` (`docs/spoken-intents.md`).
-Everything below follows from that one fact.
+It can change what the user's words mean - a power it shares only with its
+sibling `TranslationRewrite` (`docs/spoken-intents.md`). Everything below follows
+from that one fact.
+
+It is **on by default**, with `StyleRewriteCatalog.defaultStyleID` - "Grammar &
+Polishing", the style that changes the user's words least. Dictation that arrives
+already punctuated and free of "um" is what the feature is for, and a polish
+nobody switched on is a polish nobody gets. What makes that default safe rather
+than a gamble is the rest of this document and not the default itself: the guard
+below refuses anything invented, a Mac that cannot run the model gets the
+deterministic transcript, and the original is always kept. None of those may be
+weakened to suit the default. `Settings → Style` is where it is turned off, and a
+stored answer wins - the default only fills in for an install that has never
+expressed one.
 
 ## Where it sits
 
@@ -42,6 +53,19 @@ dictionary working exactly as it did.
 which path was taken. The failure modes are ordinary, not exceptional: the model
 is unavailable on most Macs, it misses its deadline on long input, and it
 returns something the guard refuses often enough to matter.
+
+Being on by default is what makes `.unavailable` the common case rather than a
+corner: on a Mac without the on-device model *every* dictation now takes it. It
+still pastes the deterministic transcript, exactly as before, and nothing
+downloads a model - `StyleRewriterFactory.prewarmIfAvailable` is gated on
+`canRun`. What did change is that it no longer badges the dictation overlay:
+`StyledTranscript.dictationStyleNotice` drops that one status, because it is a
+fact about the Mac rather than about this dictation and repeating it on every
+press is noise nobody can act on from an overlay. The Style pane still says it,
+beside the switch. Every other kept-the-original status keeps its badge - refused
+by the guard, timed out, the model failed, the transcript too long - and so does
+`.unavailable` on a spoken `Translate to …`, which is something the user asked
+for on this dictation and did not get.
 
 ## Why there is a guard
 

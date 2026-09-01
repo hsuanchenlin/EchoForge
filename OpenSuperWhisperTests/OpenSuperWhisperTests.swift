@@ -1522,7 +1522,13 @@ final class FocusUtilsCaretPositionTests: XCTestCase {
     }
 }
 
-final class IndicatorWindowGeometryTests: XCTestCase {
+/// The card's own panel geometry.
+///
+/// An `IsolatedPreferencesTestCase` because the capsule is the default overlay
+/// now (`AppPreferences.capsuleHUDEnabled`), so the one test here that actually
+/// presents a window has to ask for the card - and asking means writing a
+/// preference, which every test that does it must do in a throwaway suite.
+final class IndicatorWindowGeometryTests: IsolatedPreferencesTestCase {
 
     // Bug: the panel was 200x60 for a 200x36 card - during the appear
     // animation the card moves 20 pt down, and everything outside the window
@@ -1569,6 +1575,11 @@ final class IndicatorWindowGeometryTests: XCTestCase {
     // contentView was set and the window bounds clipped the whole animation.
     @MainActor
     func testWindowKeepsPanelSizeAfterPresent() async throws {
+        // This is the card's panel, so this session has to be a card session:
+        // `prepare()` reads the preference once and a capsule session never
+        // builds `manager.window` at all.
+        AppPreferences.shared.capsuleHUDEnabled = false
+
         let manager = IndicatorWindowManager.shared
         let vm = manager.prepare()
         manager.presentWindow(for: vm, nearPoint: NSPoint(x: 700, y: 500))

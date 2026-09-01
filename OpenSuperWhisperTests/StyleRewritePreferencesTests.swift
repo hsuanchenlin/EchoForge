@@ -9,14 +9,44 @@ import XCTest
 /// for their dictionary to stop working.
 final class StyleRewritePreferencesTests: IsolatedPreferencesTestCase {
 
-    func testRewritingIsOffOnAFreshInstall() {
-        XCTAssertFalse(AppPreferences.shared.styleRewriteEnabled)
+    /// A fresh install polishes. The stored value is still absent, which is the
+    /// other half of the claim: this is a default rather than a write, so an
+    /// install that turned rewriting off is not being turned back on.
+    func testRewritingIsOnOnAFreshInstall() {
+        XCTAssertTrue(AppPreferences.shared.styleRewriteEnabled)
         XCTAssertNil(storedPreference("styleRewriteEnabled"))
     }
 
+    /// The default is the style that changes the user's words least. Anything
+    /// louder is a choice for the user to make, not one to arrive switched on.
     func testAFreshInstallSelectsTheDefaultStyleAndNoCustomPrompt() {
         XCTAssertEqual(AppPreferences.shared.styleRewriteStyleID, StyleRewriteCatalog.defaultStyleID)
+        XCTAssertEqual(StyleRewriteCatalog.defaultStyleID, "polish")
         XCTAssertEqual(AppPreferences.shared.styleRewriteCustomPrompt, "")
+        XCTAssertTrue(Settings().styleRewrite.isRunnable)
+    }
+
+    /// Off is a real answer and survives a relaunch: the default only fills in
+    /// for a key nobody has written.
+    func testAStoredOffSurvivesTheOnByDefault() {
+        AppPreferences.shared.styleRewriteEnabled = false
+
+        XCTAssertEqual(storedPreference("styleRewriteEnabled") as? Bool, false)
+        XCTAssertFalse(AppPreferences.shared.styleRewriteEnabled)
+        XCTAssertFalse(Settings().styleRewrite.isEnabled)
+    }
+
+    /// On by default must not also mean on by default over the network. There
+    /// is no cloud path out of rewriting to reach - `CloudPrivacyTests` pins
+    /// that for every feature - and the default that is now on is the one that
+    /// makes it worth restating here: a fresh install polishes, and it does so
+    /// entirely on the Mac.
+    func testRewritingOnByDefaultStaysOnDevice() {
+        XCTAssertTrue(AppPreferences.shared.styleRewriteEnabled)
+        XCTAssertNil(OnDeviceModelFeature.rewriting.cloudFeature)
+        XCTAssertEqual(
+            StyleRewriterFactory.availability(for: .rewriting), StyleRewriterFactory.availability()
+        )
     }
 
     func testSettingsCarriesTheStoredConfigurationIntoThePipeline() {

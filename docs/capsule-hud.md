@@ -4,9 +4,17 @@ One pill at the top of the screen that says what the app is doing with the user'
 voice: how loud they are, how long they have been talking, what will happen to the
 words, and - once the audio stops - how the transcription is getting on.
 
-It is off by default (`Settings → Shortcuts → Recording Behavior → Floating
-capsule HUD`) and it is an **alternative** to the indicator card, never an
-addition to it.
+It is **on by default** and it is an **alternative** to the indicator card, never
+an addition to it. `Settings → Shortcuts → Recording Behavior → Floating capsule
+HUD` is where it is turned off, and a stored answer wins: the default only fills
+in for an install that has never expressed one.
+
+The default is on because this is the overlay that can be seen. It sits at a
+fixed place at the top of the screen, where the card is a small badge beside a
+caret nobody is looking at while they are talking - so a dictation that stalled,
+one that heard nothing, and one being polished all looked the same to a user who
+had never gone looking for the setting. Turning it on adds nothing to the screen;
+it moves what was already there.
 
 ## One overlay, not two
 
@@ -121,9 +129,15 @@ Style labels are
 because those files own every user-facing word about a style and a language,
 and a surface that shortens `name` itself is a second copy that drifts.
 
-It is resolved from `StyleRewriteConfiguration.isRunnable`, the same way the
-pipeline resolves it, so a chip never promises a rewrite that is not going to
-happen - including the enabled-but-empty custom prompt.
+It is resolved from `StyleRewriteConfiguration.isRunnable` **and**
+`StyleRewriteAvailability.canRun`, the same two answers the pipeline resolves it
+from, so a chip never promises a rewrite that is not going to happen - the
+enabled-but-empty custom prompt, and the Mac with no on-device model. That second
+half is why availability is a parameter of `CapsuleHUDMode.forStyleRewrite`
+rather than something it reads: rewriting is on by default now, so a Mac that
+cannot run the model arrives here with a perfectly runnable configuration on
+every dictation, and a `Polish` chip over words that are only ever going to be
+pasted plain is exactly what the chip exists not to say.
 
 When the style is chosen by the app being dictated into rather than in Settings
 (`docs/app-aware-style.md`), the chip names the matched style - that is where a

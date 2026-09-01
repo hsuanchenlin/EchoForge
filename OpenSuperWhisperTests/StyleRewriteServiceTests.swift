@@ -136,6 +136,82 @@ final class StyleRewriteServiceTests: XCTestCase {
         XCTAssertEqual(result.status, .unavailable(.modelNotReady))
     }
 
+    /// Rewriting is on by default, so "this Mac cannot rewrite" now describes
+    /// every dictation on a Mac without the on-device model. That is a fact
+    /// about the machine, not about this dictation, and a badge repeating it on
+    /// every press is noise the user cannot act on from an overlay. Settings →
+    /// Style still says it, next to the switch that can be turned off.
+    func testAnUnavailableMacDoesNotBadgeEveryDictation() async {
+        let result = await apply(
+            .unchanged("we ship on friday"),
+            configuration: configuration(),
+            availability: .appleIntelligenceOff,
+            rewriter: nil
+        )
+
+        XCTAssertNil(result.dictationStyleNotice)
+        // The sentence itself is unchanged and still reaches Settings.
+        XCTAssertEqual(
+            result.statusExplanation,
+            StyleRewriteAvailability.appleIntelligenceOff.explanation(for: .rewriting)
+        )
+    }
+
+    /// Everything else the stage can do to a dictation still says so: each is
+    /// about this dictation rather than about the Mac, and each can be different
+    /// on the next press.
+    func testEveryOtherKeptTheOriginalStillBadges() async {
+        let refused = await apply(
+            .unchanged("the budget is 2500 for the quarter"),
+            configuration: configuration(),
+            rewriter: FixedRewriter(output: "The budget is 3500 for the quarter.")
+        )
+        XCTAssertEqual(refused.status, .rejected(.numbersChanged))
+        XCTAssertNotNil(refused.dictationStyleNotice)
+        XCTAssertEqual(refused.dictationStyleNotice, refused.statusExplanation)
+
+        let failed = StyledTranscript(
+            raw: "we ship on friday",
+            transcript: "we ship on friday",
+            final: "we ship on friday",
+            status: .failed("the model ran out of context")
+        )
+        XCTAssertNotNil(failed.dictationStyleNotice)
+
+        let timedOut = StyledTranscript(
+            raw: "we ship on friday",
+            transcript: "we ship on friday",
+            final: "we ship on friday",
+            status: .timedOut
+        )
+        XCTAssertNotNil(timedOut.dictationStyleNotice)
+
+        // A plain success has nothing to add either way.
+        let applied = await apply(
+            .unchanged("we ship on friday"),
+            configuration: configuration(),
+            rewriter: FixedRewriter(output: "We ship on Friday.")
+        )
+        XCTAssertTrue(applied.status.didRewrite)
+        XCTAssertNil(applied.dictationStyleNotice)
+    }
+
+    /// The one `.unavailable` that keeps its sentence: the user spoke
+    /// "Translate to …", asked for something on this dictation and did not get
+    /// it, and silence would leave them looking at untranslated words.
+    func testAnUnavailableSpokenTranslationStillExplainsItself() {
+        let translated = StyledTranscript(
+            raw: "Translate to Spanish: the team meets at three.",
+            transcript: "the team meets at three.",
+            final: "the team meets at three.",
+            status: .unavailable(.appleIntelligenceOff),
+            intent: .translated(SpokenTranslationTarget(languageCode: "es"))
+        )
+
+        XCTAssertEqual(translated.dictationStyleNotice, translated.statusExplanation)
+        XCTAssertNotNil(translated.dictationStyleNotice)
+    }
+
     func testDoesNothingWhenThereIsNoText() async {
         let result = await apply(
             .unchanged("   "),

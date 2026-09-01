@@ -38,7 +38,7 @@ SpokenIntentPipeline.apply()               SPOKEN-COMMAND ROUTING
         │                                  docs/selection-edit.md
         ▼
 StyleRewriteService.apply()                REWRITING STAGE
-        │                                  off by default, on-device model
+        │                                  ON by default (polish), on-device model
         │                                  guarded; falls back to the text above
         │                                  see docs/style-rewriting.md
         ├──────────────┬───────────────────────────────┐
@@ -101,11 +101,14 @@ which opens the video in Chrome or says why it could not
 
 **Rewriting stage** (`StyleRewriteService.apply`) calls a language model and can
 change what the words mean - a power only it and its sibling
-`TranslationRewrite` have. It is off by default, needs an on-device model most
-Macs running this app do not have, and returns the transcript stage's output
-unchanged whenever it is off, unavailable, too slow, or produces something its
-guard refuses. It is a peer of the terms
-dictionary and never its parent. `docs/style-rewriting.md` is the whole story.
+`TranslationRewrite` have. It is on by default with the polishing style - the one
+that changes the user's words least - needs an on-device model most Macs running
+this app do not have, and returns the transcript stage's output unchanged
+whenever it is off, unavailable, too slow, or produces something its guard
+refuses. That last clause is what makes the default safe: on a Mac without the
+model the user gets exactly what they got before the stage existed. It is a peer
+of the terms dictionary and never its parent. `docs/style-rewriting.md` is the
+whole story.
 
 It is separate from `TextPostProcessor` because that type is deterministic,
 synchronous and cannot fail, and this one is asynchronous, has a deadline and
