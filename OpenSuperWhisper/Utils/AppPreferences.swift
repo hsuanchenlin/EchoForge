@@ -349,8 +349,8 @@ final class AppPreferences {
     /// gets the deterministic transcript - `StyleRewriteService.apply` returns
     /// `.unrewritten` on `.unavailable` - and nothing here downloads a model:
     /// `StyleRewriterFactory.prewarmIfAvailable` is gated on `canRun`. And it
-    /// stays on-device, because `OnDeviceModelFeature.rewriting`'s cloud path
-    /// exists only where the user configured and consented to a provider.
+    /// stays on-device, because `OnDeviceModelFeature.rewriting.cloudFeature`
+    /// is `nil`, leaving no reachable provider path.
     ///
     /// A stored value still wins, so an install that turned rewriting off keeps
     /// it off. Turning it off must never turn off `safeCorrectionEnabled` -
