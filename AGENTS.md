@@ -382,6 +382,21 @@ Model weights are downloaded at runtime and never bundled into the `.app` - some
 redistributed under licences that require attribution and forbid rebranding. Any engine whose
 model the app downloads needs an entry in `docs/speech-model-attribution.md`.
 
+Mixed English and Traditional Chinese in **one** utterance - `把 PR 開到
+feature/login 再 @James` - is ordinary speech here, and `EngineKind.bilingualDictation`
+is the one place the engine for it is named (SenseVoice today; `EngineCatalog`'s copy,
+the Settings → Model hint and `EngineSelector.bilingualEngine` all read it rather than
+naming an engine). `EngineKind.transcribesEnglishAndChineseTogether` is switched
+exhaustively, and it is true for exactly one engine: Whisper settles on one language
+per decode, Parakeet has no Chinese, the cloud endpoint detects one language per
+request, and Paraformer is *not* asked to pass English - its refusal is the correct
+behaviour and `ParaformerLanguageGuard` stays. The text side needed one change to make
+this work at all: `ChineseScriptVariant.isHanDominant` weighs Han characters against
+whole **words** rather than letters, because the English mixed into Mandarin is long
+(branches, handles, product names) and against nineteen Latin letters four Han
+characters read as English - which handed Traditional users their own daily sentence
+back in Simplified. `docs/bilingual-dictation.md` is the whole story.
+
 An engine that cannot refuse a language has to refuse its own output instead. Paraformer takes no
 language parameter, so `LanguageUtil.paraformerLanguages` locking the picker to `zh` does nothing
 about somebody speaking English: the model answers, as the tokeniser's sub-word units with `@@`

@@ -62,6 +62,30 @@ enum EngineKind: String, CaseIterable {
     /// only and no punctuation.
     static let chineseAccuracyAlternative: EngineKind = .paraformer
 
+    /// The engine to dictate English and Chinese *in one recording* with.
+    ///
+    /// Mixing English into Mandarin - `把 PR 開到 feature/login 再 @James` - is
+    /// ordinary speech for this app's users, and it is the one thing three of
+    /// the four local engines cannot do at all. Whisper auto-detect settles on a
+    /// single language per decode. Parakeet has no Chinese. Paraformer takes no
+    /// language parameter and refuses nothing, so English comes back as
+    /// tokeniser fragments that `ParaformerLanguageGuard` throws away. Only
+    /// SenseVoice carries an English embedding beside its Chinese one and stays
+    /// intelligible across the switch.
+    ///
+    /// It is the same engine as `defaultChineseDictation` today, and that is a
+    /// coincidence worth keeping separate: the Chinese default answers "what
+    /// should Chinese dictation use", this answers "what should a code-switched
+    /// dictation use", and an engine that won the first on punctuation could
+    /// lose the second. Both surfaces that state it - `EngineCatalog`'s copy and
+    /// the Settings hint it feeds - read this rather than naming an engine.
+    ///
+    /// The output side is unaffected and stays unaffected: the Chinese half of a
+    /// mixed transcript is written in the user's chosen script by
+    /// `ChineseScriptNormalizer`, and the English half is left exactly as it
+    /// came back. See `docs/bilingual-dictation.md`.
+    static let bilingualDictation: EngineKind = .sensevoice
+
     /// Reads a persisted preference value, mapping anything unrecognised onto
     /// `fallback` rather than failing. This preserves the pre-existing
     /// behaviour of `TranscriptionService`, whose `if == "fluidaudio" / else`
@@ -91,6 +115,42 @@ enum EngineKind: String, CaseIterable {
             // The cloud endpoint takes a decoding prompt and a language and
             // nothing else; beam size and the no-speech threshold are
             // whisper.cpp parameters with nowhere to go in an HTTP request.
+            return false
+        }
+    }
+
+    /// Whether one recording may contain both English and Chinese.
+    ///
+    /// Switched exhaustively so a new engine has to answer it rather than
+    /// inheriting `false`, for the same reason `usesCloudProvider` is: what
+    /// hangs off it is copy the user chooses an engine on, and an engine
+    /// silently described as bilingual is a transcript full of fragments.
+    var transcribesEnglishAndChineseTogether: Bool {
+        switch self {
+        case .sensevoice:
+            // Six language embeddings including English, and `auto` picks
+            // per utterance rather than per recording - verified end to end in
+            // `SenseVoiceEngineIntegrationTests`.
+            return true
+        case .whisper:
+            // Auto-detect settles on one language for the whole decode, so the
+            // English half of a Mandarin sentence comes back translated or
+            // transliterated rather than transcribed.
+            return false
+        case .fluidaudio:
+            // Parakeet has no Chinese at all, in either model version.
+            return false
+        case .paraformer:
+            // vocab8404 has no English in it. Mixed input comes back as raw BPE
+            // fragments and `ParaformerLanguageGuard` refuses the transcript
+            // rather than pasting them - which is the *right* behaviour, and
+            // exactly why this is `false` rather than "it copes".
+            return false
+        case .cloud:
+            // The endpoint is the Whisper API, which detects one language per
+            // request. This app never proposes the cloud engine for anything
+            // anyway (`usesCloudProvider`), so claiming it here would be a
+            // recommendation it must not make.
             return false
         }
     }

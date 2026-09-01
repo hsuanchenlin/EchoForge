@@ -169,6 +169,20 @@ final class ChineseScriptNormalizerTests: IsolatedPreferencesTestCase {
         )
     }
 
+    /// The code-switching case, which is what `isHanDominant` counting words
+    /// rather than letters bought. Four Han characters against nineteen Latin
+    /// letters used to read as English, so this sentence reached a Traditional
+    /// user still written in Simplified. `BilingualDictationTests` is the whole
+    /// story; this is the one line of it that belongs to the normalizer.
+    func testAMandarinSentenceFullOfEnglishIsStillConverted() {
+        XCTAssertEqual(
+            ChineseScriptNormalizer.normalized(
+                "把 PR 开到 feature/login 再 @James", to: .traditional, languageCode: "zh"
+            ),
+            "把 PR 開到 feature/login 再 @James"
+        )
+    }
+
     // MARK: - The preference
 
     func testTraditionalIsTheDefaultOnAFreshInstall() {

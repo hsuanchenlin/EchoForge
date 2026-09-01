@@ -49,6 +49,36 @@ final class EngineKindRawValueTests: XCTestCase {
         }
     }
 
+    /// The bilingual decision, pinned beside the Chinese one it is currently the
+    /// same engine as. Two constants rather than one because they answer two
+    /// questions - "what should Chinese dictation use" and "what should a
+    /// sentence that switches language halfway through use" - and an engine that
+    /// won the first on punctuation could lose the second.
+    func testBilingualDictation_isSenseVoiceAndIsStatedSeparately() {
+        XCTAssertEqual(EngineKind.bilingualDictation, .sensevoice)
+        XCTAssertTrue(EngineKind.bilingualDictation.transcribesEnglishAndChineseTogether)
+        XCTAssertFalse(
+            EngineKind.chineseAccuracyAlternative.transcribesEnglishAndChineseTogether,
+            "the Mandarin-only engine must never be described as bilingual"
+        )
+    }
+
+    /// The capability is switched exhaustively, so this states the whole column
+    /// rather than only the true row: a new engine inheriting `false` is the
+    /// right default, and a new engine claiming `true` has to change this test.
+    func testTranscribesEnglishAndChineseTogether_isTrueForExactlyOneEngine() {
+        XCTAssertEqual(
+            EngineKind.allCases.filter(\.transcribesEnglishAndChineseTogether),
+            [EngineKind.bilingualDictation]
+        )
+        for kind in [EngineKind.whisper, .fluidaudio, .paraformer, .cloud] {
+            XCTAssertFalse(
+                kind.transcribesEnglishAndChineseTogether,
+                "\(kind.rawValue) cannot transcribe a code-switched recording"
+            )
+        }
+    }
+
     func testStoredInit_unknownValue_fallsBackToWhisper() {
         // A user who tries a newer build and then downgrades must land on
         // Whisper, not on a missing engine.

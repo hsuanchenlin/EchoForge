@@ -104,6 +104,11 @@ That is the same predicate `StyleRewriteLanguage` asks "is this Chinese" with,
 on purpose: two answers to that question is how one stage converts a script the
 next stage does not think is Chinese.
 
+"Han-dominant" weighs Han characters against whole **words**, not against
+letters, and that is what makes a code-switched sentence - `把 PR 開到
+feature/login 再 @James` - Chinese. `docs/bilingual-dictation.md` has the
+measurement and the trade.
+
 ## ICU rather than a table
 
 The mapping is the platform's. A hand-maintained character map would be a

@@ -51,6 +51,20 @@ struct EngineSelection: Equatable {
     /// Whether the desired engine still needs preparing. True exactly when the
     /// user's choice is not what is running - including when nothing is running.
     var isDesiredEnginePending: Bool { active != desired }
+
+    /// Whether the engine running *now* can transcribe one recording that mixes
+    /// English into Mandarin.
+    ///
+    /// Asked of `active` rather than `desired` on purpose, and that gap is the
+    /// whole reason this exists: a user who has chosen the bilingual engine and
+    /// is waiting on its 240 MB download is dictating on whatever tier 2 or 3
+    /// handed them, and a Mandarin-only stand-in will refuse the English half of
+    /// the next sentence they say. `EngineSelector` cannot avoid that - the
+    /// alternative is transcribing nothing at all - so it is reported rather
+    /// than hidden. See `docs/bilingual-dictation.md`.
+    var activeTranscribesEnglishAndChineseTogether: Bool {
+        active?.transcribesEnglishAndChineseTogether ?? false
+    }
 }
 
 /// The rules that pick the active engine, as a pure function of a snapshot.
@@ -68,6 +82,15 @@ enum EngineSelector {
     /// 240 MB download. Bundling a second engine would mean carrying two sets of
     /// weights to answer one question.
     static let starterEngine: EngineKind = EngineKind.defaultChineseDictation
+
+    /// The engine a code-switched dictation needs, named here so the selection
+    /// rules and the Settings copy cannot drift apart.
+    ///
+    /// It is the same engine as `starterEngine`, and that is worth one sentence
+    /// rather than being left as an accident: a first launch can already dictate
+    /// mixed English and Chinese, before any download and with the machine in
+    /// flight mode. See `EngineKind.bilingualDictation`.
+    static let bilingualEngine: EngineKind = EngineKind.bilingualDictation
 
     /// Picks the engine to transcribe with, without ever proposing a change to
     /// the stored selection.
@@ -97,6 +120,19 @@ enum EngineSelector {
     /// function does without asking: a dictation must never be uploaded to a
     /// provider because some other engine's download had not finished. The cloud
     /// engine transcribes when the user chose it - tier 1 - and never otherwise.
+    ///
+    /// What the interim tiers cannot promise is that the stand-in speaks
+    /// *both* the user's languages. Fitting the dictation language is a check
+    /// against one code, so a user waiting on `bilingualEngine` may be handed
+    /// Paraformer, which does their Mandarin and refuses their English. That is
+    /// deliberately allowed: the alternative to a stand-in that covers half the
+    /// sentences is no dictation at all, and the half it does not cover fails
+    /// closed rather than silently - `ParaformerLanguageGuard` keeps the audio
+    /// and says why, so one press of regenerate recovers it once the desired
+    /// engine is ready. `EngineSelection.activeTranscribesEnglishAndChineseTogether`
+    /// is how a caller can tell the difference; nothing here reorders the tiers
+    /// for it, because continuity with what the user was last dictating on is
+    /// the stronger promise. See `docs/bilingual-dictation.md`.
     ///
     /// The reverse also holds: a *chosen* cloud engine that `CloudAccess`
     /// refuses for a fixable reason stays the active one, so the dictation
