@@ -87,9 +87,9 @@ enum EngineSelector {
     /// rules and the Settings copy cannot drift apart.
     ///
     /// It is the same engine as `starterEngine`, and that is worth one sentence
-    /// rather than being left as an accident: a first launch can already dictate
-    /// mixed English and Chinese, before any download and with the machine in
-    /// flight mode. See `EngineKind.bilingualDictation`.
+    /// rather than being left as an accident: once the starter weights are
+    /// available, the last-resort engine can already dictate mixed English and
+    /// Chinese. See `EngineKind.bilingualDictation`.
     static let bilingualEngine: EngineKind = EngineKind.bilingualDictation
 
     /// Picks the engine to transcribe with, without ever proposing a change to
