@@ -128,9 +128,10 @@ enum DictationFailureOutcome: Equatable {
 enum DictationResult: Equatable {
     /// Text was produced and handed to whatever the user was typing in.
     ///
-    /// `styleNotice` is `StyleRewriteStatus.explanation` when a rewrite was
-    /// expected but the deterministic transcript was kept instead - refused by
-    /// the guard, timed out, failed - and nil for a plain success. The text is
+    /// `styleNotice` is `StyledTranscript.dictationStyleNotice` when a rewrite
+    /// was expected but the deterministic transcript was kept instead - refused
+    /// by the guard, timed out, failed - and nil for a plain success and for a
+    /// Mac that cannot rewrite at all, which that property explains. The text is
     /// inserted and stored identically either way; the notice only changes what
     /// the badge says.
     case inserted(styleNotice: String?)
@@ -514,7 +515,7 @@ class IndicatorViewModel: ObservableObject {
                             print("Ask: \(query)")
                         } else {
                             insertText(text)
-                            self.result = .inserted(styleNotice: styled.statusExplanation)
+                            self.result = .inserted(styleNotice: styled.dictationStyleNotice)
                             print("Transcription result: \(text)")
                         }
                     }

@@ -84,8 +84,18 @@ struct CapsuleHUDMode: Equatable {
     /// `isRunnable` is false for rewriting that is switched off *and* for a
     /// custom style with no prompt written yet, and in both cases no rewrite is
     /// going to happen, so the chip must not promise one.
-    static func forStyleRewrite(_ configuration: StyleRewriteConfiguration) -> CapsuleHUDMode {
-        guard configuration.isRunnable else { return .dictate }
+    ///
+    /// Availability is the second half of that same question and is a parameter
+    /// rather than a read, so it cannot be forgotten. Rewriting is on by default
+    /// now, so a Mac that cannot run the on-device model reaches here with a
+    /// perfectly runnable configuration on every single dictation - and a chip
+    /// reading "Polish" over a dictation that is only ever going to be pasted
+    /// plain is the one thing this type exists not to do.
+    static func forStyleRewrite(
+        _ configuration: StyleRewriteConfiguration,
+        availability: StyleRewriteAvailability
+    ) -> CapsuleHUDMode {
+        guard configuration.isRunnable, availability.canRun else { return .dictate }
         return CapsuleHUDMode(label: configuration.style.shortName)
     }
 

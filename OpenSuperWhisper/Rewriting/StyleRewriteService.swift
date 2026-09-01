@@ -110,6 +110,29 @@ struct StyledTranscript: Equatable, Sendable {
         return status.explanation
     }
 
+    /// `statusExplanation`, minus the one case a finished dictation must not
+    /// badge: `.unavailable` on ordinary dictation.
+    ///
+    /// Rewriting is on by default (`AppPreferences.styleRewriteEnabled`), so
+    /// that case now describes *every* dictation on a Mac without the on-device
+    /// model. It is a fact about the machine rather than about this dictation,
+    /// it never changes between one press and the next, and there is nothing to
+    /// act on from an overlay that is gone in a second and a half - Settings →
+    /// Style carries the same sentence beside the toggle, which is where it can
+    /// be acted on. The transcript is inserted and stored identically either
+    /// way; this only decides whether the overlay says something about it.
+    ///
+    /// Every other status keeps its sentence, because each is about this
+    /// dictation and not about the Mac: a rewrite the guard refused, one that
+    /// timed out, one the model failed, a transcript too long to send. So does
+    /// `.unavailable` on a spoken `Translate to …` - that user asked for
+    /// something on this dictation and did not get it, and silence there would
+    /// leave them looking at untranslated words with no explanation.
+    var dictationStyleNotice: String? {
+        if case .dictation = intent, case .unavailable = status { return nil }
+        return statusExplanation
+    }
+
     /// A transcript that was never offered to the rewriting stage.
     static func unrewritten(_ processed: ProcessedText, status: StyleRewriteStatus) -> StyledTranscript {
         StyledTranscript(

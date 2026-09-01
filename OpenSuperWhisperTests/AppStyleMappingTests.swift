@@ -400,7 +400,7 @@ final class AppStyleMappingTests: IsolatedPreferencesTestCase {
         AppStyleMappingStore(isEnabled: true).save(to: preferences)
 
         let settings = Settings(dictationTarget: target("com.tinyspeck.slackmacgap"))
-        let mode = CapsuleHUDMode.forStyleRewrite(settings.styleRewrite)
+        let mode = CapsuleHUDMode.forStyleRewrite(settings.styleRewrite, availability: .available)
 
         XCTAssertEqual(mode.label, StyleRewriteCatalog.style(id: "casual")?.shortName)
     }

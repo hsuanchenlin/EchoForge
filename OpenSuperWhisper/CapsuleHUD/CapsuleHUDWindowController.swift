@@ -106,7 +106,10 @@ final class CapsuleHUDWindowController {
                 indicatorViewModel.selectionEdit?.source ?? .selection)
         case .dictation:
             let settings = Settings(dictationTarget: indicatorViewModel.dictationTarget)
-            mode = CapsuleHUDMode.forStyleRewrite(settings.styleRewrite)
+            mode = CapsuleHUDMode.forStyleRewrite(
+                settings.styleRewrite,
+                availability: StyleRewriterFactory.availability(for: .rewriting)
+            )
         }
         viewModel.beginSession(mode: mode)
         viewModel.onCancel = { IndicatorWindowManager.shared.cancelWorkInFlight() }

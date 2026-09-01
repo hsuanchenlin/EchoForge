@@ -468,7 +468,7 @@ final class CapsuleHUDViewModelTests: XCTestCase {
     // MARK: - The mode chip
 
     func testTheChipNamesPlainDictationWhenNothingWillRewriteIt() {
-        XCTAssertEqual(CapsuleHUDMode.forStyleRewrite(.disabled), .dictate)
+        XCTAssertEqual(CapsuleHUDMode.forStyleRewrite(.disabled, availability: .available), .dictate)
     }
 
     func testTheChipNamesTheStyleThatWillRun() {
@@ -479,8 +479,30 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            CapsuleHUDMode.forStyleRewrite(polish).label,
+            CapsuleHUDMode.forStyleRewrite(polish, availability: .available).label,
             StyleRewriteCatalog.style(forStoredID: "polish").shortName
+        )
+    }
+
+    /// Rewriting is on by default, so a Mac that cannot run the on-device model
+    /// arrives here with a runnable configuration on every dictation. The chip
+    /// still has to say what is actually going to happen to the words, which is
+    /// nothing.
+    func testTheChipPromisesNoRewriteOnAMacThatCannotRunOne() {
+        let polish = StyleRewriteConfiguration(
+            isEnabled: true,
+            style: StyleRewriteCatalog.style(forStoredID: "polish"),
+            customPrompt: ""
+        )
+
+        XCTAssertEqual(
+            CapsuleHUDMode.forStyleRewrite(polish, availability: .appleIntelligenceOff), .dictate
+        )
+        XCTAssertEqual(
+            CapsuleHUDMode.forStyleRewrite(polish, availability: .unsupportedSystem), .dictate
+        )
+        XCTAssertEqual(
+            CapsuleHUDMode.forStyleRewrite(polish, availability: .modelNotReady), .dictate
         )
     }
 
@@ -491,7 +513,7 @@ final class CapsuleHUDViewModelTests: XCTestCase {
             customPrompt: "   "
         )
 
-        XCTAssertEqual(CapsuleHUDMode.forStyleRewrite(unwritten), .dictate)
+        XCTAssertEqual(CapsuleHUDMode.forStyleRewrite(unwritten, availability: .available), .dictate)
     }
 
     func testEveryStyleHasAChipLabelShortEnoughForThePill() {
