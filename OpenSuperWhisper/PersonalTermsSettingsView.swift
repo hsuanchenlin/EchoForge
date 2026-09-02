@@ -116,7 +116,7 @@ struct PersonalTermsSettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Apply Safe Correction")
                         .font(.subheadline)
-                    Text("Runs your personal terms on every transcription. Entirely on-device and rule-based: no AI model, no network, no macOS upgrade.")
+                    Text("Runs your personal terms on every transcription, and with the Whisper engine shows them to the recognizer before it decodes. Entirely on-device and rule-based: no AI model, no network, no macOS upgrade.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

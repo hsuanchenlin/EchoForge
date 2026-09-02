@@ -13,7 +13,7 @@ an explicit acceptance of a sheet that says what will be uploaded and where.
 
 | Feature | Default | What is uploaded when it is on | Where the code is |
 |---|---|---|---|
-| Speech transcription | **On your Mac** | The audio file of each dictation, plus the language code and your "initial prompt" setting | `Cloud/CloudTranscriptionEngine.swift` |
+| Speech transcription | **On your Mac** | The audio file of each dictation, plus the language code and your "initial prompt" setting exactly as you typed it. Never your personal terms dictionary, which only the on-device Whisper engine is shown (`docs/personal-terms.md`) | `Cloud/CloudTranscriptionEngine.swift` |
 | Translation (the spoken `Translate to …` command) | **On your Mac** | The text of the dictation you asked to have translated | `Cloud/CloudStyleRewriter.swift` |
 | Style rewriting | On your Mac | — never offered a cloud option | `Rewriting/` |
 | Fix with AI in History | On your Mac | Never offered a cloud option | `Rewriting/TranscriptCorrection.swift` |

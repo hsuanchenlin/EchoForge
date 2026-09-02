@@ -132,7 +132,15 @@ class WhisperEngine: TranscriptionEngine {
         params.detectLanguage = false // means that it only detects the language and does not process the transcription
         params.temperature = Float(settings.temperature)
         params.noSpeechThold = Float(settings.noSpeechThreshold)
-        params.initialPrompt = settings.initialPrompt.isEmpty ? nil : settings.initialPrompt
+        // The user's typed prompt followed by their personal terms, so a name
+        // in the dictionary is one the decoder is biased to write rather than
+        // one the terms stage has to rescue afterwards. Measured with this
+        // model's tokenizer so the cap is the decoder's, not a guess.
+        params.initialPrompt = WhisperInitialPrompt.compose(
+            userPrompt: settings.initialPrompt,
+            terms: settings.personalTerms,
+            tokenCount: { context.tokenCount(text: $0) }
+        )
         // With noContext = false the initial prompt conditions only the first
         // 30s window; carrying it keeps the user's vocabulary effective for the
         // whole recording.

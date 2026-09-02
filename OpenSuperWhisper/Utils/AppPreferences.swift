@@ -328,6 +328,11 @@ final class AppPreferences {
     /// Deterministic safe correction: the personal terms dictionary and the
     /// formatting passes around it.
     ///
+    /// It gates both halves of the dictionary, not just the stage after the
+    /// engine: `Settings.personalTerms` is resolved from it once, so with this
+    /// off Whisper is not shown the terms before it decodes either
+    /// (`WhisperInitialPrompt`, `docs/personal-terms.md`).
+    ///
     /// On by default and a peer of any later style-rewriting setting, never its
     /// child. It depends on nothing - no model, no network, no macOS version -
     /// so it must keep working when rewriting is off, unavailable or rejected.

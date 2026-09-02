@@ -79,9 +79,10 @@ enum TextPostProcessor {
     /// just pinned. Normalization cannot break a term match either way, because
     /// the matcher compares script-folded text (`ChineseScriptFolding`).
     ///
-    /// `terms` is injectable for tests; in the app it comes from the shared
-    /// store. Passing terms does not bypass the toggle - `safeCorrectionEnabled`
-    /// still decides whether the stage runs at all.
+    /// `terms` is injectable for tests; in the app it is `settings.personalTerms`,
+    /// the same dictionary Whisper was shown before decoding. Passing terms does
+    /// not bypass the toggle - `safeCorrectionEnabled` still decides whether the
+    /// stage runs at all.
     static func process(
         _ text: String,
         settings: Settings,
@@ -102,7 +103,7 @@ enum TextPostProcessor {
         // Deterministic safe correction: no model, no network, no macOS 26.
         // Independent of any later style-rewriting setting.
         let activeTerms = settings.safeCorrectionEnabled
-            ? (terms ?? PersonalTermsStore.shared.activeTerms)
+            ? (terms ?? settings.personalTerms)
             : []
         let corrected = PersonalTermsCorrector.apply(activeTerms, to: normalized)
 

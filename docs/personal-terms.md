@@ -3,16 +3,77 @@
 A user-managed list of words the recognizer keeps getting wrong, and words it
 must never touch. Deterministic: no model, no network, no macOS version
 requirement. It is the first stage of transcript post-processing and works
-identically whatever else is or is not configured.
+identically whatever else is or is not configured. It also reaches one engine
+*before* it decodes - Whisper is shown the dictionary as its initial prompt -
+and that half is described below.
 
 ## The toggle
 
-`safeCorrectionEnabled` (`AppPreferences`, default **on**) gates this stage.
+`safeCorrectionEnabled` (`AppPreferences`, default **on**) gates this stage,
+and it gates the decoding prompt below with it: `Settings.personalTerms` is
+resolved once from that toggle and both halves read it, so with safe correction
+off the dictionary is inert everywhere rather than only after the engine.
 
 It is deliberately a peer of any future style-rewriting setting, never its
 child, and it depends on nothing. Turning rewriting off, running an older macOS,
 being offline, or having a rewrite rejected must all leave terminology
 correction fully working - so nothing else may ever be allowed to gate it.
+
+## Before decode: Whisper's initial prompt
+
+A post-hoc replacement cannot save a name the recognizer never emitted close
+enough to match. whisper.cpp's `initial_prompt` is conditioning text the decoder
+treats as preceding transcript, so a name listed in it is one the decoder is
+biased to *write* - before the terms stage ever sees the result. `WhisperEngine`
+composes that prompt through `WhisperInitialPrompt` (`Engines/`), pinned by
+`WhisperInitialPromptTests`:
+
+- **The user's typed Initial Prompt comes first, exactly as typed**, and the
+  dictionary follows it as a comma-separated list. An empty dictionary leaves the
+  prompt exactly what it was before this path existed - whitespace and all, or
+  no prompt at all - so nothing changes for a user who has no terms.
+- **What is listed is what an entry writes out**, never what it matches on: the
+  replacement for a substituting kind, the matched text for a never-correct one.
+  `頂頂群` is the mishearing, and a prompt that showed it would teach the decoder
+  the mistake.
+- **The list is in the order it should be kept** when the budget runs out:
+  names, then preferred spellings, then never-correct text, then mishearing
+  fixes (`PersonalTermKind.decodePromptPriority`, switched exhaustively), file
+  order within a kind. Disabled and incomplete entries are skipped, duplicates
+  are listed once, and a word already in the typed prompt is not repeated.
+- **An entry with a context hint is left out.** The hint says the substitution
+  is conditional on the rest of the dictation; a prompt is shown before any of
+  it exists, and biasing every dictation toward a homophone target such as `再`
+  is the outcome the hint exists to prevent.
+- **The cap is measured in the model's own tokens**, not characters: a Han
+  character is one to three Whisper tokens and a name is rarely one, so a
+  character cap either starves an English dictionary or overruns a Chinese one.
+  `WhisperInitialPrompt.tokenBudget` is 111, half of the 223 tokens whisper.cpp
+  will carry, because every carried prompt token is taken from the same
+  224-token budget the decoder keeps its own recent output in
+  (`whisper_full_with_state`, measured off the pinned submodule) and a prompt
+  that filled it would leave a long recording no memory of what it just wrote.
+  The list stops at the first word that does not fit rather than skipping it,
+  so a shorter, lower-priority word never squeezes in ahead of a name.
+- **The typed prompt is never trimmed to make room.** whisper.cpp keeps the
+  *last* tokens of an over-long prompt, so if the user's own text already fills
+  the budget it goes through untouched and nothing is appended that could push
+  its start out of what the decoder sees.
+
+This is additive bias, not a replacement: the terms stage still runs on the
+decoder's output exactly as before, and a name the decoder still missed is
+corrected there.
+
+**Whisper is the only engine with this hook.** Parakeet, SenseVoice and
+Paraformer take no decoding prompt in the pinned runtimes, so there is nothing
+to feed and no per-engine list to maintain - and none is offered in Settings.
+The cloud endpoint does take a prompt and is deliberately **never** shown the
+dictionary: a list of the names a person works with is the most identifying text
+this app holds, and what a cloud request carries is the typed setting alone
+(`docs/cloud-api.md`). `CloudTransportTests` shows a real request agrees, and a
+source scan in `CloudPrivacyTests` keeps `Cloud/` from ever mentioning the
+dictionary; a second scan in `WhisperInitialPromptTests` keeps `WhisperEngine`
+the only caller of the composer.
 
 ## Entry kinds
 
