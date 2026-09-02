@@ -81,6 +81,35 @@ final class CloudTransportTests: XCTestCase {
         XCTAssertTrue(body.contains("RIFF....some-audio-bytes"))
     }
 
+    /// What the request carries as a prompt is the typed setting and nothing
+    /// else. The on-device Whisper engine is also shown the personal terms
+    /// dictionary before it decodes; the cloud engine, given the same
+    /// `Settings`, must not be - as the server received it, not as the app
+    /// believes it wrote it.
+    func testTheDictionaryNeverReachesTheProviderEvenWhenThePromptDoes() async throws {
+        server.respond(status: 200, json: "{\"text\":\"ok\"}")
+        var settings = dictationSettings()
+        settings.initialPrompt = "Notes for the platform team"
+        settings.personalTerms = [
+            PersonalTerm(kind: .name, match: "阿肯", replacement: "阿 Ken"),
+            PersonalTerm(kind: .preferredSpelling, match: "k8s", replacement: "Kubernetes"),
+        ]
+
+        _ = try await engine().transcribeAudio(
+            url: URL(fileURLWithPath: "/tmp/a.wav"), settings: settings
+        )
+
+        let request = try XCTUnwrap(server.requests.first)
+        let body = String(decoding: request.body, as: UTF8.self)
+        XCTAssertTrue(
+            body.contains("name=\"prompt\"\r\n\r\nNotes for the platform team\r\n"),
+            "the typed prompt is sent, exactly as typed"
+        )
+        XCTAssertFalse(body.contains("阿 Ken"), "a dictionary name left the device")
+        XCTAssertFalse(body.contains("Kubernetes"), "a dictionary spelling left the device")
+        XCTAssertFalse(body.contains("k8s"), "a dictionary match left the device")
+    }
+
     /// A refused key is the commonest cloud failure, and the one where a
     /// message naming the fix matters most.
     func testARefusedKeyBecomesAMessageNamingTheKey() async throws {

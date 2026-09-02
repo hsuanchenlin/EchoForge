@@ -841,6 +841,15 @@ struct Settings {
     /// Whether the deterministic terms stage runs. Independent of every
     /// language gate and of any later style-rewriting setting.
     var safeCorrectionEnabled: Bool
+    /// The personal terms dictionary this transcription runs with: every
+    /// enabled, complete entry, or nothing when `safeCorrectionEnabled` is off.
+    ///
+    /// Resolved once here rather than read by each stage, because two stages
+    /// read it - Whisper is shown it before decoding (`WhisperInitialPrompt`)
+    /// and the terms stage applies it afterwards - and they must see the same
+    /// dictionary. One toggle governs both: with safe correction off the
+    /// dictionary is inert everywhere, not just after the engine.
+    var personalTerms: [PersonalTerm]
     /// The style rewriting stage, which runs after the deterministic ones and
     /// may decline to change anything at all. See `StyleRewriteService`.
     var styleRewrite: StyleRewriteConfiguration
@@ -962,6 +971,9 @@ struct Settings {
         self.useAsianAutocorrect = prefs.useAsianAutocorrect
         self.chineseOutputScript = prefs.chineseOutputScript
         self.safeCorrectionEnabled = prefs.safeCorrectionEnabled
+        self.personalTerms = prefs.safeCorrectionEnabled
+            ? PersonalTermsStore.shared.activeTerms
+            : []
         let chosen = StyleRewriteConfiguration.resolve(
             isEnabled: prefs.styleRewriteEnabled,
             storedStyleID: prefs.styleRewriteStyleID,
@@ -1483,9 +1495,10 @@ struct SettingsView: View {
                                         .stroke(Color.gray.opacity(0.3), lineWidth: 1)
                                 )
 
-                            Text("Optional text to guide the model's transcription")
+                            Text("Optional text to guide the model's transcription. Your personal terms are added after it automatically, names first, as far as the model's prompt allows.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     .padding()

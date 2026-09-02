@@ -477,6 +477,19 @@ spacing), the style rewriting stage (`StyleRewriteService.apply`), and the
 live-dictation insertion stage. The first and third are synchronous and cannot
 fail; keep them that way.
 
+The personal terms dictionary also reaches **one** engine before it decodes: `WhisperEngine`
+shows it to whisper.cpp as the initial prompt, composed by `WhisperInitialPrompt` (`Engines/`)
+after the user's typed prompt and capped in the model's own tokens, so a large dictionary can
+neither push the typed prompt out of what the decoder keeps nor crowd out its rolling context.
+That is additive bias - the terms stage still runs on the output - and `Settings.personalTerms`
+is the one dictionary both halves read, gated on `safeCorrectionEnabled` together.
+`docs/personal-terms.md` is the whole story. Two things there are absolute. Whisper is the only
+engine with the hook, and no other engine gets a stand-in for it - Parakeet, SenseVoice and
+Paraformer take no prompt, and a source scan in `WhisperInitialPromptTests` keeps `WhisperEngine`
+the composer's only caller. And the cloud endpoint, which does take a prompt, is never shown the
+dictionary: the request carries the typed setting alone, `CloudTransportTests` reads that off a
+real request, and `CloudPrivacyTests` scans `Cloud/` for any mention of the dictionary.
+
 A Chinese transcript is written in **one** script - the user's, Traditional
 unless they chose otherwise (`chineseOutputScript`) - by `ChineseScriptNormalizer`
 at the front of the transcript stage, with `docs/chinese-script.md` as the whole

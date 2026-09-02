@@ -190,6 +190,25 @@ final class CloudPrivacyTests: IsolatedPreferencesTestCase {
         }
     }
 
+    /// The personal terms dictionary never reaches a provider. Whisper is shown
+    /// it before decoding (`WhisperInitialPrompt`), and the cloud engine takes a
+    /// prompt too - but a dictionary of the names a person works with is the
+    /// most identifying text this app holds, and `docs/cloud-api.md` says the
+    /// prompt that leaves is the typed setting alone. `CloudTransportTests`
+    /// shows a real request agrees; this keeps the next edit from disagreeing.
+    func testThePersonalTermsDictionaryNeverReachesTheCloudModule() throws {
+        try scanProductionSources { path, text in
+            guard path.hasPrefix("Cloud/") else { return }
+            for symbol in ["personalTerms", "PersonalTerm", "WhisperInitialPrompt"] {
+                XCTAssertFalse(
+                    text.contains(symbol),
+                    "\(path) mentions \(symbol). The dictionary is shown to the on-device decoder "
+                        + "only; what a cloud request carries is listed in docs/cloud-api.md."
+                )
+            }
+        }
+    }
+
     /// The API key lives in the Keychain and nowhere else. A preference is a
     /// plist any process running as the user can read and Time Machine copies.
     func testTheAPIKeyIsNeverStoredAsAPreference() throws {

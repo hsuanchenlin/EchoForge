@@ -12,6 +12,9 @@ TranscriptionEngine.transcribeAudio()      WhisperEngine | FluidAudioEngine
         │                                  ParaformerEngine | SenseVoiceEngine
         │                                  engine-specific cleanup only
         │                                  (marker stripping, trimming, chunk joining)
+        │                                  Whisper alone is also shown the personal
+        │                                  terms *before* decoding, as its initial
+        │                                  prompt - see docs/personal-terms.md
         ▼
 TranscriptionService.transcribeAudio()     single choke point
         │
