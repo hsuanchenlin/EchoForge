@@ -124,20 +124,55 @@ enum ChineseScriptVariant: String, Equatable, Sendable {
         return LanguageUtil.languageNames[code] == nil || code == "auto"
     }
 
+    /// The share of a transcript's words that have to be Han before it counts as
+    /// Chinese.
+    ///
+    /// Named rather than inlined because it is the one number the code-switching
+    /// case turns on, and because `BilingualDictationTests` pins it: moving it is
+    /// a decision about whose dictation is Chinese, not a tuning knob.
+    static let hanShareThreshold = 0.3
+
     /// Whether the text is written in Han characters, with no kana or Hangul in
     /// it at all.
     ///
-    /// The ratio matches `StyleRewriteGuard`'s script check on purpose - the
-    /// stages have to agree about what "this transcript is Chinese" means. A
-    /// single kana or Hangul character is enough to rule it out: Japanese
-    /// written in kanji alone is rare, and Japanese written with kana is not
-    /// Chinese however many Han characters it also has.
+    /// **Han characters are weighed against whole words, not against letters,**
+    /// and that is the whole of the code-switching fix. A Han character is a
+    /// word; a Latin letter is a fraction of one. Counting both as "letters"
+    /// systematically undercounts the Chinese in a mixed utterance, and it
+    /// undercounts it hardest in exactly the sentences this app is for: the
+    /// English a Taiwanese engineer mixes into Mandarin is product names,
+    /// branches and handles, which are long. `把 PR 開到 feature/login 再 @James`
+    /// is four Han words against four Latin ones - and against nineteen Latin
+    /// letters, which is how the same sentence used to be classified as English
+    /// and handed back to a Traditional user still written in Simplified. See
+    /// `docs/bilingual-dictation.md`.
+    ///
+    /// A single kana or Hangul character is still enough to rule Chinese out:
+    /// Japanese written in kanji alone is rare, and Japanese written with kana is
+    /// not Chinese however many Han characters it also has.
+    ///
+    /// The trade this makes is stated rather than hidden: an English sentence
+    /// naming two Chinese people is now Chinese to this predicate, where a
+    /// sentence naming one is not. That is the shape of every threshold, and this
+    /// side of it is the cheap one - the cost is a name converted to the script
+    /// the user writes in, against a whole daily utterance in the wrong script.
+    ///
+    /// `StyleRewriteGuard` counts letters instead, and deliberately: it asks
+    /// whether a *rewrite* changed script, which is a comparison of two texts
+    /// against each other rather than a claim about either, so both sides of it
+    /// move together whatever the unit. This is the one place that answers "is
+    /// this text Chinese" outright, and every stage that needs that answer -
+    /// `ChineseScriptNormalizer` and `StyleRewriteLanguage` - reads it here.
     static func isHanDominant(_ text: String) -> Bool {
-        var letters = 0
         var han = 0
-        for character in text where character.isLetter {
-            letters += 1
-            guard let scalar = character.unicodeScalars.first else { continue }
+        var otherWords = 0
+        var insideOtherWord = false
+
+        for character in text {
+            guard character.isLetter, let scalar = character.unicodeScalars.first else {
+                insideOtherWord = false
+                continue
+            }
             switch scalar.value {
             case 0x3040 ... 0x30FF,     // Hiragana, Katakana
                  0x1100 ... 0x11FF,     // Hangul jamo
@@ -146,10 +181,18 @@ enum ChineseScriptVariant: String, Equatable, Sendable {
             default:
                 break
             }
-            if HanCharacterTransform.isHan(scalar) { han += 1 }
+            if HanCharacterTransform.isHan(scalar) {
+                han += 1
+                insideOtherWord = false
+            } else {
+                if !insideOtherWord { otherWords += 1 }
+                insideOtherWord = true
+            }
         }
-        guard letters > 0 else { return false }
-        return Double(han) / Double(letters) >= 0.3
+
+        let words = han + otherWords
+        guard words > 0 else { return false }
+        return Double(han) / Double(words) >= hanShareThreshold
     }
 
     // MARK: - The characters

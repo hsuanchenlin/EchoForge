@@ -1178,7 +1178,15 @@ struct SettingsView: View {
                         EngineChoiceRow(kind: kind, viewModel: viewModel)
                     }
                 }
-                .padding(.bottom, 8)
+
+                // The bilingual path, said out loud under the rows it is about.
+                // Mixing English into Mandarin is ordinary speech for this app's
+                // users and is the one thing three of these four engines cannot
+                // do at all, and no arrangement of four names can carry that.
+                // The row owns its own copy and its own layout so it can be
+                // rendered and read back; see `BilingualEngineHintRow`.
+                BilingualEngineHintRow()
+                    .padding(.bottom, 8)
 
                 if let entry = engineDownloadEntry {
                     EngineModelSectionView(

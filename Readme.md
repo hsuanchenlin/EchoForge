@@ -35,7 +35,7 @@ them would strand installs rather than rebrand them.
 - ✊ Hold-to-record mode - hold the shortcut, modifier key or mouse button to record, release to stop
 - 📁 Drag & drop audio files for transcription with queue processing
 - 🎤 Microphone selection - switch between built-in, external, Bluetooth and iPhone (Apple Continuity) mics from the menu bar
-- 🌍 Support for multiple languages with auto-detection
+- 🌍 Support for multiple languages with auto-detection, including mixed English and Mandarin in one recording with SenseVoice-Small; Chinese is written in your chosen script ([details](docs/bilingual-dictation.md))
 - 🇯🇵🇨🇳🇰🇷 Asian language autocorrect ([autocorrect](https://github.com/huacnlee/autocorrect))
 - 📖 Personal terms dictionary for deterministic replacements, preferred spellings, names, and protected text
 - ✨ Style rewriting - grammar and punctuation are polished as you dictate, and you can turn what you said into formal, concise, bulleted or casual writing instead, or write your own prompt. Runs on device (macOS 26 with Apple Intelligence), on by default with the polishing style, and always keeps the original transcript ([details](docs/style-rewriting.md))

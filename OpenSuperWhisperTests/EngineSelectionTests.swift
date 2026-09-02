@@ -246,6 +246,57 @@ final class EngineSelectionTests: XCTestCase {
         XCTAssertNil(selection.interimReason)
         XCTAssertFalse(selection.isDesiredEnginePending)
     }
+
+    // MARK: - The bilingual path
+
+    /// The engine a code-switched dictation needs is the one a build can ship
+    /// with, so a first launch can already dictate mixed English and Chinese -
+    /// before any download, and with the machine in flight mode.
+    func testTheStarterEngineIsAlsoTheBilingualOne() {
+        XCTAssertEqual(EngineSelector.bilingualEngine, EngineKind.bilingualDictation)
+        XCTAssertEqual(EngineSelector.starterEngine, EngineSelector.bilingualEngine)
+
+        let selection = resolve(
+            desired: EngineSelector.starterEngine,
+            language: "zh",
+            availability: availability([EngineSelector.starterEngine])
+        )
+        XCTAssertTrue(selection.activeTranscribesEnglishAndChineseTogether)
+    }
+
+    /// The gap the interim tiers cannot close, reported rather than hidden: a
+    /// user waiting on the bilingual engine's download is handed the Mandarin-only
+    /// engine they were last dictating on, which does their Mandarin and refuses
+    /// their English. The stand-in is still the right call - the alternative is
+    /// transcribing nothing - so this asserts the honest report, not a reorder.
+    func testAMandarinOnlyStandInIsReportedAsNotBilingual() {
+        let selection = resolve(
+            desired: EngineSelector.bilingualEngine,
+            lastReady: .paraformer,
+            language: "zh",
+            availability: availability([.paraformer])
+        )
+
+        XCTAssertEqual(selection.active, .paraformer)
+        XCTAssertEqual(selection.interimReason, .previousModel)
+        XCTAssertFalse(
+            selection.activeTranscribesEnglishAndChineseTogether,
+            "a Mandarin-only stand-in must not be reported as able to do the user's English"
+        )
+        XCTAssertEqual(
+            selection.desired, EngineSelector.bilingualEngine,
+            "standing in never rewrites what the user chose"
+        )
+    }
+
+    /// And when nothing at all can transcribe, the answer is `false` rather than
+    /// a claim about an engine that is not running.
+    func testNothingRunningIsNotBilingualEither() {
+        let selection = resolve(desired: .sensevoice, language: "zh", availability: availability([]))
+
+        XCTAssertNil(selection.active)
+        XCTAssertFalse(selection.activeTranscribesEnglishAndChineseTogether)
+    }
 }
 
 /// Which engines the app can make ready on its own, and which it must not try to.

@@ -2,8 +2,8 @@ import AVFoundation
 import XCTest
 @testable import OpenSuperWhisper
 
-/// The F3/F4/F6/F8 regressions against the real SenseVoice weights rather than a
-/// fake that reproduces their limits.
+/// The F3/F4/F6/F8 regressions - and the bilingual claim - against the real
+/// SenseVoice weights rather than a fake that reproduces their limits.
 ///
 /// Opt-in, and skipped by default: the first run downloads ~240 MB from Hugging
 /// Face and then pays a one-time Neural Engine compile of about 90 s, which does
@@ -14,8 +14,8 @@ import XCTest
 /// of shipping an unpunctuated engine. This is what re-checks that after a
 /// FluidAudio bump.
 ///
-/// The fixtures are not committed (the directory is gitignored): four are
-/// synthesized or generated locally, and the fifth set is public upstream audio
+/// The fixtures are not committed (the directory is gitignored): three are
+/// synthesized or generated locally, and the fourth set is public upstream audio
 /// that is cheaper to fetch than to carry. Generating them is the whole opt-in -
 /// no environment variable, which xcodebuild does not forward to a hosted macOS
 /// test bundle anyway:
@@ -30,6 +30,10 @@ import XCTest
 /// say -v Tingting -f sensevoice-script.txt -o sensevoice-long.wav --file-format=WAVE --data-format=LEI16@16000   # 36.0 s
 /// echo '我们下午三点二十分在北京西站见面，这张机票花了一千两百五十块钱，会议定在二零二六年七月三十号。' \
 ///   | say -v Tingting -o sensevoice-itn.wav --file-format=WAVE --data-format=LEI16@16000              # 10.8 s
+/// # Mixed English inside Mandarin - the utterance this app is named for. Said
+/// # by the same voice, because a bilingual speaker is one speaker.
+/// echo '把 P R 開到 feature login 這個 branch 再 tag 一下 James，然後看一下 nginx 的 log。' \
+///   | say -v Tingting -o sensevoice-mixed.wav --file-format=WAVE --data-format=LEI16@16000           # 12 s
 /// # The five public example clips from the upstream model card (28-58 KB each):
 /// for lang in zh yue en ja ko; do
 ///   curl -sL -o $lang.mp3 \
@@ -198,6 +202,67 @@ final class SenseVoiceEngineIntegrationTests: XCTestCase {
             XCTAssertTrue(
                 text.contains(expectation.contains),
                 "\(expectation.language): expected \(expectation.contains) in \(text)"
+            )
+        }
+    }
+
+    // MARK: - The bilingual path: English inside Mandarin
+
+    /// The claim `EngineKind.bilingualDictation` is made on, against the real
+    /// weights: one recording, two languages, and the English words come back as
+    /// English rather than as the tokeniser fragments Paraformer answers the same
+    /// audio with.
+    ///
+    /// Asserted as "several of these survived" rather than as a whole transcript
+    /// on purpose. Which English words a TTS voice reading Mandarin pronounces
+    /// cleanly is not stable enough to pin one by one, and pinning a spelling
+    /// that drifts would fail for nothing worth acting on; what must not drift is
+    /// that the English half comes back as words at all. See
+    /// `docs/bilingual-dictation.md`.
+    func testMixedEnglishAndMandarinComesBackAsBothLanguages() async throws {
+        let (text, _) = try await transcribe(try fixture("sensevoice-mixed.wav"))
+
+        let english = ["feature", "login", "branch", "tag", "James", "nginx", "log", "PR"]
+        let recognised = english.filter { text.localizedCaseInsensitiveContains($0) }
+        XCTAssertGreaterThanOrEqual(
+            recognised.count, 3,
+            "the English half of a mixed utterance did not come back as English: \(text)"
+        )
+
+        XCTAssertFalse(text.contains("@@"), "no engine but Paraformer may leak BPE markers: \(text)")
+        XCTAssertTrue(
+            ChineseScriptVariant.isHanDominant(text),
+            "the Mandarin half has to survive too, and be seen as Mandarin: \(text)"
+        )
+    }
+
+    /// And the transcript stage then writes that Mandarin half in the user's
+    /// script while leaving the English half exactly as the model returned it.
+    /// The deterministic half of this is pinned without weights in
+    /// `BilingualDictationTests`; this is the same assertion against real output.
+    func testTheMixedTranscriptIsWrittenInTheUsersScript() async throws {
+        let (text, _) = try await transcribe(try fixture("sensevoice-mixed.wav"))
+
+        var settings = Settings()
+        settings.selectedLanguage = "zh"
+        settings.chineseOutputScript = .traditional
+        settings.safeCorrectionEnabled = false
+        settings.useAsianAutocorrect = false
+        let processed = TextPostProcessor.process(text, settings: settings, terms: []).final
+
+        XCTAssertEqual(
+            processed.count, text.count,
+            "the conversion is character-wise, so a mixed transcript cannot change length"
+        )
+        XCTAssertEqual(
+            ChineseScriptVariant.signal(in: processed).simplified, 0,
+            "a Traditional user must not be handed the model's Simplified: \(processed)"
+        )
+        for word in ["feature", "login", "nginx", "log"]
+        where text.localizedCaseInsensitiveContains(word) {
+            XCTAssertTrue(
+                processed.localizedCaseInsensitiveContains(word),
+                "\(word) did not survive the transcript stage: \(processed)"
             )
         }
     }

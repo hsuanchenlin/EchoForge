@@ -126,6 +126,35 @@ enum EngineCatalog {
         return EngineKind.defaultChineseDictation
     }
 
+    // MARK: - The bilingual path
+
+    /// The engine to name to someone who dictates English and Chinese in one
+    /// sentence, and the two sentences Settings says it in.
+    ///
+    /// It is a statement rather than a suggestion, which is why it has no
+    /// `selected:` parameter the way `suggestedEngine(forLanguage:selected:)`
+    /// does. The engine rows are directly above it and each is one tap; what a
+    /// user cannot work out from four names is *which* of them survives a
+    /// sentence that switches language halfway through, and that is the only
+    /// thing this says. Shown unconditionally for the same reason - a user who
+    /// has not started mixing languages yet is exactly the one who does not know
+    /// the app can.
+    ///
+    /// The name is read from the entry rather than written out, so the model
+    /// name the FunASR licence requires cannot be dropped from this surface
+    /// while it survives in the picker (`docs/speech-model-attribution.md`).
+    static var bilingualHint: String {
+        "Mixed English and Chinese: use \(entry(for: EngineKind.bilingualDictation).displayName)"
+    }
+
+    /// The second line, which is what makes the first one a fact rather than a
+    /// preference: the other three local engines do not have a worse answer
+    /// here, they have no answer.
+    static let bilingualHintDetail =
+        "It is the only engine here that transcribes both in one recording - Whisper settles on one "
+        + "language per recording, Parakeet has no Chinese, and Paraformer refuses English rather "
+        + "than guess at it. Your Chinese still comes out in the script you chose."
+
     /// Where this engine's weights came from, in the sentence that follows the
     /// credit line.
     ///
@@ -229,7 +258,8 @@ enum EngineCatalog {
     /// `SenseVoiceEngineIntegrationTests` against the real weights.
     private static let senseVoice = EngineCatalogEntry(
         displayName: "SenseVoice-Small",
-        summary: "The default for Chinese. Punctuates, and also handles Cantonese, English, Japanese and Korean.",
+        summary: "The default for Chinese, and the one to use when you mix English into Mandarin. "
+            + "Punctuates, and also handles Cantonese, Japanese and Korean.",
         attributionCredit: "SenseVoiceSmall by FunASR / FunAudioLLM",
         notes: [
             // The wording of this one matters. Punctuation and inverse text
@@ -244,6 +274,12 @@ enum EngineCatalog {
             "The model writes Simplified Chinese; Kongweh writes your transcript in Traditional "
                 + "unless you choose otherwise in Settings \u{2192} Transcription.",
             "About 8x faster than real time, so a 30-second recording takes a few seconds.",
+            // The bilingual note. It is last because it is the one a user goes
+            // looking for rather than trips over, and it is here at all because
+            // no other local engine can do it - see `EngineKind.bilingualDictation`.
+            "English and Chinese in one sentence stay in one sentence - say 把 PR 開到 feature/login "
+                + "再 @James and the English words come back as they were, while the Chinese half is "
+                + "written in your chosen script. No other engine here transcribes both at once.",
         ],
         download: EngineModelDownload(
             modelName: "SenseVoiceSmall",
@@ -276,7 +312,8 @@ enum EngineCatalog {
             "Produces no punctuation at all - its vocabulary contains none, and nothing here invents any.",
             "Mandarin only, and the model refuses nothing - so English comes back as tokeniser fragments. "
                 + "Kongweh catches those and keeps the recording instead of inserting them, leaving you to "
-                + "switch engine and regenerate.",
+                + "switch engine and regenerate. If you mix English into Mandarin, use "
+                + "\(EngineCatalog.entry(for: EngineKind.bilingualDictation).displayName) instead.",
             "Cantonese is the case nothing can catch: it comes back as fluent but wrong Mandarin, which reads "
                 + "like a real transcript.",
             "The model writes Simplified Chinese - Kongweh writes your transcript in the script you "

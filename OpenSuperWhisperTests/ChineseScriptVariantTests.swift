@@ -101,6 +101,63 @@ final class ChineseScriptVariantTests: XCTestCase {
         XCTAssertFalse(ChineseScriptVariant.signal(in: "我明天去上海").isDecisive)
     }
 
+    // MARK: - Is this text Chinese at all
+
+    /// Han characters are weighed against **words**, not letters, and these are
+    /// the two sides of that line. The first sentence is the one the counting
+    /// change exists for: four Han characters against four English words is
+    /// Chinese, and against nineteen English letters - which is how it used to be
+    /// counted - it was not. See `docs/bilingual-dictation.md`.
+    func testHanIsWeighedAgainstWordsRatherThanLetters() {
+        XCTAssertTrue(ChineseScriptVariant.isHanDominant("把 PR 开到 feature/login 再 @James"))
+        XCTAssertTrue(ChineseScriptVariant.isHanDominant("我们用 SwiftUI 重写了 Settings 这个 pane"))
+
+        XCTAssertFalse(
+            ChineseScriptVariant.isHanDominant("We should ask 张 about the deploy tomorrow morning."))
+        XCTAssertFalse(ChineseScriptVariant.isHanDominant("we ship on friday"))
+    }
+
+    /// A run of Latin letters is one word however long it is, and a non-letter
+    /// inside it ends the run - which is what makes `feature/login` two words
+    /// rather than one, and `PR` one rather than two.
+    func testALatinRunCountsOnceHoweverLongItIs() {
+        // Length is not evidence. One Han character against one very long word
+        // is the same one-to-one it is against a short one - which is the whole
+        // correction, since the English a Chinese speaker mixes in is long.
+        XCTAssertTrue(ChineseScriptVariant.isHanDominant("看 supercalifragilisticexpialidocious"))
+        // A non-letter ends a run, so the same letters cut into four words are
+        // four pieces of evidence rather than one.
+        XCTAssertFalse(ChineseScriptVariant.isHanDominant("看 a.b.c.d"))
+        // And `feature/login` is two, which still leaves this Chinese.
+        XCTAssertTrue(ChineseScriptVariant.isHanDominant("開到 feature/login 再"))
+    }
+
+    /// Nothing to count is not evidence of Chinese, and must not become a
+    /// division by zero either.
+    func testTextWithNoWordsIsNotHanDominant() {
+        for text in ["", "   ", "2500 $ 30%", "\n\t", "🙂"] {
+            XCTAssertFalse(ChineseScriptVariant.isHanDominant(text), "\(text) is not Chinese")
+        }
+    }
+
+    /// A single kana or Hangul character still rules Chinese out whatever the
+    /// counting says - the word rule changes the Chinese/English line, not this
+    /// one.
+    func testKanaAndHangulStillRuleChineseOut() {
+        XCTAssertFalse(ChineseScriptVariant.isHanDominant("会議は三時からです"))
+        XCTAssertFalse(ChineseScriptVariant.isHanDominant("안녕하세요 저는 學生입니다"))
+    }
+
+    /// The threshold is a named constant so that moving it is a decision about
+    /// whose dictation is Chinese rather than a tuning change.
+    func testTheThresholdIsWhereItSaysItIs() {
+        XCTAssertEqual(ChineseScriptVariant.hanShareThreshold, 0.3)
+        // Three Han characters to seven English words is exactly three tenths
+        // and stays; two to seven is under and goes.
+        XCTAssertTrue(ChineseScriptVariant.isHanDominant("中中中 a b c d e f g"))
+        XCTAssertFalse(ChineseScriptVariant.isHanDominant("中中 a b c d e f g"))
+    }
+
     // MARK: - The user's own preference
 
     func testPrefersTheVariantOfTheUsersOwnChineseLanguage() {

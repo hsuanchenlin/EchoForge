@@ -124,6 +124,59 @@ final class EngineCatalogTests: XCTestCase {
         }
     }
 
+    // MARK: - The bilingual path
+
+    /// The hint Settings shows under the engine rows names the bilingual engine,
+    /// and names it with the model name the FunASR licence requires - which it
+    /// gets by reading the entry rather than by spelling one out.
+    func testTheBilingualHintNamesTheBilingualEngine() {
+        let hint = EngineCatalog.bilingualHint
+
+        XCTAssertTrue(hint.contains("Mixed English and Chinese"), hint)
+        XCTAssertTrue(
+            hint.contains(EngineCatalog.entry(for: EngineKind.bilingualDictation).displayName), hint)
+        XCTAssertTrue(hint.contains("SenseVoice"), "the model licence requires the name here too: \(hint)")
+    }
+
+    /// The second line is what makes the first a fact rather than a preference,
+    /// so it has to account for all three engines it passes over - and it must
+    /// not quietly become an argument for the cloud one.
+    func testTheBilingualHintSaysWhyTheOtherEnginesAreNotTheAnswer() {
+        let detail = EngineCatalog.bilingualHintDetail
+
+        XCTAssertTrue(detail.contains("Whisper"), detail)
+        XCTAssertTrue(detail.contains("Parakeet"), detail)
+        XCTAssertTrue(detail.contains("Paraformer"), detail)
+        XCTAssertFalse(
+            detail.lowercased().contains("cloud"),
+            "the bilingual path is on-device; this line must not recommend a provider: \(detail)"
+        )
+    }
+
+    /// SenseVoice's row is where a user decides, so the one thing no other
+    /// engine here can do has to be on it rather than only in a doc.
+    func testSenseVoiceStatesThatItTranscribesBothLanguagesAtOnce() {
+        let entry = EngineCatalog.entry(for: EngineKind.bilingualDictation)
+        let copy = ([entry.summary] + entry.notes).joined(separator: " ")
+
+        XCTAssertTrue(copy.contains("English"), copy)
+        XCTAssertTrue(
+            copy.contains("mix English into Mandarin") || copy.contains("English and Chinese in one sentence"),
+            "the picker row must say the engine handles a code-switched sentence: \(copy)"
+        )
+    }
+
+    /// And Paraformer's row has to send that user somewhere. "English comes back
+    /// as fragments" without naming the engine that does not is half an answer.
+    func testParaformerPointsMixedDictationAtTheBilingualEngine() {
+        let notes = EngineCatalog.entry(for: .paraformer).notes.joined(separator: " ")
+
+        XCTAssertTrue(
+            notes.contains(EngineCatalog.entry(for: EngineKind.bilingualDictation).displayName),
+            "the Mandarin-only engine must name the one that does mixed dictation: \(notes)"
+        )
+    }
+
     // MARK: - Download figures
 
     /// C11: SenseVoice is variant-filtered so int8 really is a smaller download;
