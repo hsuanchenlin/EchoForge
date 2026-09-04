@@ -62,6 +62,14 @@ returned without touching the row, so the loop was handed the same row back on t
 `TranscriptionQueueStep` is the rule now, and it is a decision about progress rather than about
 identity - a row the user regenerates while the loop is still draining is new work, not a repeat.
 
+That rule is only as good as what a pass reports, so the writes report:
+`updateRecordingProgressOnlySync`, `updateRecordingStatusOnly` and `deleteRecordingSync` return
+whether the write landed instead of printing the error and swallowing it, and every exit of
+`processRecording` hands that answer back. A pass that answered `true` regardless was the same
+bug in different clothes - a cancelled row whose write never landed stayed `.converting`, came
+round again, and was read as a regenerate. A row that is already gone still counts as settled;
+only a write that failed does not, and such a row is written out once and then left alone.
+
 ## Reliability fixed alongside it
 
 - **A microphone that never opens now says so.** `AudioRecorder.startRecording` claims the
@@ -71,7 +79,10 @@ identity - a row the user regenerates while the loop is still draining is new wo
   microphone that never started, and the press that ended it got `nil` from `stopRecording` and
   closed the session without a word. The Ask panel had the same hole and reported it as "No
   speech detected". `AudioRecorder.failedStart` is the report, and it names its session because
-  five keys share one recorder and `@Published` replays.
+  five keys share one recorder and `@Published` replays. Every surface that takes the microphone
+  subscribes to it - the dictation card, the Ask panel and the main window's record button,
+  which had only `isRecording` going false to go on and never sees that at all when the start
+  found no audio input.
 - **Cancelling a transcription now cancels it, and only it.** `cancelTranscription` used to
   raise a shared `isCancelled` flag and drop it again inside one synchronous main-actor call,
   so every check of it in the running task read `false` and an engine that answered a moment

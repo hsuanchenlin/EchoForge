@@ -60,6 +60,33 @@ final class TranscriptionQueueStepTests: XCTestCase {
         )
     }
 
+    /// The swallowed write, which is the case the whole `settled` flag is for: a
+    /// pass that ran to the end and could not persist what it did reports itself
+    /// unsettled, so the row it left in the pending statuses is written out
+    /// rather than transcribed a second time. `TranscriptionQueue` used to
+    /// answer `true` here regardless - the store printed the error and returned
+    /// nothing - so the loop read the row coming back as a regenerate.
+    func testAPassWhosePersistenceFailedIsAbandonedRatherThanRepeated() {
+        XCTAssertEqual(
+            TranscriptionQueueStep.next(a, after: .init(id: a, settled: false)),
+            .abandon(a)
+        )
+
+        // And when the abandoning write is swallowed too, the loop ends rather
+        // than turning again on a database that is not accepting writes.
+        XCTAssertEqual(
+            TranscriptionQueueStep.next(a, after: .init(id: a, settled: false, abandoned: true)),
+            .finished
+        )
+
+        // An abandoning write that *did* land settles the row, so the user
+        // pressing regenerate on it is new work like any other.
+        XCTAssertEqual(
+            TranscriptionQueueStep.next(a, after: .init(id: a, settled: true, abandoned: true)),
+            .process(a)
+        )
+    }
+
     /// The false positive an identity-only rule would have: the user presses
     /// regenerate on the recording that just finished, while the loop is still
     /// draining. That pass settled the row, so this is a new piece of work.

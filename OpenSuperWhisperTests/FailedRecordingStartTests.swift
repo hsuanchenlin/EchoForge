@@ -88,11 +88,16 @@ final class FailedRecordingStartTests: XCTestCase {
             "and the report must not leave the microphone claimed")
     }
 
-    /// Both surfaces that take the microphone listen for it.
+    /// Every surface that takes the microphone listens for it - the dictation
+    /// card, the Ask panel, and the main window's record button, which claims
+    /// the same shared recorder and had nothing but `isRecording` going false to
+    /// go on. That never happens on a start that found no audio input, so the
+    /// window sat on a session naming a recording that never began.
     func testEverySurfaceHoldingTheMicrophoneListensForAFailedStart() throws {
         for path in [
             "OpenSuperWhisper/Indicator/IndicatorWindow.swift",
             "OpenSuperWhisper/Ask/AskPanelWindowController.swift",
+            "OpenSuperWhisper/ContentView.swift",
         ] {
             let source = try Self.source(of: path)
             XCTAssertTrue(

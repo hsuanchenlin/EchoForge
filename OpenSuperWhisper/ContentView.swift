@@ -44,6 +44,13 @@ class ContentViewModel: ObservableObject {
     /// to the loaded page, so it reaches rows paging has not fetched yet.
     @Published var provenanceFilter: HistoryProvenanceFilter = .all
 
+    /// Why this window's last press never opened the microphone, or nil.
+    ///
+    /// A banner rather than the two-second message the dictation card shows: a
+    /// window the user is looking at can hold the sentence until the next press
+    /// clears it. See `AudioRecorder.failedStart`.
+    @Published var recordingStartFailure: String?
+
     private var currentPage = 0
     private let pageSize = 100
     private var currentSearchQuery = ""
@@ -79,17 +86,24 @@ class ContentViewModel: ObservableObject {
                     self.state = .recording
                     self.startBlinking()
                     self.startDurationTimerIfNeeded()
-                } else if !isRecording && self.state == .recording {
-                    // The claim was given back underneath this window - a start
-                    // that could not open the microphone - so the session it is
-                    // still holding names nothing and must not be presented to
-                    // a stop later.
-                    self.recordingSession = nil
-                    self.state = .idle
-                    self.stopBlinking()
-                    self.stopDurationTimer()
-                    self.recordingDuration = 0
                 }
+            }
+            .store(in: &cancellables)
+
+        // The third thing the recorder can say, and this window takes the
+        // microphone too. It is what ends a session whose start failed, and the
+        // sink above deliberately no longer guesses at that from `isRecording`
+        // going false: a start that found no audio input never publishes a
+        // recording state at all - so the window went on holding a session
+        // naming a recording that never began, and the next press decoded it
+        // into a silent hide - while the one that does publish it arrives
+        // before the report and left the user with no idea why the recording
+        // had stopped.
+        recorder.$failedStart
+            .receive(on: RunLoop.main)
+            .sink { [weak self] failure in
+                guard let self, let failure, failure.ends(self.recordingSession) else { return }
+                self.recordingSessionDidFailToStart(failure.reason)
             }
             .store(in: &cancellables)
 
@@ -277,6 +291,7 @@ class ContentViewModel: ObservableObject {
         // state over nothing.
         guard let claimed = recorder.startRecording() else { return }
         recordingSession = claimed
+        recordingStartFailure = nil
 
         if microphoneService.isActiveMicrophoneRequiresConnection() {
             state = .connecting
@@ -290,6 +305,21 @@ class ContentViewModel: ObservableObject {
             recordingDuration = 0
             startDurationTimerIfNeeded()
         }
+    }
+
+    /// Ends a session whose microphone never opened.
+    ///
+    /// The claim is already back - `AudioRecorder.failStart` releases it before
+    /// reporting - so this only has to drop the session this window is still
+    /// holding, stop drawing a recording that is not happening, and say why.
+    private func recordingSessionDidFailToStart(_ reason: FailedRecordingStart.Reason) {
+        recordingSession = nil
+        recordingStartTime = nil
+        state = .idle
+        stopBlinking()
+        stopDurationTimer()
+        recordingDuration = 0
+        recordingStartFailure = reason.message
     }
 
     func startDecoding() {
@@ -651,6 +681,16 @@ struct ContentView: View {
                         // and never over the history: preparing a model is a
                         // strip of status here, and everything below stays
                         // scrollable, searchable and playable while it runs.
+                        //
+                        // A press whose microphone never opened gets a row of
+                        // its own rather than a branch of the chain below, so a
+                        // model preparing in the background goes on saying so
+                        // while it is up.
+                        if let failure = viewModel.recordingStartFailure {
+                            RecordingStartFailedBanner(message: failure)
+                                .padding(.top, 12)
+                        }
+
                         if !viewModel.isEngineConfigured {
                             EngineUnavailableBanner(
                                 openSettings: { isSettingsPresented = true },
@@ -1010,6 +1050,45 @@ struct ModelPreparationFailedBanner: View {
             Button("Try Again", action: retry)
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
+        }
+        .padding(12)
+        .background(Color.orange.opacity(colorScheme == .dark ? 0.12 : 0.10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.orange.opacity(0.35), lineWidth: 1)
+        )
+        .cornerRadius(10)
+    }
+}
+
+/// The microphone this window took never opened.
+///
+/// Shaped like `ModelPreparationFailedBanner` and deliberately without a button:
+/// there is nothing for the app to retry - the next press is the retry - and the
+/// sentence is `FailedRecordingStart.Reason.message`, the same words the Ask
+/// panel's card shows for the same failure.
+struct RecordingStartFailedBanner: View {
+    let message: String
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "mic.slash")
+                .foregroundColor(.orange)
+                .imageScale(.medium)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Recording did not start")
+                    .font(.subheadline.weight(.semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(message)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 8)
         }
         .padding(12)
         .background(Color.orange.opacity(colorScheme == .dark ? 0.12 : 0.10))

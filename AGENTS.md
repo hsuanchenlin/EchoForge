@@ -787,9 +787,14 @@ is handed the same row on the next turn and transcribes it again - which is what
 used to do. `TranscriptionQueueStep` is that rule, kept out of the loop so it can be asserted,
 and it turns on whether the previous pass *settled* the row rather than on identity, so a
 regenerate of the recording that just finished is new work rather than a repeat. Everything
-that ends a pass settles the row; the loop's guard is for a database write that failed and was
-swallowed, and it ends the loop rather than spinning, because `isProcessing` refuses every
-later dictation while it is true.
+that ends a pass settles the row, and *settled* is *the store's* answer rather than the pass's:
+`updateRecordingProgressOnlySync`, `updateRecordingStatusOnly` and `deleteRecordingSync` return
+whether the write landed instead of printing the error and swallowing it, because a pass that
+reported `true` regardless left a cancelled row `.converting` and the loop read it coming back
+as a regenerate - the cancelled transcription running after all. A row that is already gone
+still counts as settled; only a write that failed does not. The loop's guard is then the
+bounded escape: it writes such a row out once, and if it comes back again it ends the loop
+rather than spinning, because `isProcessing` refuses every later dictation while it is true.
 
 Cancellation is generation-scoped in `TranscriptionService` (`transcriptionGeneration`,
 `cancelledGeneration`) for the same reason `loadGeneration` exists: a transcription's teardown

@@ -214,13 +214,13 @@ class TranscriptionQueue: ObservableObject {
                 return
 
             case .abandon(let id):
-                await recordingStore.updateRecordingProgressOnlySync(
+                let settled = await recordingStore.updateRecordingProgressOnlySync(
                     id,
                     transcription: Self.abandonedMessage,
                     progress: 0.0,
                     status: .failed
                 )
-                previous = .init(id: id, settled: false, abandoned: true)
+                previous = .init(id: id, settled: settled, abandoned: true)
 
             case .process(let id):
                 // `pending` is non-nil on this branch by construction: `.process`
@@ -237,9 +237,11 @@ class TranscriptionQueue: ObservableObject {
     /// Runs one recording through the engine.
     ///
     /// - Returns: whether the row was left out of the queue's pending statuses -
-    ///   completed, failed, or deleted. Every path here settles it, and the
-    ///   caller's guard exists for the one case this cannot promise: a database
-    ///   write that failed and was swallowed. See `TranscriptionQueueStep`.
+    ///   completed, failed, or deleted. Every path here writes it out, and the
+    ///   answer is the store's rather than this function's: a write that failed
+    ///   was printed and swallowed, so a pass that reported `true` regardless
+    ///   told the loop a still-pending row had been settled and got it handed
+    ///   back as a regenerate. See `TranscriptionQueueStep`.
     @discardableResult
     private func processRecording(_ recording: Recording) async -> Bool {
         if isRecordingCancelled(recording.id) {
@@ -247,24 +249,17 @@ class TranscriptionQueue: ObservableObject {
             // Written out of the queue rather than simply skipped. Left
             // `.pending` the row came straight back round and was transcribed
             // after all, which is the opposite of what cancelling means.
-            await recordingStore.updateRecordingProgressOnlySync(
-                recording.id,
-                transcription: Self.cancelledMessage,
-                progress: 0.0,
-                status: .failed
-            )
-            return true
+            return await settleCancelled(recording.id)
         }
 
         guard let sourceURLString = recording.sourceFileURL,
               !sourceURLString.isEmpty else {
-            await recordingStore.updateRecordingProgressOnlySync(
+            return await recordingStore.updateRecordingProgressOnlySync(
                 recording.id,
                 transcription: "Source file not found",
                 progress: 0.0,
                 status: .failed
             )
-            return true
         }
 
         let sourceURL = URL(fileURLWithPath: sourceURLString)
@@ -274,13 +269,12 @@ class TranscriptionQueue: ObservableObject {
         }.value
         
         guard sourceExists else {
-            await recordingStore.updateRecordingProgressOnlySync(
+            return await recordingStore.updateRecordingProgressOnlySync(
                 recording.id,
                 transcription: "Source file not found",
                 progress: 0.0,
                 status: .failed
             )
-            return true
         }
 
         let isRegeneration = !recording.transcription.isEmpty && 
@@ -328,8 +322,7 @@ class TranscriptionQueue: ObservableObject {
                     await Task.detached(priority: .utility) {
                         try? FileManager.default.removeItem(at: sourceURL)
                     }.value
-                    await recordingStore.deleteRecordingSync(recording)
-                    settled = true
+                    settled = await recordingStore.deleteRecordingSync(recording)
                     return
                 }
 
@@ -354,7 +347,7 @@ class TranscriptionQueue: ObservableObject {
                     }
                 }.value
 
-                await recordingStore.updateRecordingProgressOnlySync(
+                settled = await recordingStore.updateRecordingProgressOnlySync(
                     recording.id,
                     transcription: text,
                     rawTranscription: styled.originalWorthKeeping,
@@ -362,20 +355,18 @@ class TranscriptionQueue: ObservableObject {
                     status: .completed,
                     isRegeneration: false
                 )
-                settled = true
 
             } catch {
                 if isRecordingCancelled(recording.id) || Task.isCancelled {
                     settled = await self.settleCancelled(recording.id)
                 } else {
-                    await recordingStore.updateRecordingProgressOnlySync(
+                    settled = await recordingStore.updateRecordingProgressOnlySync(
                         recording.id,
                         transcription: "Failed to transcribe: \(error.localizedDescription)",
                         progress: 0.0,
                         status: .failed,
                         isRegeneration: false
                     )
-                    settled = true
                 }
             }
         }
@@ -388,10 +379,16 @@ class TranscriptionQueue: ObservableObject {
 
     /// Writes a cancelled row out of the queue.
     ///
-    /// Always `true`: the row is either updated or already gone, and either way
-    /// it is no longer something the loop should hand back. Kept as one function
-    /// because a cancellation can be noticed at three different points in a pass
-    /// and all three have to leave the same state behind.
+    /// Kept as one function because a cancellation can be noticed at three
+    /// different points in a pass and all three have to leave the same state
+    /// behind.
+    ///
+    /// - Returns: the store's answer, not `true`. A row that was already deleted
+    ///   matches nothing and is still settled - it is out of the pending
+    ///   statuses - but a write that failed leaves it `.converting`, which
+    ///   `getNextPendingRecording` hands straight back, and claiming otherwise
+    ///   is how the loop came to re-transcribe a cancelled recording as if the
+    ///   user had pressed regenerate.
     private func settleCancelled(_ id: UUID) async -> Bool {
         await recordingStore.updateRecordingProgressOnlySync(
             id,
@@ -399,7 +396,6 @@ class TranscriptionQueue: ObservableObject {
             progress: 0.0,
             status: .failed
         )
-        return true
     }
 
 }

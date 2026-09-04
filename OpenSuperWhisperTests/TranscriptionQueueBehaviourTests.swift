@@ -28,15 +28,50 @@ final class TranscriptionQueueBehaviourTests: XCTestCase {
                       "a cancelled row leaves the pending statuses")
         XCTAssertTrue(settle.contains("Self.cancelledMessage"))
 
-        // Three points in one pass can notice a cancellation, and all three have
-        // to leave the same state behind.
+        // Three points in one pass can notice a cancellation - before the
+        // transcription starts, inside it, and in the catch - and all three have
+        // to leave the same state behind, which is why they all go through the
+        // one function rather than writing the row themselves.
         let body = try Self.body(of: "private func processRecording(_ recording: Recording) async -> Bool {", in: source)
         XCTAssertGreaterThanOrEqual(
-            body.components(separatedBy: "settleCancelled(recording.id)").count - 1, 2,
-            "the cancellation checks inside the transcription have to settle the row too")
-        XCTAssertTrue(
-            body.contains("Self.cancelledMessage"),
-            "and so does the one before the transcription starts")
+            body.components(separatedBy: "settleCancelled(recording.id)").count - 1, 3,
+            "every point that notices a cancellation has to settle the row the same way")
+    }
+
+    /// What a pass reports has to be what the database did.
+    ///
+    /// `settleCancelled` returning an unconditional `true` was the bug: the
+    /// store's writes printed their errors and swallowed them, so a cancelled
+    /// row whose write never landed stayed `.converting`, the loop was told it
+    /// had been settled, and `TranscriptionQueueStep` read the row coming back
+    /// as a regenerate and handed it to the engine - the cancelled transcription
+    /// running after all, and on the cloud engine a second paid request.
+    func testASettledRowIsWhatTheStoreSaidRatherThanALiteralTrue() throws {
+        let source = try queue
+
+        let settle = try Self.body(of: "private func settleCancelled(_ id: UUID) async -> Bool {", in: source)
+        XCTAssertFalse(settle.contains("return true"),
+                       "a cancelled row is settled only if the write landed")
+        XCTAssertTrue(settle.contains("await recordingStore.updateRecordingProgressOnlySync("),
+                      "and the answer is the store's")
+
+        let body = try Self.body(of: "private func processRecording(_ recording: Recording) async -> Bool {", in: source)
+        XCTAssertFalse(body.contains("return true"),
+                       "no exit may claim to have settled a row the store did not write")
+        XCTAssertFalse(body.contains("settled = true"),
+                       "nor may the transcription task")
+
+        // The other half: the writes have to have an answer to give.
+        let store = try Self.source(of: "OpenSuperWhisper/Models/Recording.swift")
+        for signature in [
+            "func updateRecordingProgressOnlySync(_ id: UUID, transcription: String, rawTranscription: String? = nil, progress: Float, status: RecordingStatus, isRegeneration: Bool? = nil) async -> Bool {",
+            "func updateRecordingStatusOnly(_ id: UUID, progress: Float, status: RecordingStatus, isRegeneration: Bool? = nil) async -> Bool {",
+            "func deleteRecordingSync(_ recording: Recording) async -> Bool {",
+        ] {
+            let write = try Self.body(of: signature, in: store)
+            XCTAssertTrue(write.contains("return false"),
+                          "a write that threw has to say so rather than only printing it")
+        }
     }
 
     /// A queue that never stops being busy is not a stuck row: `isProcessing`
