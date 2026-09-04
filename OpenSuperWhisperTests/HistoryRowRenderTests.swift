@@ -336,6 +336,108 @@ final class HistoryRowRenderTests: XCTestCase {
         XCTFail("the correction never finished", file: file, line: line)
     }
 
+    // MARK: - Export
+
+    /// An export that could not be written explains itself on the card, the way
+    /// a refused correction does - never an alert, because the row still has
+    /// every word it had and the user can simply choose somewhere else.
+    @MainActor
+    func testAnExportThatFailedExplainsItselfOnTheCard() throws {
+        let recording = recording(status: .completed)
+        let exports = TranscriptExportCoordinator(
+            choosing: { _, _ in URL(fileURLWithPath: "/nowhere/at/all/transcript.md") },
+            writing: { _, _ in
+                throw NSError(
+                    domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError,
+                    userInfo: [
+                        NSLocalizedDescriptionKey: "You do not have permission to save here.",
+                    ])
+            })
+        exports.export(recording)
+
+        for tier in HistoryWidthTier.allCases {
+            try assertRow(
+                named: "export-failed-\(tier.rawValue)",
+                recording: recording,
+                exports: exports,
+                tier: tier,
+                showing: ["Export failed", "permission to save", "quick brown fox"]
+            )
+        }
+    }
+
+    /// And an export that landed says where it went, by the name the user gave
+    /// it - never by the path they navigated to.
+    @MainActor
+    func testAnExportThatLandedNamesTheFileAndNotThePath() throws {
+        let recording = recording(status: .completed)
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("export-render-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let exports = TranscriptExportCoordinator(
+            choosing: { _, _ in directory.appendingPathComponent("Meeting notes.md") },
+            writing: { text, url in try text.write(to: url, atomically: true, encoding: .utf8) })
+        exports.export(recording)
+
+        try assertRow(
+            named: "export-saved-regular",
+            recording: recording,
+            exports: exports,
+            tier: .regular,
+            showing: ["Exported to", "Meeting notes.md"]
+        )
+    }
+
+    /// The note has to be on the card without changing how tall it is by more
+    /// than the line it is - a row that jumped on export would move every row
+    /// under it in a list the user is reading.
+    @MainActor
+    func testTheExportNoteIsTheOnlyThingThatChangesOnTheCard() throws {
+        let recording = recording(status: .completed)
+        let quiet = TranscriptExportCoordinator(
+            choosing: { _, _ in nil }, writing: { _, _ in })
+        quiet.export(recording)
+
+        XCTAssertNil(
+            quiet.note(for: recording.id),
+            "A cancelled save leaves the card exactly as it was.")
+        XCTAssertEqual(
+            try height(of: row(recording, exports: quiet), width: Self.regularWidth,
+                       metrics: .regular),
+            try height(of: row(recording), width: Self.regularWidth, metrics: .regular),
+            accuracy: 1,
+            "A cancelled export changed the card's height")
+    }
+
+    // MARK: - Search
+
+    /// The list highlights what was searched for, and a search that matched the
+    /// row's badge rather than its words must leave the transcript readable
+    /// rather than marking nothing up in it.
+    @MainActor
+    func testARowFoundByItsBadgeStillReadsNormally() throws {
+        try assertRow(
+            named: "search-by-badge-regular",
+            recording: recording(status: .completed),
+            searchQuery: "Dictation",
+            tier: .regular,
+            showing: ["Dictation", "quick brown fox", "wrap it"]
+        )
+    }
+
+    @MainActor
+    func testARowFoundByItsWordsHighlightsThem() throws {
+        try assertRow(
+            named: "search-by-words-regular",
+            recording: recording(status: .completed),
+            searchQuery: "brown fox",
+            tier: .regular,
+            showing: ["quick brown fox", "wrap it"]
+        )
+    }
+
     // MARK: - The tiers are actually different
 
     /// Two sets of numbers that produce the same picture would make the whole
@@ -414,12 +516,16 @@ final class HistoryRowRenderTests: XCTestCase {
     @MainActor
     private func row(
         _ recording: Recording,
-        corrections: TranscriptCorrectionCoordinator? = nil
+        corrections: TranscriptCorrectionCoordinator? = nil,
+        exports: TranscriptExportCoordinator? = nil,
+        searchQuery: String = ""
     ) -> AnyView {
         AnyView(
             RecordingRow(
-                recording: recording, searchQuery: "", onDelete: {}, onRegenerate: {},
-                corrections: corrections ?? TranscriptCorrectionCoordinator()))
+                recording: recording, searchQuery: searchQuery, onDelete: {}, onRegenerate: {},
+                corrections: corrections ?? TranscriptCorrectionCoordinator(),
+                exports: exports ?? TranscriptExportCoordinator(
+                    choosing: { _, _ in nil }, writing: { _, _ in })))
     }
 
     // MARK: - Rendering
@@ -429,6 +535,8 @@ final class HistoryRowRenderTests: XCTestCase {
         named name: String,
         recording: Recording,
         corrections: TranscriptCorrectionCoordinator? = nil,
+        exports: TranscriptExportCoordinator? = nil,
+        searchQuery: String = "",
         tier: HistoryWidthTier,
         scheme: ColorScheme = .light,
         showing fragments: [String],
@@ -436,7 +544,10 @@ final class HistoryRowRenderTests: XCTestCase {
     ) throws {
         let width = tier == .compact ? Self.compactWidth : Self.regularWidth
         let hosting = try hostingView(
-            for: row(recording, corrections: corrections), width: width,
+            for: row(
+                recording, corrections: corrections, exports: exports,
+                searchQuery: searchQuery),
+            width: width,
             metrics: HistoryRowMetrics.metrics(for: tier), scheme: scheme)
 
         let rep = try XCTUnwrap(

@@ -46,7 +46,13 @@ class ContentViewModel: ObservableObject {
 
     private var currentPage = 0
     private let pageSize = 100
-    private var currentSearchQuery = ""
+    /// The phrase the loaded page was fetched for, resolved.
+    ///
+    /// The resolved value rather than the raw string, because resolving it is
+    /// what turns "voice edit" into a badge and "2026-09" into a month, and
+    /// doing that once per search rather than once per page keeps a `loadMore`
+    /// from re-deciding what the user meant.
+    private var currentSearchQuery = HistorySearchQuery("")
     private var currentFilter: HistoryProvenanceFilter = .all
     private var blinkTimer: Timer?
     private var recordingStartTime: Date?
@@ -123,7 +129,7 @@ class ContentViewModel: ObservableObject {
     }
     
     func loadInitialData() {
-        currentSearchQuery = ""
+        currentSearchQuery = HistorySearchQuery("")
         currentFilter = provenanceFilter
         currentPage = 0
         canLoadMore = true
@@ -192,8 +198,14 @@ class ContentViewModel: ObservableObject {
         }
     }
     
+    /// Reloads from the top under a new phrase.
+    ///
+    /// The phrase is resolved here - once per search rather than once per page -
+    /// and the reset is the same one `applyFilter` does, for the same reason:
+    /// page, contents and the "there is more" flag all describe the previous
+    /// query.
     func search(query: String) {
-        currentSearchQuery = query
+        currentSearchQuery = HistorySearchQuery(query)
         currentFilter = provenanceFilter
         currentPage = 0
         canLoadMore = true
@@ -339,7 +351,7 @@ class ContentViewModel: ObservableObject {
                             
                             if !self.currentSearchQuery.isEmpty {
                                 self.shouldClearSearch = true
-                                self.currentSearchQuery = ""
+                                self.currentSearchQuery = HistorySearchQuery("")
                             }
                             self.recordings.insert(newRecording, at: 0)
                         }
@@ -432,6 +444,13 @@ struct ContentView: View {
     @State private var debouncedSearchText = ""
     @State private var showDeleteConfirmation = false
     @State private var searchTask: Task<Void, Never>? = nil
+    /// Focus for the search field, so ⌘F can put the caret in it.
+    ///
+    /// The field is always on screen - this is not a bar that appears - so the
+    /// shortcut moves focus rather than revealing anything. It is the one way
+    /// into search that needs no pointer, which is why it exists beside a field
+    /// that is already visible.
+    @FocusState private var isSearchFocused: Bool
 
     private var currentShortcutDescription: String {
         let mouseButton = MouseButton(rawValue: AppPreferences.shared.mouseButtonHotkey) ?? .none
@@ -447,6 +466,19 @@ struct ContentView: View {
         return ""
     }
     
+    /// The one action that takes the list back to everything.
+    ///
+    /// Shared by the field's own clear button, the "Clear search" button on the
+    /// no-results state, and the reset the view model asks for after a delete -
+    /// three ways in, one behaviour, so a cancelled debounce or a stale
+    /// `debouncedSearchText` cannot survive one of them.
+    private func clearSearch() {
+        searchTask?.cancel()
+        searchText = ""
+        debouncedSearchText = ""
+        viewModel.search(query: "")
+    }
+
     private func performSearch(_ query: String) {
         searchTask?.cancel()
         
@@ -474,75 +506,28 @@ struct ContentView: View {
                 PermissionsView(permissionsManager: permissionsManager)
             } else {
                 VStack(spacing: 0) {
-                    // Search bar
-                    HStack {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundColor(.secondary)
-
-                        TextField("Search in transcriptions", text: $searchText)
-                            .textFieldStyle(PlainTextFieldStyle())
-                            .onChange(of: searchText) { _, newValue in
-                                performSearch(newValue)
-                            }
-
-                        if !searchText.isEmpty {
-                            Button(action: {
-                                searchText = ""
-                                debouncedSearchText = ""
-                                searchTask?.cancel()
-                                viewModel.search(query: "")
-                            }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(.secondary)
-                                    .imageScale(.medium)
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        Divider()
-                            .frame(height: 16)
-
-                        HistoryProvenanceFilterMenu(
-                            selection: Binding(
-                                get: { viewModel.provenanceFilter },
-                                set: { viewModel.applyFilter($0) }
-                            )
-                        )
-                    }
-                    .padding(10)
-                    .background(ThemePalette.panelSurface(colorScheme))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 20)
-                            .stroke(ThemePalette.panelBorder(colorScheme), lineWidth: 1)
+                    HistorySearchBar(
+                        text: $searchText,
+                        filter: Binding(
+                            get: { viewModel.provenanceFilter },
+                            set: { viewModel.applyFilter($0) }
+                        ),
+                        clear: clearSearch,
+                        focus: $isSearchFocused
                     )
-                    .cornerRadius(20)
+                    .onChange(of: searchText) { _, newValue in
+                        performSearch(newValue)
+                    }
                     .padding([.horizontal, .top])
 
                     ScrollView(showsIndicators: false) {
                         if viewModel.recordings.isEmpty {
                             VStack(spacing: 16) {
                                 if !debouncedSearchText.isEmpty || viewModel.provenanceFilter != .all {
-                                    // Show "no results" for search
-                                    Image(systemName: "magnifyingglass")
-                                        .font(.system(size: 40))
-                                        .foregroundColor(.secondary)
-                                        .padding(.top, 40)
-
-                                    Text("No results found")
-                                        .font(.headline)
-                                        .foregroundColor(.secondary)
-
-                                    // A filtered list that is empty must say it
-                                    // is filtered. "No recordings yet" over a
-                                    // history full of recordings is the app
-                                    // telling the user something untrue.
-                                    Text(viewModel.provenanceFilter == .all
-                                         ? "Try different search terms"
-                                         : "No “\(viewModel.provenanceFilter.title)” entries\(debouncedSearchText.isEmpty ? "" : " match that search"). Choose All to see everything.")
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                        .multilineTextAlignment(.center)
-                                        .padding(.horizontal)
+                                    HistoryNoResultsView(
+                                        query: debouncedSearchText,
+                                        filter: viewModel.provenanceFilter,
+                                        clear: clearSearch)
                                 } else {
                                     // Show "start recording" tip
                                     Image(systemName: "arrow.down.circle")
@@ -854,9 +839,9 @@ struct ContentView: View {
         }
         .onChange(of: viewModel.shouldClearSearch) { _, shouldClear in
             if shouldClear {
+                searchTask?.cancel()
                 searchText = ""
                 debouncedSearchText = ""
-                searchTask?.cancel()
                 viewModel.shouldClearSearch = false
             }
         }

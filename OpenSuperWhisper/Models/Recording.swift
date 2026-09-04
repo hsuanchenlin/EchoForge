@@ -311,6 +311,75 @@ class RecordingStore: ObservableObject {
         )
     }
 
+    /// The history query for one filter **and** one search phrase.
+    ///
+    /// The two are ANDed, and that is the contract the list depends on: choosing
+    /// a kind narrows a search rather than replacing it, so a user who has typed
+    /// a word and then picked "Voice edit" sees the voice edits carrying that
+    /// word rather than every voice edit they have ever made.
+    ///
+    /// The phrase itself is ORed across the four things a card shows and the
+    /// database can answer for: the transcript, the original the "Show original"
+    /// disclosure holds, the provenance sentence under the badge, and - through
+    /// `HistorySearchQuery`, which resolved them before the query was built -
+    /// the badge's own label and the row's date. Nothing here reaches `fileName`
+    /// or `sourceFileURL`: one is an internal `UUID.wav` and the other an
+    /// absolute path whose directories the user has never been shown.
+    nonisolated static func query(
+        matching filter: HistoryProvenanceFilter,
+        searching search: HistorySearchQuery
+    ) -> QueryInterfaceRequest<Recording> {
+        let filtered = query(matching: filter)
+        guard !search.isEmpty else { return filtered }
+
+        let pattern = "%\(escapedForLike(search.text))%"
+        var matches = Recording.Columns.transcription
+            .like(pattern, escape: likeEscapeCharacter).collating(.nocase)
+        matches = matches
+            || Recording.Columns.rawTranscription
+                .like(pattern, escape: likeEscapeCharacter).collating(.nocase)
+        matches = matches
+            || Recording.Columns.provenanceDetail
+                .like(pattern, escape: likeEscapeCharacter).collating(.nocase)
+
+        if !search.matchedKinds.isEmpty {
+            matches = matches
+                || search.matchedKinds.map(\.rawValue)
+                    .contains(Recording.Columns.provenanceKind)
+        }
+        // The same NULL arm `query(matching:)` needs, for the same reason:
+        // "Older recording" is what a row with nothing stored is *shown* as, and
+        // `provenanceKind IN (…)` is false for NULL.
+        if search.matchesUnrecordedProvenance {
+            matches = matches || (Recording.Columns.provenanceKind == nil)
+        }
+        if let interval = search.dateInterval {
+            matches = matches
+                || (Recording.Columns.timestamp >= interval.start
+                    && Recording.Columns.timestamp < interval.end)
+        }
+
+        return filtered.filter(matches)
+    }
+
+    /// The escape character the search patterns are built with.
+    ///
+    /// LIKE has wildcards of its own, and a search field does not: without this
+    /// a user typing `100%` would be asking for every row starting `100`, and
+    /// one typing `_` for every row at all. See `escapedForLike`.
+    private static let likeEscapeCharacter = "\\"
+
+    /// Neutralises the three characters LIKE reads as syntax.
+    ///
+    /// The backslash first, or escaping the wildcards would escape the escapes
+    /// that were just added.
+    nonisolated static func escapedForLike(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "%", with: "\\%")
+            .replacingOccurrences(of: "_", with: "\\_")
+    }
+
     func getPendingRecordings() -> [Recording] {
         do {
             return try dbQueue.read { db in
@@ -715,29 +784,20 @@ class RecordingStore: ObservableObject {
         }
     }
 
-    func searchRecordings(query: String) -> [Recording] {
-        do {
-            return try dbQueue.read { db in
-                try Recording
-                    .filter(Recording.Columns.transcription.like("%\(query)%").collating(.nocase))
-                    .order(Recording.Columns.timestamp.desc)
-                    .limit(100)
-                    .fetchAll(db)
-            }
-        } catch {
-            print("Failed to search recordings: \(error)")
-            return []
-        }
-    }
-    
+    /// One page of the rows a search phrase and a filter admit.
+    ///
+    /// `nonisolated` and `await`ing the read, which is what keeps typing in the
+    /// search field off the main actor: the predicate is built here and SQLite
+    /// answers it on GRDB's own queue, so a phrase over a long history never
+    /// stalls the keystroke that produced it. The page is what bounds the work -
+    /// a query is answered a hundred rows at a time whatever the history holds.
     nonisolated func searchRecordingsAsync(
-        query: String, limit: Int = 100, offset: Int = 0,
+        query: HistorySearchQuery, limit: Int = 100, offset: Int = 0,
         filter: HistoryProvenanceFilter = .all
     ) async -> [Recording] {
         do {
             return try await dbQueue.read { db in
-                try Self.query(matching: filter)
-                    .filter(Recording.Columns.transcription.like("%\(query)%").collating(.nocase))
+                try Self.query(matching: filter, searching: query)
                     .order(Recording.Columns.timestamp.desc)
                     .limit(limit, offset: offset)
                     .fetchAll(db)

@@ -238,6 +238,29 @@ not guess what they were.
 That is where to look first when a shortcut seemed to do nothing
 ([details](history-provenance.md), which lists every label).
 
+### Finding an entry
+
+The search box at the top of the window - **⌘F** puts the caret in it - searches your
+history, not just the page in front of you. It matches, case-insensitively:
+
+- the words in the transcript, and what the engine heard before post-processing;
+- the label on the entry, so typing `voice edit` finds your voice edits and `youtube`
+  finds both YouTube outcomes;
+- the reason under a command that opened nothing;
+- a date, written `2026-09-04` for a day, `2026-09` for a month, `2026` for a year, or
+  the way the entry itself prints it (`Sep 4, 2026`).
+
+The kind filter beside it narrows a search rather than replacing it. If nothing matches,
+**Clear search** puts everything back.
+
+### Exporting an entry
+
+Hover an entry (or right-click it) and choose **Export transcript** to save it as a
+Markdown file. A normal save panel asks where it goes - Kongweh never writes it anywhere
+you did not choose, and never sends it anywhere. The file carries the transcript, when it
+was recorded, how long it was, which key produced it, and the original text if
+post-processing changed it. It carries nothing else: no file paths, no identifiers.
+
 ## Using a cloud provider instead (optional)
 
 Everything above happens on your Mac. If you would rather have your speech transcribed by
