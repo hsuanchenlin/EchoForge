@@ -413,6 +413,11 @@ final class CapsuleHUDViewModel: ObservableObject {
             fail("Busy - try again in a moment")
         case .noMicrophone:
             fail("No microphone")
+        // Short by construction, like the three below it: the wording is
+        // `FailedRecordingStart.Reason.shortMessage`, written for this pill and
+        // for the card.
+        case .recordingFailed(let reason):
+            fail(reason)
         case .noEngine:
             fail(CapsuleHUDViewModel.noEngineMessage)
         // Already short by construction - `CloudRequestError.shortMessage` is
