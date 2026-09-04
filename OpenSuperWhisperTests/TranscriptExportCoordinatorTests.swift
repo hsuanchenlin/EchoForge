@@ -32,7 +32,7 @@ final class TranscriptExportCoordinatorTests: XCTestCase {
     func testAnAcceptedSaveWritesTheDocumentAndSaysWhereItWent() throws {
         let destination = directory.appendingPathComponent("transcript.md")
         let coordinator = TranscriptExportCoordinator(
-            choosing: { _, _ in destination },
+            choosing: { _, format in .init(url: destination, format: format) },
             writing: { text, url in try text.write(to: url, atomically: true, encoding: .utf8) })
 
         let row = recording(transcription: "Ship the release notes.")
@@ -51,7 +51,7 @@ final class TranscriptExportCoordinatorTests: XCTestCase {
     func testTheOnlyFileWrittenIsTheOneThePanelReturned() throws {
         let destination = directory.appendingPathComponent("chosen.md")
         let coordinator = TranscriptExportCoordinator(
-            choosing: { _, _ in destination },
+            choosing: { _, format in .init(url: destination, format: format) },
             writing: { text, url in try text.write(to: url, atomically: true, encoding: .utf8) })
 
         coordinator.export(recording(transcription: "words"))
@@ -65,7 +65,9 @@ final class TranscriptExportCoordinatorTests: XCTestCase {
     /// Markdown document called `notes` opens in nothing.
     func testAMissingExtensionIsSuppliedRatherThanLeftOff() throws {
         let coordinator = TranscriptExportCoordinator(
-            choosing: { [directory] _, _ in directory!.appendingPathComponent("notes") },
+            choosing: { [directory] _, format in
+                .init(url: directory!.appendingPathComponent("notes"), format: format)
+            },
             writing: { text, url in try text.write(to: url, atomically: true, encoding: .utf8) })
 
         let outcome = coordinator.export(recording(transcription: "words"))
@@ -76,16 +78,95 @@ final class TranscriptExportCoordinatorTests: XCTestCase {
                 atPath: directory.appendingPathComponent("notes.md").path))
     }
 
-    func testThePlainTextFormatIsWrittenWhenItIsAskedFor() throws {
+    // MARK: - The format is the user's too
+
+    /// The panel opens on Markdown, but the format control is what decides: a
+    /// user who switches it to Plain Text gets plain text, not a Markdown body
+    /// under a `.txt` name.
+    func testTheFormatChosenInThePanelIsWhatIsWritten() throws {
         let destination = directory.appendingPathComponent("transcript.txt")
+        var openedOn: TranscriptExport.Format?
         let coordinator = TranscriptExportCoordinator(
-            choosing: { _, _ in destination },
+            choosing: { _, format in
+                openedOn = format
+                return .init(url: destination, format: .plainText)
+            },
             writing: { text, url in try text.write(to: url, atomically: true, encoding: .utf8) })
 
-        coordinator.export(recording(transcription: "Ship it."), format: .plainText)
+        let outcome = coordinator.export(recording(transcription: "Ship it."))
 
+        XCTAssertEqual(openedOn, .markdown, "the panel still opens on the default")
+        XCTAssertEqual(outcome, .saved(fileName: "transcript.txt"))
         let written = try String(contentsOf: destination, encoding: .utf8)
         XCTAssertTrue(written.contains("Ship it."))
+        XCTAssertFalse(written.contains("```"), "that is a Markdown fence in a .txt file")
+        XCTAssertFalse(written.contains("# Transcript"))
+    }
+
+    func testTheMarkdownFormatIsStillWhatAnUntouchedPanelWrites() throws {
+        let destination = directory.appendingPathComponent("transcript.md")
+        let coordinator = TranscriptExportCoordinator(
+            choosing: { _, format in .init(url: destination, format: format) },
+            writing: { text, url in try text.write(to: url, atomically: true, encoding: .utf8) })
+
+        coordinator.export(recording(transcription: "Ship it."))
+
+        let written = try String(contentsOf: destination, encoding: .utf8)
+        XCTAssertTrue(written.contains("# Transcript"))
+        XCTAssertTrue(written.contains("```"))
+    }
+
+    /// The extension the user is left holding is the last word. A name typed as
+    /// `.txt` under a Markdown selection asked for plain text, and the body must
+    /// follow the name rather than the control.
+    func testATypedExtensionDecidesTheBodyRatherThanTheControl() throws {
+        let destination = directory.appendingPathComponent("typed.txt")
+        let coordinator = TranscriptExportCoordinator(
+            choosing: { _, _ in .init(url: destination, format: .markdown) },
+            writing: { text, url in try text.write(to: url, atomically: true, encoding: .utf8) })
+
+        let outcome = coordinator.export(recording(transcription: "Ship it."))
+
+        XCTAssertEqual(outcome, .saved(fileName: "typed.txt"))
+        let written = try String(contentsOf: destination, encoding: .utf8)
+        XCTAssertFalse(written.contains("```"), "a .txt name must not hold a Markdown fence")
+    }
+
+    /// The suggested name is the format's too, so a panel that opens on plain
+    /// text does not propose a `.md` name.
+    func testTheSuggestedNameCarriesTheFormatThePanelOpensOn() {
+        var proposed: [String] = []
+        let coordinator = TranscriptExportCoordinator(
+            choosing: { name, _ in
+                proposed.append(name)
+                return nil
+            },
+            writing: { _, _ in })
+
+        let row = recording(transcription: "words")
+        coordinator.export(row)
+        coordinator.export(row, format: .plainText)
+
+        XCTAssertEqual(proposed.count, 2)
+        XCTAssertTrue(proposed[0].hasSuffix(".md"), "got \(proposed[0])")
+        XCTAssertTrue(proposed[1].hasSuffix(".txt"), "got \(proposed[1])")
+    }
+
+    /// A user who typed a bare name under the Plain Text selection gets `.txt`,
+    /// not the default's `.md` - the extension follows the format that is
+    /// actually being written.
+    func testAMissingExtensionFollowsTheChosenFormat() throws {
+        let coordinator = TranscriptExportCoordinator(
+            choosing: { [directory] _, _ in
+                .init(url: directory!.appendingPathComponent("notes"), format: .plainText)
+            },
+            writing: { text, url in try text.write(to: url, atomically: true, encoding: .utf8) })
+
+        let outcome = coordinator.export(recording(transcription: "words"))
+
+        XCTAssertEqual(outcome, .saved(fileName: "notes.txt"))
+        let written = try String(
+            contentsOf: directory.appendingPathComponent("notes.txt"), encoding: .utf8)
         XCTAssertFalse(written.contains("```"))
     }
 
@@ -97,9 +178,9 @@ final class TranscriptExportCoordinatorTests: XCTestCase {
         let destination = directory.appendingPathComponent("transcript.md")
         var proposed: [String] = []
         let coordinator = TranscriptExportCoordinator(
-            choosing: { name, _ in
+            choosing: { name, format in
                 proposed.append(name)
-                return destination
+                return .init(url: destination, format: format)
             },
             writing: { text, url in try text.write(to: url, atomically: true, encoding: .utf8) })
 
@@ -140,7 +221,9 @@ final class TranscriptExportCoordinatorTests: XCTestCase {
             domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError,
             userInfo: [NSLocalizedDescriptionKey: "You don’t have permission to save here."])
         let coordinator = TranscriptExportCoordinator(
-            choosing: { [directory] _, _ in directory!.appendingPathComponent("x.md") },
+            choosing: { [directory] _, format in
+                .init(url: directory!.appendingPathComponent("x.md"), format: format)
+            },
             writing: { _, _ in throw refusal })
 
         let row = recording(transcription: "words")
@@ -159,7 +242,8 @@ final class TranscriptExportCoordinatorTests: XCTestCase {
         let unreachable = directory
             .appendingPathComponent("no-such-folder", isDirectory: true)
             .appendingPathComponent("transcript.md")
-        let coordinator = TranscriptExportCoordinator(choosing: { _, _ in unreachable })
+        let coordinator = TranscriptExportCoordinator(
+            choosing: { _, format in .init(url: unreachable, format: format) })
 
         let row = recording(transcription: "words")
         let outcome = coordinator.export(row)

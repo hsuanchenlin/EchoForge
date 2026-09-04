@@ -255,11 +255,19 @@ The kind filter beside it narrows a search rather than replacing it. If nothing 
 
 ### Exporting an entry
 
-Hover an entry (or right-click it) and choose **Export transcript** to save it as a
-Markdown file. A normal save panel asks where it goes - Kongweh never writes it anywhere
-you did not choose, and never sends it anywhere. The file carries the transcript, when it
-was recorded, how long it was, which key produced it, and the original text if
-post-processing changed it. It carries nothing else: no file paths, no identifiers.
+Hover an entry (or right-click it) and choose **Export transcript** to save it to a file.
+A normal save panel asks where it goes and, in the **Format** menu at the bottom of it,
+what to write:
+
+- **Markdown (.md)** - the default. The details are a short list and the words sit in a
+  fenced block, so a dictation containing `#`, `*` or `|` reads back as what you said.
+- **Plain Text (.txt)** - the same details and the same words, with no markup, for
+  anything that has no Markdown reader.
+
+Kongweh never writes the file anywhere you did not choose, and never sends it anywhere.
+The file carries the transcript, when it was recorded, how long it was, which key produced
+it, and the original text if post-processing changed it. It carries nothing else: no file
+paths, no identifiers.
 
 ## Using a cloud provider instead (optional)
 

@@ -77,6 +77,15 @@ own queue. A no-results state says what was searched for and offers **Clear sear
 one action back to everything - shared with the field's own ⓧ so a cancelled debounce
 cannot survive one of them.
 
+The field holds what the user typed; everything else holds what it **resolved to**. The
+keystroke is put through `HistorySearchQuery` once, and that one trimmed phrase is what
+the store searches for, what a row is asked to highlight, and what the no-results panel
+names. There is deliberately no second trim beside it: handing those three the raw text
+is a disagreement the user can see, since a trailing space finds `hello` rows and marks
+up nothing in them, and a field of only spaces reads as a live search over a list the
+store is loading unfiltered. Resolving to a phrase that is already applied is not a new
+search either - a keystroke that changes no result must not empty the list and reload it.
+
 ## Export
 
 ### The destination is the user's, always
@@ -117,6 +126,30 @@ same facts with no markup, for destinations that have no reader.
 Only the one-line field values are flattened, and only their newlines - the transcript
 keeps every line break it was said with.
 
+### The format is chosen in the panel, and the name is the last word on it
+
+Both formats are offered where the destination is - a **Format** popup in the save
+panel's accessory view. An accessory rather than handing `NSSavePanel` both content
+types: a panel given several types will *accept* several extensions but shows the user no
+control to pick one, and a choice nobody can see is not a choice. Changing it re-points
+the panel at that one type and rewrites the extension in the name field, so what the user
+reads is what they will get.
+
+`TranscriptExport.Format` is that list, and it is two entries. The panel reports the
+selection back with the URL (`TranscriptExport.Destination`), and
+`TranscriptExport.destination(for:chosenFormat:)` reconciles the two so the extension and
+the body can never disagree:
+
+- a name that declares a format this app writes wins, because it is what the user is left
+  holding - somebody who picked Markdown and then typed `notes.txt` asked for plain text;
+- any other name takes the popup's format and its extension, which is also what supplies
+  one for a user who typed a bare `notes`.
+
+The coordinator applies that reconciliation to whatever its chooser returns, not only
+inside the real panel, so no injected chooser can produce a `.txt` file holding a fenced
+Markdown block either. The suggested name carries the opening format's extension for the
+same reason.
+
 ### Every outcome is answered
 
 `TranscriptExportOutcome` has a case for each, and three of the four leave a sentence on
@@ -135,8 +168,8 @@ the card - inline and dismissible, the way a refused correction does, never an a
 | File | What it holds |
 | --- | --- |
 | `HistorySearchQueryTests` | what a phrase means: case, substring, the labels, the dates, and what is *not* a date |
-| `HistorySearchStoreTests` | the predicate against a real database, including the NULL arm, LIKE escaping, and the two fields that are never searched |
+| `HistorySearchStoreTests` | the predicate against a real database, including the NULL arm, LIKE escaping, the two fields that are never searched, and that the phrase the SQL matched on is the phrase a row can highlight |
 | `TranscriptExportTests` | the serialiser: what is carried, what is never carried, Markdown syntax and backticks in a transcript, newlines, non-Latin text |
-| `TranscriptExportCoordinatorTests` | the press: cancelled, refused, empty and written, with the panel and the write injected |
+| `TranscriptExportCoordinatorTests` | the press: cancelled, refused, empty and written, and the format the panel came back with, with the panel and the write injected |
 | `HistoryRowActionTests` | that only a finished row with words is offered an export |
 | `HistoryRowRenderTests` | the card with an export note on it, and a row found by its badge or its words |

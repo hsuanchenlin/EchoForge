@@ -749,7 +749,10 @@ wildcards, or a user typing `100%` is asking for every row starting `100`. Expor
 `NSSavePanel`: the only file written is the URL the panel returned, the document states
 only what the card states - never the row id, the audio file name or the source path -
 and the transcript goes in a **fenced** block grown past its own backticks, because a
-dictation containing `#`, `*` or `|` must come back out as the words that were said.
+dictation containing `#`, `*` or `|` must come back out as the words that were said. The
+panel offers Markdown and plain text and nothing else, and the format is never taken on
+trust: `TranscriptExport.destination(for:chosenFormat:)` reconciles the control with the
+name the user typed, so the extension and the body cannot disagree.
 
 `terms.json` beside it is the second store: the personal terms dictionary, deliberately a plain
 hand-editable file outside the database because it has a different lifecycle and must not be

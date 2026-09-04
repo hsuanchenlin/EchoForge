@@ -479,23 +479,42 @@ struct ContentView: View {
         viewModel.search(query: "")
     }
 
+    /// Resolves a keystroke into the phrase every surface uses, and applies it
+    /// after the debounce.
+    ///
+    /// The field holds what the user typed, spaces and all; the SQL is built
+    /// from `HistorySearchQuery`, which trims. So the phrase is resolved here,
+    /// through that one type rather than a second trim beside it, and what comes
+    /// out is what the store searches for, what a row highlights, and what the
+    /// no-results panel names. Handing the raw text to those three instead is a
+    /// disagreement the user can see: a trailing space finds `hello` rows and
+    /// highlights nothing in them, and a field of only spaces reads as a live
+    /// search over a list the store is loading unfiltered.
     private func performSearch(_ query: String) {
         searchTask?.cancel()
-        
-        if query.isEmpty {
+
+        let phrase = HistorySearchQuery(query).text
+
+        if phrase.isEmpty {
             debouncedSearchText = ""
             viewModel.search(query: "")
             return
         }
-        
+
+        // Typing a space onto a phrase that is already applied means nothing to
+        // any of the three, and re-running the search would empty the list and
+        // reload it - a flash of the no-results panel for a keystroke that
+        // changed no result.
+        guard phrase != debouncedSearchText else { return }
+
         searchTask = Task {
             try? await Task.sleep(nanoseconds: 200_000_000) // 200ms debounce
             
             guard !Task.isCancelled else { return }
             
             await MainActor.run {
-                self.debouncedSearchText = query
-                viewModel.search(query: query)
+                self.debouncedSearchText = phrase
+                viewModel.search(query: phrase)
             }
         }
     }

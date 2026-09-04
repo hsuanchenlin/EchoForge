@@ -345,7 +345,9 @@ final class HistoryRowRenderTests: XCTestCase {
     func testAnExportThatFailedExplainsItselfOnTheCard() throws {
         let recording = recording(status: .completed)
         let exports = TranscriptExportCoordinator(
-            choosing: { _, _ in URL(fileURLWithPath: "/nowhere/at/all/transcript.md") },
+            choosing: { _, format in
+                .init(url: URL(fileURLWithPath: "/nowhere/at/all/transcript.md"), format: format)
+            },
             writing: { _, _ in
                 throw NSError(
                     domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError,
@@ -377,7 +379,9 @@ final class HistoryRowRenderTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: directory) }
 
         let exports = TranscriptExportCoordinator(
-            choosing: { _, _ in directory.appendingPathComponent("Meeting notes.md") },
+            choosing: { _, format in
+                .init(url: directory.appendingPathComponent("Meeting notes.md"), format: format)
+            },
             writing: { text, url in try text.write(to: url, atomically: true, encoding: .utf8) })
         exports.export(recording)
 

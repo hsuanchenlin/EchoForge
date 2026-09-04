@@ -51,6 +51,40 @@ final class HistorySearchStoreTests: XCTestCase {
             "An empty phrase must not disturb the filter beside it.")
     }
 
+    /// The phrase the database matched on is the phrase the row is asked to
+    /// highlight and the phrase the no-results panel names, because all three
+    /// come from the same `HistorySearchQuery`. Handing the field's raw text to
+    /// the last two instead is a disagreement the user can see: the row that was
+    /// found has nothing marked up in it.
+    func testTheResolvedPhraseIsWhatTheRowCanHighlight() throws {
+        let transcript = "Ship the release notes"
+        try insert(recording(transcription: transcript), as: .dictation)
+
+        let raw = "  release  "
+        XCTAssertEqual(try count(searching: raw, filter: .all), 1, "the row was found")
+
+        let phrase = HistorySearchQuery(raw).text
+        XCTAssertNotNil(
+            transcript.range(of: phrase, options: [.caseInsensitive, .diacriticInsensitive]),
+            "the phrase the SQL matched on is not in the transcript it matched")
+        XCTAssertNil(
+            transcript.range(of: raw, options: [.caseInsensitive, .diacriticInsensitive]),
+            "the untrimmed text would mark up nothing in a row it just found")
+    }
+
+    /// A field holding only spaces is no search at all - in SQL and therefore
+    /// everywhere the same value is used. A search over the unfiltered list is
+    /// exactly what a highlight of " " would mark up: every gap between words.
+    func testAFieldOfOnlyWhitespaceIsNoSearchAnywhere() throws {
+        try insert(recording(transcription: "one two"), as: .dictation)
+
+        for raw in ["   ", "\n\t "] {
+            XCTAssertEqual(try count(searching: raw, filter: .all), 1)
+            XCTAssertTrue(HistorySearchQuery(raw).isEmpty, "“\(raw)” must read as no search")
+            XCTAssertTrue(HistorySearchQuery(raw).text.isEmpty)
+        }
+    }
+
     // MARK: - The words
 
     func testTheTranscriptIsMatchedCaseInsensitively() throws {

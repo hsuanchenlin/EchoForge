@@ -67,11 +67,16 @@ final class TranscriptExportCoordinator: ObservableObject {
     /// row. Cleared when that row is exported again or the user dismisses it.
     @Published private(set) var notes: [UUID: String] = [:]
 
-    /// Puts the save panel up and answers with the URL the user chose, or nil if
-    /// they dismissed it. Injected so every rule above is testable without a
-    /// modal panel - a test supplies a temporary directory and a decision.
+    /// Puts the save panel up and answers with the destination the user chose -
+    /// where the file goes *and* which format they left the panel's format
+    /// control on - or nil if they dismissed it.
+    ///
+    /// Both halves, because the panel is where the format is chosen: the caller
+    /// only says which one it opens on. Injected so every rule above is testable
+    /// without a modal panel - a test supplies a temporary directory and a
+    /// decision.
     typealias Choosing = @MainActor (_ suggestedName: String, _ format: TranscriptExport.Format)
-        -> URL?
+        -> TranscriptExport.Destination?
     /// Writes the document. Injected for the same reason, and so a refused write
     /// can be exercised without finding a read-only volume.
     typealias Writing = @MainActor (_ text: String, _ url: URL) throws -> Void
@@ -95,6 +100,13 @@ final class TranscriptExportCoordinator: ObservableObject {
 
     /// Exports one row, start to finish.
     ///
+    /// `format` is the format the panel **opens** on, not the format that is
+    /// written: the user picks that in the panel, and what comes back decides
+    /// both the bytes and the name. Reconciling the two is
+    /// `TranscriptExport.destination(for:chosenFormat:)`'s job and it is applied
+    /// here rather than only inside the real panel, so no chooser - injected or
+    /// otherwise - can hand this a `.txt` name for a Markdown body.
+    ///
     /// Returns the outcome as well as recording it, which is what a test asserts
     /// on and what a caller with its own feedback could read instead.
     @discardableResult
@@ -108,23 +120,21 @@ final class TranscriptExportCoordinator: ObservableObject {
         }
 
         let suggestedName = TranscriptExport.suggestedFileName(for: recording, format: format)
-        guard let url = choosing(suggestedName, format) else {
+        guard let chosen = choosing(suggestedName, format) else {
             return record(.cancelled, for: recording.id)
         }
 
-        // The panel decides the extension the user sees, but a user who typed
-        // their own name may have left it off, and a `.md` document called
-        // `notes` opens in nothing.
-        let destination = url.pathExtension.isEmpty
-            ? url.appendingPathExtension(format.fileExtension) : url
+        let destination = TranscriptExport.destination(
+            for: chosen.url, chosenFormat: chosen.format)
 
         do {
-            try writing(TranscriptExport.text(for: document, format: format), destination)
+            try writing(
+                TranscriptExport.text(for: document, format: destination.format), destination.url)
         } catch {
             return record(
                 .failed(reason: (error as NSError).localizedDescription), for: recording.id)
         }
-        return record(.saved(fileName: destination.lastPathComponent), for: recording.id)
+        return record(.saved(fileName: destination.url.lastPathComponent), for: recording.id)
     }
 
     @discardableResult
@@ -141,9 +151,14 @@ final class TranscriptExportCoordinator: ObservableObject {
     /// own chooser: this runs from a card in the main window in answer to a
     /// press, the user is at the machine while it is up, and its own event loop
     /// is what makes the destination a decision the export can simply wait for.
+    ///
+    /// The format is chosen here, in an accessory control, rather than by
+    /// handing the panel both content types: a panel given several types will
+    /// *accept* several extensions but shows no way to pick one, and a choice
+    /// the user cannot see is not a choice.
     private static func runSavePanel(
         suggestedName: String, format: TranscriptExport.Format
-    ) -> URL? {
+    ) -> TranscriptExport.Destination? {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [format.contentType]
         panel.nameFieldStringValue = suggestedName
@@ -152,7 +167,67 @@ final class TranscriptExportCoordinator: ObservableObject {
         panel.title = "Export Transcript"
         panel.prompt = "Export"
         panel.message = "Choose where to save this transcript."
-        guard panel.runModal() == .OK else { return nil }
-        return panel.url
+
+        let chooser = SavePanelFormatChooser(panel: panel, selected: format)
+        panel.accessoryView = chooser.view
+
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        return TranscriptExport.destination(for: url, chosenFormat: chooser.selected)
+    }
+}
+
+/// The save panel's format control: a popup listing every format a transcript
+/// can be written as, and the one place a change to it reaches the panel.
+///
+/// Setting `allowedContentTypes` to the picked type is what keeps the name field
+/// honest - the panel then enforces that extension - and the name is rewritten
+/// alongside it rather than left to that enforcement, so what the user reads in
+/// the field is what the popup says at every moment.
+///
+/// It is retained for the life of `runModal` by the caller that reads
+/// `selected` after it returns.
+@MainActor
+private final class SavePanelFormatChooser: NSObject {
+    static let label = "Format:"
+    static let accessibilityLabel = "Export format"
+
+    private let formats = TranscriptExport.Format.allCases
+    private weak var panel: NSSavePanel?
+
+    /// What the popup is on now, and therefore what the export is written as
+    /// unless the name the user typed says otherwise.
+    private(set) var selected: TranscriptExport.Format
+
+    let view: NSView
+
+    init(panel: NSSavePanel, selected: TranscriptExport.Format) {
+        self.panel = panel
+        self.selected = selected
+
+        let caption = NSTextField(labelWithString: Self.label)
+        let popUp = NSPopUpButton(frame: .zero, pullsDown: false)
+        popUp.addItems(withTitles: formats.map(\.label))
+        popUp.selectItem(at: formats.firstIndex(of: selected) ?? 0)
+        popUp.setAccessibilityLabel(Self.accessibilityLabel)
+
+        let stack = NSStackView(views: [caption, popUp])
+        stack.orientation = .horizontal
+        stack.alignment = .firstBaseline
+        stack.spacing = 8
+        stack.edgeInsets = NSEdgeInsets(top: 10, left: 16, bottom: 10, right: 16)
+        view = stack
+
+        super.init()
+        popUp.target = self
+        popUp.action = #selector(formatChanged(_:))
+    }
+
+    @objc private func formatChanged(_ sender: NSPopUpButton) {
+        guard formats.indices.contains(sender.indexOfSelectedItem) else { return }
+        selected = formats[sender.indexOfSelectedItem]
+        guard let panel else { return }
+        panel.allowedContentTypes = [selected.contentType]
+        let base = (panel.nameFieldStringValue as NSString).deletingPathExtension
+        panel.nameFieldStringValue = "\(base).\(selected.fileExtension)"
     }
 }

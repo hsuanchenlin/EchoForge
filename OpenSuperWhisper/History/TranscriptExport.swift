@@ -59,6 +59,47 @@ enum TranscriptExport {
             case .plainText: return "Plain Text (.txt)"
             }
         }
+
+        /// The format a file name declares, or nil when it declares none.
+        ///
+        /// The extension is what the user is left holding, so it - not the
+        /// control they set on the way there - is the last word on how the
+        /// document is written. Somebody who picked Markdown in the popup and
+        /// then typed `notes.txt` asked for plain text, and a Markdown body
+        /// under a `.txt` name would be the panel disagreeing with itself.
+        init?(fileExtension: String) {
+            switch fileExtension.lowercased() {
+            case "md", "markdown": self = .markdown
+            case "txt", "text": self = .plainText
+            default: return nil
+            }
+        }
+    }
+
+    /// Where one export is going and what it is written as.
+    ///
+    /// One value rather than two, because the two must agree: the format
+    /// decides the bytes and the extension decides what opens them, and a `.txt`
+    /// holding a fenced Markdown block is a file the user cannot trust. Every
+    /// destination is built by `destination(for:chosenFormat:)`, so the
+    /// agreement is a property of one function rather than of every caller.
+    struct Destination: Equatable, Sendable {
+        let url: URL
+        let format: Format
+    }
+
+    /// Reconciles a URL the user chose with the format they chose beside it.
+    ///
+    /// The name wins when it declares a format this app writes; otherwise the
+    /// control's format is applied and its extension appended - which is also
+    /// what supplies the extension for a user who typed a bare `notes`, since a
+    /// Markdown document called `notes` opens in nothing.
+    static func destination(for url: URL, chosenFormat: Format) -> Destination {
+        if let declared = Format(fileExtension: url.pathExtension) {
+            return Destination(url: url, format: declared)
+        }
+        return Destination(
+            url: url.appendingPathExtension(chosenFormat.fileExtension), format: chosenFormat)
     }
 
     /// Everything about one row that a document may state.

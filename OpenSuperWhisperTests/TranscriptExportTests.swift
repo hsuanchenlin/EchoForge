@@ -280,6 +280,82 @@ final class TranscriptExportTests: XCTestCase {
         }
     }
 
+    /// Two and no more: the save panel's format control is built from this list,
+    /// so a third case would be a format offered with no serialiser behind it.
+    func testTheOfferedFormatsAreMarkdownAndPlainTextInThatOrder() {
+        XCTAssertEqual(TranscriptExport.Format.allCases, [.markdown, .plainText])
+        XCTAssertTrue(TranscriptExport.Format.markdown.label.contains(".md"))
+        XCTAssertTrue(TranscriptExport.Format.plainText.label.contains(".txt"))
+        XCTAssertNotEqual(
+            TranscriptExport.Format.markdown.contentType,
+            TranscriptExport.Format.plainText.contentType,
+            "the panel would show one entry twice")
+    }
+
+    // MARK: - The destination
+
+    func testAFileNameDeclaresTheFormatItIsWrittenIn() {
+        XCTAssertEqual(TranscriptExport.Format(fileExtension: "md"), .markdown)
+        XCTAssertEqual(TranscriptExport.Format(fileExtension: "MD"), .markdown)
+        XCTAssertEqual(TranscriptExport.Format(fileExtension: "markdown"), .markdown)
+        XCTAssertEqual(TranscriptExport.Format(fileExtension: "txt"), .plainText)
+        XCTAssertEqual(TranscriptExport.Format(fileExtension: "TXT"), .plainText)
+        XCTAssertNil(TranscriptExport.Format(fileExtension: ""))
+        XCTAssertNil(TranscriptExport.Format(fileExtension: "rtf"))
+    }
+
+    /// The extension and the body can never disagree: whichever of the two the
+    /// user actually settled on, the destination carries one answer.
+    func testTheDestinationAlwaysAgreesWithTheNameItIsWrittenUnder() {
+        let folder = URL(fileURLWithPath: "/tmp/exports", isDirectory: true)
+
+        for format in TranscriptExport.Format.allCases {
+            // A name that declares a format is the last word on it.
+            for named in TranscriptExport.Format.allCases {
+                let destination = TranscriptExport.destination(
+                    for: folder.appendingPathComponent("notes.\(named.fileExtension)"),
+                    chosenFormat: format)
+                XCTAssertEqual(destination.format, named)
+                XCTAssertEqual(destination.url.lastPathComponent, "notes.\(named.fileExtension)")
+            }
+
+            // A bare name takes the chosen format, and its extension.
+            let bare = TranscriptExport.destination(
+                for: folder.appendingPathComponent("notes"), chosenFormat: format)
+            XCTAssertEqual(bare.format, format)
+            XCTAssertEqual(bare.url.lastPathComponent, "notes.\(format.fileExtension)")
+
+            // A name declaring something this app does not write is not written
+            // into: the format that is actually being written is appended.
+            let foreign = TranscriptExport.destination(
+                for: folder.appendingPathComponent("notes.rtf"), chosenFormat: format)
+            XCTAssertEqual(foreign.format, format)
+            XCTAssertEqual(foreign.url.pathExtension, format.fileExtension)
+        }
+    }
+
+    /// Whatever a destination resolves to, the body it names is the body that is
+    /// written - the property the two halves above exist for.
+    func testEveryDestinationsFormatIsTheOneItsExtensionNames() throws {
+        let document = try XCTUnwrap(
+            TranscriptExport.document(for: recording(transcription: "Ship it.")))
+
+        for candidate in ["notes", "notes.md", "notes.txt", "notes.rtf"] {
+            for chosen in TranscriptExport.Format.allCases {
+                let destination = TranscriptExport.destination(
+                    for: URL(fileURLWithPath: "/tmp/\(candidate)"), chosenFormat: chosen)
+                let text = TranscriptExport.text(for: document, format: destination.format)
+                XCTAssertEqual(
+                    TranscriptExport.Format(fileExtension: destination.url.pathExtension),
+                    destination.format,
+                    "\(candidate) under \(chosen)")
+                XCTAssertEqual(
+                    text.contains("# Transcript"), destination.format == .markdown,
+                    "\(candidate) under \(chosen) wrote the wrong body")
+            }
+        }
+    }
+
     // MARK: - Helpers
 
     private func recording(
