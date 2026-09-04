@@ -71,3 +71,65 @@ final class RecordingSessionClaim {
         return true
     }
 }
+
+/// A recording start that failed after its session had already been handed to
+/// the caller.
+///
+/// It carries the session rather than being a bare flag because the recorder is
+/// shared by five keys and `@Published` replays: a subscriber has to be able to
+/// tell "my recording never started" from "somebody else's did not", and only
+/// the session says which. See `AudioRecorder.failedStart`.
+struct FailedRecordingStart: Equatable {
+    let session: RecordingSession
+
+    /// Why the microphone never opened. Two cases because they are two
+    /// sentences to the user: one is a machine with no input device, the other
+    /// is an input device that refused.
+    enum Reason: Equatable {
+        /// `MicrophoneService` had no active input by the time the work queue
+        /// got there - unplugged between the press and the start, or never
+        /// there.
+        case noAudioInput
+
+        /// `AVAudioRecorder` threw: the device is present and would not record.
+        case recorderFailed
+    }
+
+    let reason: Reason
+}
+
+extension FailedRecordingStart.Reason {
+    /// The sentence for the surfaces with room - the Ask panel's card, and the
+    /// `DictationResult` a capsule session ends on.
+    var message: String {
+        switch self {
+        case .noAudioInput: return "No microphone is available."
+        case .recorderFailed: return "The microphone could not be started."
+        }
+    }
+
+    /// The same thing in the words the 200 pt dictation card and the capsule
+    /// pill hold, which is why they are written here rather than at each
+    /// surface.
+    var shortMessage: String {
+        switch self {
+        case .noAudioInput: return "No microphone"
+        case .recorderFailed: return "Microphone failed"
+        }
+    }
+}
+
+extension FailedRecordingStart {
+    /// Whether this failure ends `session`'s recording.
+    ///
+    /// The whole subscription rule in one predicate. `AudioRecorder.failedStart`
+    /// is `@Published`, so a subscriber is replayed whatever failure happens to
+    /// be sitting there when it appears, and five keys share the recorder, so
+    /// the failure it sees may belong to somebody else's capture. A surface may
+    /// act only on the one naming the session it is actually holding - and on
+    /// none at all when it holds nothing.
+    func ends(_ session: RecordingSession?) -> Bool {
+        guard let session else { return false }
+        return self.session == session
+    }
+}

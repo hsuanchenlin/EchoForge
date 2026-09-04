@@ -14,6 +14,18 @@ enum RecordingState: Equatable {
     case busy(BusyReason)
     case noMicrophone
 
+    /// The microphone never opened for this session.
+    ///
+    /// Its own case rather than `.noMicrophone` because it is reached from a
+    /// different place and means something different: `.noMicrophone` is the
+    /// synchronous refusal before anything was claimed, while this is a start
+    /// that was accepted, drawn as a recording, and then failed on the
+    /// recorder's work queue (`AudioRecorder.failedStart`). Until it existed the
+    /// card blinked "Recording..." over a microphone that never started and then
+    /// vanished without a word. The reason is short by construction - it is
+    /// written for this 200 pt card and for the capsule pill.
+    case recordingFailed(String)
+
     /// Reached when a recording decoded with no engine set up. The card states
     /// it in the fewest words that fit; the sentence the user can act on is in
     /// the main window's banner and on the kept recording.
@@ -253,6 +265,39 @@ class IndicatorViewModel: ObservableObject {
                 }
             }
             .store(in: &cancellables)
+
+        // The third thing the recorder can say, and the one that used to be
+        // said to nobody: this session's microphone never opened. Gated on the
+        // session rather than on `recordingSession != nil` like the two above,
+        // because `@Published` replays and a failure belonging to the Ask
+        // panel's capture must not end a dictation. See
+        // `AudioRecorder.failedStart`.
+        recorder.$failedStart
+            .receive(on: RunLoop.main)
+            .sink { [weak self] failure in
+                guard let self, let failure, failure.ends(self.recordingSession) else { return }
+                self.recordingSessionDidFailToStart(failure.reason)
+            }
+            .store(in: &cancellables)
+    }
+
+    /// Ends a session whose microphone never opened.
+    ///
+    /// The claim is already back - `AudioRecorder.failStart` releases it before
+    /// reporting - so this only has to stop drawing a recording that is not
+    /// happening and say why, on the same two-second timer every other message
+    /// on this card uses.
+    private func recordingSessionDidFailToStart(_ reason: FailedRecordingStart.Reason) {
+        recordingSession = nil
+        recordingStartedAt = nil
+        resetCancelConfirmation()
+        stopBlinking()
+        // Nil for the same reason the kept-recording failures are: the message
+        // below is already on screen on its own timer, and a `DictationResult`
+        // would only replace what the user is in the middle of reading when the
+        // session ends.
+        result = nil
+        showAutoDismissingMessage(reason.indicatorState)
     }
 
     /// The microphone claim this session holds, from the press that took it
@@ -403,7 +448,13 @@ class IndicatorViewModel: ObservableObject {
             guard let self = self else { return }
 
             if let tempURL = await self.recorder.stopRecording(session) {
-                let duration = await AudioUtil.audioDuration(url: tempURL)
+                // Reading the file back to measure it is the one piece of work
+                // on this path whose answer is not needed until a row is
+                // written, so it runs alongside the transcription instead of in
+                // front of it. Measured at 0.21 ms once AVFoundation is warm and
+                // 2.2 ms on the first asset load in a process: small, and there
+                // is no reason at all to pay it before the engine can start.
+                async let measuredDuration = AudioUtil.audioDuration(url: tempURL)
                 do {
                     print("start decoding...")
                     // Resolved once and reused, so the answer to "may this
@@ -423,6 +474,8 @@ class IndicatorViewModel: ObservableObject {
                     let styled = try await transcriptionService.transcribeAudio(
                         url: tempURL, settings: settings)
                     let text = styled.final
+
+                    let duration = await measuredDuration
 
                     if text.isEmpty {
                         try? FileManager.default.removeItem(at: tempURL)
@@ -530,6 +583,7 @@ class IndicatorViewModel: ObservableObject {
 
                     switch DictationFailureOutcome.forError(error) {
                     case .keep(let reason, let indicatorState):
+                        let duration = await measuredDuration
                         // Said in two words on screen already, so there is no
                         // outcome left to report: repeating the full sentence when
                         // the session ends would replace the message the user is
@@ -927,6 +981,18 @@ struct IndicatorWindow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
+            case .recordingFailed(let reason):
+                HStack(spacing: 8) {
+                    Image(systemName: "mic.slash")
+                        .foregroundColor(.orange)
+                        .frame(width: 24)
+
+                    Text(reason)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.orange)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
             case .noEngine:
                 HStack(spacing: 8) {
                     Image(systemName: "waveform.slash")
@@ -1062,4 +1128,19 @@ struct IndicatorWindowPreview: View {
 
 #Preview {
     IndicatorWindowPreview()
+}
+
+extension FailedRecordingStart.Reason {
+    /// What the dictation card shows for a microphone that never opened.
+    ///
+    /// `.noAudioInput` reuses `.noMicrophone` deliberately: it is the same fact
+    /// the synchronous pre-check reports, arriving a few milliseconds later, and
+    /// two different cards for one fact would be the app being precise about its
+    /// own plumbing instead of about the user's microphone.
+    var indicatorState: RecordingState {
+        switch self {
+        case .noAudioInput: return .noMicrophone
+        case .recorderFailed: return .recordingFailed(shortMessage)
+        }
+    }
 }

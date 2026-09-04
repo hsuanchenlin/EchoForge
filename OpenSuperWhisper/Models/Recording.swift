@@ -570,7 +570,16 @@ class RecordingStore: ObservableObject {
     /// previous run's original behind describing text that is no longer there.
     /// `aiCorrectedAt` is cleared for the same reason: the row's words are the
     /// engine's again, and a badge saying a model wrote them would be a lie.
-    func updateRecordingProgressOnlySync(_ id: UUID, transcription: String, rawTranscription: String? = nil, progress: Float, status: RecordingStatus, isRegeneration: Bool? = nil) async {
+    ///
+    /// - Returns: whether the write landed. A row that is already gone matches
+    ///   nothing and is still a success - it is out of the pending statuses
+    ///   either way - while a write that threw leaves the row exactly as it was.
+    ///   `TranscriptionQueue` is the caller that cannot do without the answer:
+    ///   a swallowed failure here left the row `.pending` and the loop was told
+    ///   it had been settled, so the queue handed the same recording back to the
+    ///   engine. See `TranscriptionQueueStep`.
+    @discardableResult
+    func updateRecordingProgressOnlySync(_ id: UUID, transcription: String, rawTranscription: String? = nil, progress: Float, status: RecordingStatus, isRegeneration: Bool? = nil) async -> Bool {
         do {
             _ = try await dbQueue.write { db -> Int in
                 try Recording
@@ -584,8 +593,10 @@ class RecordingStore: ObservableObject {
                     ])
             }
             applyLocalProgressUpdate(id, transcription: transcription, rawTranscription: rawTranscription, progress: progress, status: status, isRegeneration: isRegeneration)
+            return true
         } catch {
             print("Failed to update recording progress: \(error)")
+            return false
         }
     }
 
@@ -603,7 +614,10 @@ class RecordingStore: ObservableObject {
         }
     }
 
-    func updateRecordingStatusOnly(_ id: UUID, progress: Float, status: RecordingStatus, isRegeneration: Bool? = nil) async {
+    /// - Returns: whether the write landed, for the same reason its
+    ///   transcription-carrying sibling above does.
+    @discardableResult
+    func updateRecordingStatusOnly(_ id: UUID, progress: Float, status: RecordingStatus, isRegeneration: Bool? = nil) async -> Bool {
         do {
             _ = try await dbQueue.write { db -> Int in
                 try Recording
@@ -614,8 +628,10 @@ class RecordingStore: ObservableObject {
                     ])
             }
             applyLocalProgressUpdate(id, progress: progress, status: status, isRegeneration: isRegeneration)
+            return true
         } catch {
             print("Failed to update recording status: \(error)")
+            return false
         }
     }
 
@@ -643,13 +659,20 @@ class RecordingStore: ObservableObject {
         }
     }
     
-    func deleteRecordingSync(_ recording: Recording) async {
+    /// - Returns: whether the row is gone. The audio file is best-effort - a
+    ///   file that was already removed is not a failed delete - but the row
+    ///   surviving is, and the queue reads this to decide whether the recording
+    ///   it just discarded has actually left the pending statuses.
+    @discardableResult
+    func deleteRecordingSync(_ recording: Recording) async -> Bool {
         do {
             try await deleteRecordingFromDB(recording)
             try? FileManager.default.removeItem(at: recording.url)
             NotificationCenter.default.post(name: Self.recordingsDidUpdateNotification, object: nil)
+            return true
         } catch {
             print("Failed to delete recording: \(error)")
+            return false
         }
     }
 

@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import KeyboardShortcuts
 import SwiftUI
 
@@ -515,6 +516,16 @@ final class AskPanelWindowController {
     /// that is already on screen. The panel shows its own listening state.
     private var captureSession: RecordingSession?
 
+    /// Watches for this panel's own capture failing to start.
+    ///
+    /// The comment on `isCapturing` already names the two ways that happens; the
+    /// panel simply had no way to hear about either, so it sat on "Listening…"
+    /// and the finish that followed reported the silence as "No speech
+    /// detected". The subscription is identity-gated on `captureSession`
+    /// because the recorder is shared with the dictation keys and `@Published`
+    /// replays.
+    private var failedStartObserver: AnyCancellable?
+
     /// Whether the panel is holding a capture of its own. Derived from the
     /// session rather than tracked beside it: a separate flag stayed true after
     /// the claim had been given back on the recorder's work queue - a
@@ -602,11 +613,20 @@ final class AskPanelWindowController {
             return
         }
         captureSession = session
+        failedStartObserver = AudioRecorder.shared.$failedStart
+            .receive(on: RunLoop.main)
+            .sink { [weak self] failure in
+                guard let self, let failure, failure.ends(self.captureSession) else { return }
+                self.captureSession = nil
+                self.failedStartObserver = nil
+                self.viewModel.voiceCaptureDidFail(failure.reason.message)
+            }
     }
 
     private func finishVoiceCapture() {
         guard let session = captureSession else { return }
         captureSession = nil
+        failedStartObserver = nil
 
         Task { [weak self] in
             guard let self else { return }
@@ -645,12 +665,14 @@ final class AskPanelWindowController {
     private func cancelVoiceCapture() {
         guard let session = captureSession else { return }
         captureSession = nil
+        failedStartObserver = nil
         AudioRecorder.shared.cancelRecording(session)
     }
 
     private func stopVoiceCaptureIfRunning() {
         guard let session = captureSession else { return }
         captureSession = nil
+        failedStartObserver = nil
         AudioRecorder.shared.cancelRecording(session)
     }
 }

@@ -52,7 +52,37 @@ class TranscriptionService: ObservableObject {
     private var currentEngineKind: EngineKind?
     private var loadGeneration = 0
     private var transcriptionTask: TranscriptionTaskBox? = nil
-    private var isCancelled = false
+
+    /// Which transcription the published state belongs to.
+    ///
+    /// The same device `loadGeneration` is, and for the same reason: a
+    /// transcription's teardown runs a main-queue hop after the work ends, by
+    /// which time a *different* transcription may own this object. Without the
+    /// check, a cancelled one's teardown cleared the live one's task box and
+    /// published `isTranscribing = false` over it - and the next press then read
+    /// an idle service and started a second transcription on an engine that was
+    /// still inside the first.
+    private var transcriptionGeneration = 0
+
+    /// The generation `cancelTranscription` last stopped, or nil if none has
+    /// been.
+    ///
+    /// A generation rather than a bool for the same reason the teardown is
+    /// generation-checked, and it is the same bug one step further on: a single
+    /// shared flag is written by a cancelled transcription's own `catch`, which
+    /// runs a main-actor hop *after* the transcription that replaced it has
+    /// already started - so cancelling one dictation cancelled the next one too,
+    /// before its engine had been asked for a single sample.
+    private var cancelledGeneration: Int?
+
+    /// Whether that transcription was cancelled. A generation nobody cancelled
+    /// is not cancelled, so there is no flag to reset when one starts.
+    private func isCancelled(_ generation: Int) -> Bool {
+        cancelledGeneration == generation
+    }
+
+    /// Whether the transcription in flight was cancelled.
+    private var isCancelled: Bool { isCancelled(transcriptionGeneration) }
     private var preparationTask: Task<Void, Never>?
 
     /// Which engine `preparationTask` is fetching. Separate from the task so a
@@ -69,6 +99,17 @@ class TranscriptionService: ObservableObject {
     /// caches can be deleted while the app is running. So the seam has to live on
     /// the service. Production never sets it.
     var availabilityOverride: EngineAvailability?
+
+    /// The engine a transcription runs on, when a test needs to say rather than
+    /// have one loaded off the machine running it.
+    ///
+    /// The same kind of seam as `availabilityOverride`, and it exists for the
+    /// same reason: the decisions this class makes *around* a transcription -
+    /// what cancelling leaves in flight, which teardown is allowed to clear the
+    /// published state - are the part worth asserting, and every one of them
+    /// sits behind a several-hundred-megabyte download otherwise. Production
+    /// never sets it.
+    var engineOverride: TranscriptionEngine?
 
     init() {
         selection = EngineSelection(
@@ -97,16 +138,41 @@ class TranscriptionService: ObservableObject {
         }
     }
 
+    /// Stops the transcription in flight, if there is one.
+    ///
+    /// Two things it deliberately does **not** do, both of which it used to.
+    ///
+    /// It does not un-cancel on the way out. It used to raise a shared
+    /// `isCancelled` flag and drop it again inside one synchronous main-actor
+    /// call, so every check of it in the running task read `false` and a
+    /// transcription that happened to finish just as the user cancelled still
+    /// published its text and still returned it to be pasted. What is recorded
+    /// now is *which* transcription was cancelled (`cancelledGeneration`), which
+    /// stands for as long as that transcription does and reaches no other.
+    ///
+    /// And it does not clear `transcriptionTask` or `isTranscribing`. Those two
+    /// are the app's answer to "is the engine free", and cancelling does not
+    /// make it free: a whisper context must not be handed a second recording
+    /// while the first is still inside `whisper_full`, which is exactly what the
+    /// serialization loop in `transcribeAudio` exists to prevent and exactly
+    /// what clearing them here allowed - cancel, press again, two transcriptions
+    /// on one context. The cancelled work's own teardown clears them when it
+    /// actually unwinds, and that teardown is generation-checked so it can only
+    /// ever clear its own.
     func cancelTranscription() {
-        isCancelled = true
-        currentEngine?.cancelTranscription()
-        transcriptionTask?.task.cancel()
-        transcriptionTask = nil
-
-        isTranscribing = false
         currentSegment = ""
         progress = 0.0
-        isCancelled = false
+
+        // `isTranscribing` spans the whole of `transcribeAudio`, including the
+        // engine load before the task exists, so it - rather than the task box -
+        // is what says whether there is anything to cancel. With nothing in
+        // flight, raising the flag would only mute the next transcription's
+        // progress until it reset it.
+        guard isTranscribing else { return }
+
+        cancelledGeneration = transcriptionGeneration
+        currentEngine?.cancelTranscription()
+        transcriptionTask?.task.cancel()
     }
 
     // MARK: - Choosing what to run on
@@ -360,6 +426,7 @@ class TranscriptionService: ObservableObject {
     // MARK: - Transcribing
 
     private func engineForTranscription() async throws -> TranscriptionEngine {
+        if let engineOverride { return engineOverride }
         // Checked here rather than left to `initialize()` to fail: this is the
         // one point every transcription passes through, and the difference
         // between "nothing is set up" and "the engine did not load" is the
@@ -424,20 +491,28 @@ class TranscriptionService: ObservableObject {
             }
         }
 
+        // Bumped **after** the wait above, not before it: the transcription this
+        // one queued behind is still using its own generation to decide whose
+        // teardown may publish.
+        transcriptionGeneration += 1
+        let generation = transcriptionGeneration
+
         progress = 0.0
         conversionProgress = 0.0
         isConverting = true
         isTranscribing = true
         transcribedText = ""
         currentSegment = ""
-        isCancelled = false
 
         defer {
             Task { @MainActor in
+                // Only the transcription that is still the current one may take
+                // the published state down with it. See `transcriptionGeneration`.
+                guard self.transcriptionGeneration == generation else { return }
                 self.isTranscribing = false
                 self.isConverting = false
                 self.currentSegment = ""
-                if !self.isCancelled {
+                if !self.isCancelled(generation) {
                     self.progress = 1.0
                 }
                 self.transcriptionTask = nil
@@ -457,7 +532,7 @@ class TranscriptionService: ObservableObject {
             guard let service = self else { throw CancellationError() }
             try Task.checkCancellation()
 
-            let cancelled = await MainActor.run { service.isCancelled }
+            let cancelled = await MainActor.run { service.isCancelled(generation) }
 
             guard !cancelled else {
                 throw CancellationError()
@@ -480,10 +555,10 @@ class TranscriptionService: ObservableObject {
             let styled = await SpokenIntentPipeline.apply(to: processed, settings: settings)
             let result = styled.final
 
-            let finalCancelled = await MainActor.run { service.isCancelled }
+            let finalCancelled = await MainActor.run { service.isCancelled(generation) }
 
             await MainActor.run {
-                guard !service.isCancelled else { return }
+                guard !service.isCancelled(generation) else { return }
                 service.transcribedText = result
                 service.progress = 1.0
             }
@@ -500,7 +575,9 @@ class TranscriptionService: ObservableObject {
         do {
             return try await task.value
         } catch is CancellationError {
-            isCancelled = true
+            // Its own generation, never the current one: by the time this runs
+            // the next dictation may already have started.
+            cancelledGeneration = generation
             throw TranscriptionError.processingFailed
         }
     }

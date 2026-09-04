@@ -20,6 +20,25 @@ class AudioRecorder: NSObject, ObservableObject {
     /// capsule HUD is switched on.
     @Published private(set) var inputLevel: Float = 0
 
+    /// A start that failed *after* `startRecording` had already handed its
+    /// session back, or `nil` when nothing has.
+    ///
+    /// `startRecording` claims the microphone synchronously and returns at once,
+    /// then pays CoreAudio's 20-35 ms on the work queue - so the two ways a start
+    /// can fail (no audio input, an `AVAudioRecorder` that threw) both happen
+    /// after the caller has been told it owns a recording. The claim is given
+    /// back there, which keeps the ownership rule intact, but nothing told the
+    /// caller: the dictation card went on blinking "Recording..." over a
+    /// microphone that never started, and the press that ended it got `nil` from
+    /// `stopRecording` and closed the session without a word. The Ask panel had
+    /// the same hole and reported it as "No speech detected".
+    ///
+    /// It names its session for the reason every other signal here does:
+    /// `@Published` replays to each new subscriber and five keys share this
+    /// recorder, so a subscriber may act only on a failure carrying the session
+    /// it is actually holding.
+    @Published private(set) var failedStart: FailedRecordingStart?
+
     /// How often the level is sampled while it is being drawn. 20 Hz is what a
     /// level meter needs to look continuous; the waveform's own history supplies
     /// the rest of the motion.
@@ -181,7 +200,23 @@ class AudioRecorder: NSObject, ObservableObject {
     }
 
     private func claimSession() -> RecordingSession? {
-        sessionClaim.claim()
+        let claimed = sessionClaim.claim()
+        // A new claim clears the last failure, so a subscriber that appears
+        // between two presses is not replayed somebody else's.
+        if claimed != nil {
+            DispatchQueue.main.async { self.failedStart = nil }
+        }
+        return claimed
+    }
+
+    /// Gives `session` back and says so, for the two starts that fail on the
+    /// work queue after the caller has already been handed the session.
+    private func failStart(_ session: RecordingSession, _ reason: FailedRecordingStart.Reason) {
+        // Released first: the microphone is free from this moment, and a caller
+        // woken by the report must find it so.
+        releaseSession(session)
+        let failure = FailedRecordingStart(session: session, reason: reason)
+        DispatchQueue.main.async { self.failedStart = failure }
     }
 
     @discardableResult
@@ -218,7 +253,7 @@ class AudioRecorder: NSObject, ObservableObject {
         workQueue.async {
             guard let activeMic = MicrophoneService.shared.getActiveMicrophone() else {
                 print("Cannot start recording - no audio input available")
-                self.releaseSession(session)
+                self.failStart(session, .noAudioInput)
                 return
             }
 
@@ -291,7 +326,7 @@ class AudioRecorder: NSObject, ObservableObject {
             currentRecordingURL = nil
             restoreSystemDefaultInputIfNeeded()
             updateRecordingState(isRecording: false, isConnecting: false)
-            releaseSession(session)
+            failStart(session, .recorderFailed)
         }
     }
 

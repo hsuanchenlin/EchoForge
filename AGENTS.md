@@ -789,6 +789,45 @@ while a cancel button is up, and `constrainFrameRect` returning its argument - A
 the panel down until its transparent shadow margin fits on screen, which lands every placement 16 pt
 low.
 
+## Dictation latency and the queue
+
+`docs/dictation-latency.md` carries the measurements and, more usefully, the **negative**
+results: `EngineAvailability.current()` on the head of every transcription is 0.10 ms,
+`Settings()` is 0.006 ms, and a whole recording's hundred progress ticks are 3.3 ms. None of
+those three is worth optimising, and two of them would cost a documented guarantee to try -
+read that file before "removing main-thread work" from this path. What dominates is the engine
+decode and the rewriting stage, which are the product's chosen quality rather than overhead.
+
+The one large avoidable cost there was the queue re-running work.
+`RecordingStore.getNextPendingRecording` counts `.pending`, `.converting` **and**
+`.transcribing` as still-to-do, so a pass that ends without writing the row out of those three
+is handed the same row on the next turn and transcribes it again - which is what cancelling
+used to do. `TranscriptionQueueStep` is that rule, kept out of the loop so it can be asserted,
+and it turns on whether the previous pass *settled* the row rather than on identity, so a
+regenerate of the recording that just finished is new work rather than a repeat. Everything
+that ends a pass settles the row, and *settled* is *the store's* answer rather than the pass's:
+`updateRecordingProgressOnlySync`, `updateRecordingStatusOnly` and `deleteRecordingSync` return
+whether the write landed instead of printing the error and swallowing it, because a pass that
+reported `true` regardless left a cancelled row `.converting` and the loop read it coming back
+as a regenerate - the cancelled transcription running after all. A row that is already gone
+still counts as settled; only a write that failed does not. The loop's guard is then the
+bounded escape: it writes such a row out once, and if it comes back again it ends the loop
+rather than spinning, because `isProcessing` refuses every later dictation while it is true.
+
+Cancellation is generation-scoped in `TranscriptionService` (`transcriptionGeneration`,
+`cancelledGeneration`) for the same reason `loadGeneration` exists: a transcription's teardown
+runs a main-actor hop after the work ends, by which time a *different* one may own the object.
+Cancelling does **not** clear `transcriptionTask` or `isTranscribing` - those two are the answer
+to "is the engine free", cancelling does not make it free, and clearing them let a press right
+after a cancel start a second transcription on a whisper context still inside `whisper_full`.
+
+`AudioRecorder.startRecording` hands back its session synchronously and then pays CoreAudio on
+its work queue, so a start can fail after the caller believes it is recording.
+`AudioRecorder.failedStart` is how it says so, and it names its session because five keys share
+one recorder and `@Published` replays; `FailedRecordingStart.ends(_:)` is the whole subscription
+rule. Every surface that takes the microphone has to watch it - a source scan in
+`FailedRecordingStartTests` keeps that true.
+
 ## Settings, sheets, and shutting down
 
 Settings is a **sheet**, it has **no `TabView`**, and `SettingsSheetLayout` owns what follows.
