@@ -546,8 +546,8 @@ struct RecordingRow: View {
     /// right-click menu, and to register the same actions with VoiceOver. Hover
     /// is a pointer affordance and a VoiceOver user has no pointer, so a bar
     /// that was the only way to reach delete would be no way at all for them -
-    /// and three hand-written copies of the same five actions is how one of
-    /// them silently loses a case.
+    /// and three hand-written copies of the same list is how one of them
+    /// silently loses a case.
     private var actions: [HistoryRowAction] {
         HistoryRowActionKind
             .available(for: recording.status, hasTranscript: !displayText.isEmpty)

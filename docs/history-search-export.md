@@ -6,7 +6,8 @@ network, and nothing here asks a model anything.
 
 - **Search** is `OpenSuperWhisper/History/HistorySearchQuery.swift` (what a typed phrase
   means) plus `RecordingStore.query(matching:searching:)` (the predicate it becomes),
-  with the field itself in `ContentView`.
+  with the field itself in `HistorySearchBar` (hosted by `ContentView`, which owns the
+  debounce and the resolved phrase).
 - **Export** is `OpenSuperWhisper/History/TranscriptExport.swift` (what a row is written
   as) plus `OpenSuperWhisper/History/TranscriptExportCoordinator.swift` (the press), with
   `HistoryRowActionKind.export` as the button `RecordingRow` draws.
@@ -35,7 +36,7 @@ The phrase is ORed across five things and ANDed with the provenance filter besid
 | the transcript | `transcription` |
 | what the engine heard | `rawTranscription`, the card's "Show original" disclosure |
 | the sentence under the badge | `provenanceDetail` |
-| the badge's own label | `HistorySearchQuery.provenanceKinds`, matched on `label` / `accessibilityLabel` |
+| the badge's own label | `HistorySearchQuery.matchedKinds`, matched on `label` / `accessibilityLabel` |
 | the date | `HistorySearchQuery.dateInterval`, a half-open range on `timestamp` |
 
 ANDed with the filter, because choosing a kind should *narrow* a search rather than
@@ -169,6 +170,7 @@ the card - inline and dismissible, the way a refused correction does, never an a
 | --- | --- |
 | `HistorySearchQueryTests` | what a phrase means: case, substring, the labels, the dates, and what is *not* a date |
 | `HistorySearchStoreTests` | the predicate against a real database, including the NULL arm, LIKE escaping, the two fields that are never searched, and that the phrase the SQL matched on is the phrase a row can highlight |
+| `HistorySearchRenderTests` | the search bar and the no-results panel, drawn headlessly, including the wording and the clear action |
 | `TranscriptExportTests` | the serialiser: what is carried, what is never carried, Markdown syntax and backticks in a transcript, newlines, non-Latin text |
 | `TranscriptExportCoordinatorTests` | the press: cancelled, refused, empty and written, and the format the panel came back with, with the panel and the write injected |
 | `HistoryRowActionTests` | that only a finished row with words is offered an export |

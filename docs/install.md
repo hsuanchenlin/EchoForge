@@ -255,9 +255,9 @@ The kind filter beside it narrows a search rather than replacing it. If nothing 
 
 ### Exporting an entry
 
-Hover an entry (or right-click it) and choose **Export transcript** to save it to a file.
-A normal save panel asks where it goes and, in the **Format** menu at the bottom of it,
-what to write:
+Hover a finished entry that has words (or right-click it) and choose **Export transcript**
+to save it to a file. A normal save panel asks where it goes and, in the **Format** menu
+at the bottom of it, what to write:
 
 - **Markdown (.md)** - the default. The details are a short list and the words sit in a
   fenced block, so a dictation containing `#`, `*` or `|` reads back as what you said.
