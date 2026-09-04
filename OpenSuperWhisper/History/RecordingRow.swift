@@ -33,6 +33,11 @@ struct RecordingRow: View {
     /// `TranscriptCorrectionCoordinator`. Injectable so a render test can draw
     /// the running and the refused states without a model.
     @ObservedObject var corrections: TranscriptCorrectionCoordinator = .shared
+    /// The sentence the row's last Export press left, observed rather than
+    /// owned for the reason `corrections` is: the save panel runs its own event
+    /// loop and the note has to outlive the card that opened it. See
+    /// `TranscriptExportCoordinator`.
+    @ObservedObject var exports: TranscriptExportCoordinator = .shared
 
     @StateObject private var audioRecorder = AudioRecorder.shared
     @State private var showTranscription = false
@@ -89,6 +94,12 @@ struct RecordingRow: View {
     /// correct. Never a blocking alert: the row keeps every word it had.
     private var correctionNote: String? {
         corrections.note(for: recording.id)
+    }
+
+    /// The sentence the last Export press left - where the file went, or why no
+    /// file was written. Nil after a cancelled save, which needs no sentence.
+    private var exportNote: String? {
+        exports.note(for: recording.id)
     }
 
     private var hasFailed: Bool {
@@ -409,7 +420,11 @@ struct RecordingRow: View {
             }
 
             if let note = correctionNote {
-                correctionNoteSection(note)
+                inlineNoteSection(note) { corrections.dismissNote(for: recording.id) }
+            }
+
+            if let note = exportNote {
+                inlineNoteSection(note) { exports.dismissNote(for: recording.id) }
             }
 
             if let original = originalTranscription {
@@ -531,8 +546,8 @@ struct RecordingRow: View {
     /// right-click menu, and to register the same actions with VoiceOver. Hover
     /// is a pointer affordance and a VoiceOver user has no pointer, so a bar
     /// that was the only way to reach delete would be no way at all for them -
-    /// and three hand-written copies of the same five actions is how one of
-    /// them silently loses a case.
+    /// and three hand-written copies of the same list is how one of them
+    /// silently loses a case.
     private var actions: [HistoryRowAction] {
         HistoryRowActionKind
             .available(for: recording.status, hasTranscript: !displayText.isEmpty)
@@ -577,6 +592,8 @@ struct RecordingRow: View {
         case .copy:
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(recording.transcription, forType: .string)
+        case .export:
+            exports.export(recording)
         case .fixWithAI:
             corrections.correct(recording)
         case .regenerate:
@@ -594,15 +611,20 @@ struct RecordingRow: View {
         }
     }
 
-    // MARK: - What a press that changed nothing left behind
+    // MARK: - What a press left behind
 
-    /// The sentence a "Fix with AI" press leaves when it changes no words.
+    /// The sentence a press leaves on the card - a "Fix with AI" that changed no
+    /// words, or an Export that says where the file went or why none was
+    /// written.
     ///
     /// Inline on the card and dismissible, never an alert or a sheet: the press
     /// cost the user a wait and nothing else - every word the row had is still
     /// there - so interrupting them to say so would be the most disruptive part
-    /// of the whole feature. `docs/history-ai-fix.md` records the reasoning.
-    private func correctionNoteSection(_ note: String) -> some View {
+    /// of the whole feature. `docs/history-ai-fix.md` records the reasoning, and
+    /// `docs/history-search-export.md` is why Export answers the same way.
+    private func inlineNoteSection(
+        _ note: String, dismiss: @escaping () -> Void
+    ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: "info.circle")
                 .font(.system(size: 10, weight: .semibold))
@@ -611,9 +633,7 @@ struct RecordingRow: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .textSelection(.enabled)
-            Button {
-                corrections.dismissNote(for: recording.id)
-            } label: {
+            Button(action: dismiss) {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
             }

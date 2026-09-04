@@ -244,7 +244,7 @@ enum HistoryTimestamp {
 
 // MARK: - Actions
 
-/// The five things a history row can do to itself, as a decision separate from
+/// The six things a history row can do to itself, as a decision separate from
 /// the buttons that carry it.
 ///
 /// Which actions a row offers depends only on its status and on whether it has
@@ -257,6 +257,7 @@ enum HistoryTimestamp {
 enum HistoryRowActionKind: String, CaseIterable, Sendable {
     case play
     case copy
+    case export
     case fixWithAI
     case regenerate
     case delete
@@ -268,6 +269,12 @@ enum HistoryRowActionKind: String, CaseIterable, Sendable {
     /// but both keep delete, which is the way out, and a failed row keeps
     /// regenerate, which is the way forward. `DictationFailureOutcome` keeps
     /// the recording precisely so that second press is possible.
+    ///
+    /// `export` is offered on the same rule as `copy` with one addition: it
+    /// writes a document *about* a transcript, so a completed row with no words
+    /// in it - the "No speech detected" card - has nothing to put in one, and a
+    /// queued or failed row has no finished transcript to export at all.
+    /// `TranscriptExport.document(for:)` applies the same rule on the way in.
     ///
     /// `fixWithAI` is the one action that needs more than the status. It only
     /// ever asks a model about words, so a completed row with nothing in it -
@@ -285,7 +292,7 @@ enum HistoryRowActionKind: String, CaseIterable, Sendable {
             return [.regenerate, .delete]
         case .completed:
             return hasTranscript
-                ? [.play, .copy, .fixWithAI, .regenerate, .delete]
+                ? [.play, .copy, .export, .fixWithAI, .regenerate, .delete]
                 : [.play, .copy, .regenerate, .delete]
         }
     }
@@ -297,6 +304,7 @@ enum HistoryRowActionKind: String, CaseIterable, Sendable {
         switch self {
         case .play: return isPlaying ? "Stop playback" : "Play audio"
         case .copy: return "Copy transcription"
+        case .export: return "Export transcript"
         case .fixWithAI: return "Fix with AI"
         case .regenerate: return "Regenerate transcription"
         case .delete: return "Delete recording"
@@ -307,6 +315,8 @@ enum HistoryRowActionKind: String, CaseIterable, Sendable {
     /// the label already says everything.
     var help: String? {
         switch self {
+        case .export:
+            return "Save this transcript and its details to a file you choose"
         case .fixWithAI:
             return "Fix homophones, mis-heard characters and typos from context, on this Mac"
         case .play, .copy, .regenerate, .delete:
@@ -318,6 +328,7 @@ enum HistoryRowActionKind: String, CaseIterable, Sendable {
         switch self {
         case .play: return isPlaying ? "stop.fill" : "play.fill"
         case .copy: return "doc.on.doc"
+        case .export: return "square.and.arrow.down"
         case .fixWithAI: return "sparkles"
         case .regenerate: return "arrow.clockwise"
         case .delete: return "trash"

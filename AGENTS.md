@@ -736,6 +736,24 @@ columns. The history list filters in **SQL** (`RecordingStore.query(matching:)`)
 the loaded page, because history is paged; `provenanceKind IN (…)` is false for NULL, so
 the legacy filter asks for the NULL and every other filter must not.
 
+**Searching and exporting** history are the two things that let a user find a row and
+take it out, and `docs/history-search-export.md` is their whole story. Search runs in the
+same SQL for the same reason the filter does, so everything the database cannot see for
+itself - the badge's *label* ("Voice edit", not the stored `selectionEdit`) and the row's
+*date* - is resolved by `HistorySearchQuery` before the query is built, ANDed with the
+provenance filter beside it. Two rules there are absolute: `fileName` and `sourceFileURL`
+are never searched, because one is an internal `UUID.wav` and the other an absolute path
+whose directories the card has never shown; and `escapedForLike` neutralises LIKE's own
+wildcards, or a user typing `100%` is asking for every row starting `100`. Export
+(`TranscriptExport`, `TranscriptExportCoordinator`) is a pure serialiser behind an
+`NSSavePanel`: the only file written is the URL the panel returned, the document states
+only what the card states - never the row id, the audio file name or the source path -
+and the transcript goes in a **fenced** block grown past its own backticks, because a
+dictation containing `#`, `*` or `|` must come back out as the words that were said. The
+panel offers Markdown and plain text and nothing else, and the format is never taken on
+trust: `TranscriptExport.destination(for:chosenFormat:)` reconciles the control with the
+name the user typed, so the extension and the body cannot disagree.
+
 `terms.json` beside it is the second store: the personal terms dictionary, deliberately a plain
 hand-editable file outside the database because it has a different lifecycle and must not be
 touched by the recordings retention policy. See `docs/personal-terms.md`.

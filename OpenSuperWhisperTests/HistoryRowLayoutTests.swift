@@ -173,18 +173,33 @@ final class HistoryRowActionTests: XCTestCase {
 
     /// A finished recording with words in it is the only state where everything
     /// applies.
-    func testAFinishedRowOffersAllFive() {
+    func testAFinishedRowOffersAllSix() {
         XCTAssertEqual(
             HistoryRowActionKind.available(for: .completed, hasTranscript: true),
-            [.play, .copy, .fixWithAI, .regenerate, .delete])
+            [.play, .copy, .export, .fixWithAI, .regenerate, .delete])
     }
 
-    /// "No speech detected" is a finished row with nothing in it, and there is
-    /// nothing for a model to fix. Everything else it can still do.
-    func testAFinishedRowWithNoWordsCannotBeFixed() {
+    /// "No speech detected" is a finished row with nothing in it. There is
+    /// nothing for a model to fix and nothing to put in a document either -
+    /// `TranscriptExport.document(for:)` refuses the same row on the way in.
+    func testAFinishedRowWithNoWordsCanBeNeitherFixedNorExported() {
         XCTAssertEqual(
             HistoryRowActionKind.available(for: .completed, hasTranscript: false),
             [.play, .copy, .regenerate, .delete])
+    }
+
+    /// A row that is still running or that failed has no finished transcript, so
+    /// it is never offered a document to write - the same rule that keeps "Fix
+    /// with AI" off them.
+    func testOnlyAFinishedRowWithWordsCanBeExported() {
+        for status in [RecordingStatus.pending, .converting, .transcribing, .failed] {
+            for hasTranscript in [false, true] {
+                XCTAssertFalse(
+                    HistoryRowActionKind.available(for: status, hasTranscript: hasTranscript)
+                        .contains(.export),
+                    "a \(status.rawValue) row offered an export it has nothing to write")
+            }
+        }
     }
 
     /// Nothing has been written yet, so there is nothing to play or copy - but
@@ -228,13 +243,22 @@ final class HistoryRowActionTests: XCTestCase {
         }
     }
 
-    /// The one action with a tooltip longer than its label, because "Fix with
-    /// AI" says nothing about what it fixes or where it runs.
-    func testFixWithAIExplainsItselfAndRunsOnThisMac() {
-        let help = HistoryRowActionKind.fixWithAI.help
-        XCTAssertNotNil(help)
-        XCTAssertTrue(help?.contains("this Mac") == true, "the tooltip must say where it runs")
-        for kind in HistoryRowActionKind.allCases where kind != .fixWithAI {
+    /// The two actions with a tooltip longer than their label. "Fix with AI"
+    /// says nothing about what it fixes or where it runs, and "Export
+    /// transcript" says nothing about the user choosing where it goes - which is
+    /// the whole safety story of that press.
+    func testTheTwoActionsThatNeedExplainingExplainThemselves() {
+        let fix = HistoryRowActionKind.fixWithAI.help
+        XCTAssertNotNil(fix)
+        XCTAssertTrue(fix?.contains("this Mac") == true, "the tooltip must say where it runs")
+
+        let export = HistoryRowActionKind.export.help
+        XCTAssertNotNil(export)
+        XCTAssertTrue(
+            export?.contains("you choose") == true,
+            "the tooltip must say the destination is the user's")
+
+        for kind in HistoryRowActionKind.allCases where kind != .fixWithAI && kind != .export {
             XCTAssertNil(kind.help, "\(kind.rawValue) grew a tooltip its label already carries")
         }
     }
