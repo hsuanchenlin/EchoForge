@@ -1,157 +1,15 @@
 import Foundation
 import GRDB
 
-enum RecordingStatus: String, Codable {
-    case pending
-    case converting
-    case transcribing
-    case completed
-    case failed
-}
-
-struct Recording: Identifiable, Codable, FetchableRecord, PersistableRecord, Equatable {
-    let id: UUID
-    let timestamp: Date
-    let fileName: String
-    var transcription: String
-    let duration: TimeInterval
-    var status: RecordingStatus
-    var progress: Float
-    var sourceFileURL: String?
-    /// The transcript exactly as the engine produced it, before post-processing.
-    ///
-    /// Nil for every recording stored so far: nothing writes this yet. It exists
-    /// so a later stage can persist `ProcessedText.raw` and fall back to what the
-    /// user originally said when post-processing turns out to be wrong.
-    var rawTranscription: String?
-
-    /// When the user last pressed "Fix with AI" on this row and the correction
-    /// landed. Nil until somebody presses it, and cleared again by anything that
-    /// replaces the transcript with the engine's own words.
-    ///
-    /// Its own column rather than a `RecordingProvenance` case, and that is a
-    /// decision rather than an omission: provenance records *which way of
-    /// listening* produced a row and fails closed about what became of it, so
-    /// filing a corrected dictation as something other than a dictation would
-    /// overwrite the one fact that record exists to keep. A correction is
-    /// something that happened to a row afterwards, and it is stored as such.
-    /// See `TranscriptCorrection` and `docs/history-ai-fix.md`.
-    var aiCorrectedAt: Date?
-
-    /// Which of the app's ways of listening produced this row, as the stored
-    /// discriminator. Nil for every row written before provenance existed, and
-    /// read back as `RecordingProvenance.unknown` rather than guessed at.
-    var provenanceKind: String?
-
-    /// The refusal class of a YouTube command that opened nothing. Nil for every
-    /// other kind.
-    var provenanceReason: String?
-
-    /// The sentence shown under the label: what was opened, or what to do about
-    /// a command that opened nothing. Never a URL, a channel id or a credential
-    /// - `HistoryProvenancePrivacyTests` holds that.
-    var provenanceDetail: String?
-
-    var isRegeneration: Bool = false
-
-    /// Whether a correction has been applied to this row.
-    var wasCorrectedByAI: Bool { aiCorrectedAt != nil }
-
-    /// What "Fix with AI" must keep as this row's original.
-    ///
-    /// The engine's own words wherever the row already has them - a row whose
-    /// transcript was restyled at dictation time keeps that copy, and a second
-    /// press must not overwrite it with the text the first press produced. That
-    /// copy is the only record of what was actually said.
-    var originalTranscriptionForCorrection: String {
-        guard let rawTranscription, !rawTranscription.isEmpty else { return transcription }
-        return rawTranscription
-    }
-
-    /// The three columns read back as one value.
-    ///
-    /// Every surface goes through here rather than at the columns, so "a kind
-    /// this build does not know is an older recording" is decided once. See
-    /// `RecordingProvenance.stored`.
-    var provenance: RecordingProvenance {
-        get {
-            RecordingProvenance.stored(
-                kind: provenanceKind, reason: provenanceReason, detail: provenanceDetail)
-        }
-        set {
-            (provenanceKind, provenanceReason, provenanceDetail) = newValue.columns
-        }
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case id, timestamp, fileName, transcription, duration, status, progress, sourceFileURL
-        case rawTranscription
-        case aiCorrectedAt
-        case provenanceKind, provenanceReason, provenanceDetail
-    }
-
-    /// Equality over the fields a row is *redrawn* for, which is what this is
-    /// for. Provenance is one of them: a command's outcome lands a second after
-    /// its words, and a row that compares equal to its own previous self would
-    /// keep showing "did not finish" over a video that opened.
-    static func == (lhs: Recording, rhs: Recording) -> Bool {
-        return lhs.id == rhs.id &&
-               lhs.status == rhs.status &&
-               lhs.progress == rhs.progress &&
-               lhs.transcription == rhs.transcription &&
-               // Both halves of what the card draws under the transcript: the
-               // "Show original" disclosure and the "AI Polished" chip. A
-               // correction that only added the chip - or only the original -
-               // would otherwise compare equal to the row it replaced and never
-               // be drawn.
-               lhs.rawTranscription == rhs.rawTranscription &&
-               lhs.aiCorrectedAt == rhs.aiCorrectedAt &&
-               lhs.isRegeneration == rhs.isRegeneration &&
-               lhs.provenanceKind == rhs.provenanceKind &&
-               lhs.provenanceReason == rhs.provenanceReason &&
-               lhs.provenanceDetail == rhs.provenanceDetail
-    }
-
-    static var recordingsDirectory: URL {
-        let applicationSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!
-        let appDirectory = applicationSupport.appendingPathComponent(Bundle.main.bundleIdentifier!)
-        return appDirectory.appendingPathComponent("recordings")
-    }
-
-    var url: URL {
-        Self.recordingsDirectory.appendingPathComponent(fileName)
-    }
-    
-    var isPending: Bool {
-        status == .pending || status == .converting || status == .transcribing
-    }
-    
-    var sourceFileName: String? {
-        guard let sourceFileURL = sourceFileURL else { return nil }
-        return URL(fileURLWithPath: sourceFileURL).lastPathComponent
-    }
-
-    static let databaseTableName = "recordings"
-
-    enum Columns {
-        static let id = Column(CodingKeys.id)
-        static let timestamp = Column(CodingKeys.timestamp)
-        static let fileName = Column(CodingKeys.fileName)
-        static let transcription = Column(CodingKeys.transcription)
-        static let duration = Column(CodingKeys.duration)
-        static let status = Column(CodingKeys.status)
-        static let progress = Column(CodingKeys.progress)
-        static let sourceFileURL = Column(CodingKeys.sourceFileURL)
-        static let rawTranscription = Column(CodingKeys.rawTranscription)
-        static let aiCorrectedAt = Column(CodingKeys.aiCorrectedAt)
-        static let provenanceKind = Column(CodingKeys.provenanceKind)
-        static let provenanceReason = Column(CodingKeys.provenanceReason)
-        static let provenanceDetail = Column(CodingKeys.provenanceDetail)
-    }
-}
-
+/// The app's writer for the recordings database.
+///
+/// The row, the schema and the two history queries live in `EchoForgeCore`
+/// (`Recording`, `RecordingSchema`), because the `echoforge` command-line tool
+/// reads the same file and two declarations of a schema are two schemas. This
+/// class is the half that stays in the app: it is what *migrates* and what
+/// *writes*, and the CLI does neither. The forwarding members below keep
+/// `RecordingStore.makeMigrator()` and `RecordingStore.query(…)` reading the way
+/// every call site and test already spells them.
 @MainActor
 class RecordingStore: ObservableObject {
     static let shared = RecordingStore()
@@ -160,11 +18,8 @@ class RecordingStore: ObservableObject {
     private let dbQueue: DatabaseQueue
 
     private init() {
-        let applicationSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!
-        let appDirectory = applicationSupport.appendingPathComponent(Bundle.main.bundleIdentifier!)
-        let dbPath = appDirectory.appendingPathComponent("recordings.sqlite")
+        let appDirectory = AppDataLocation.applicationSupportDirectory()
+        let dbPath = AppDataLocation.recordingsDatabaseURL()
 
         print("Database path: \(dbPath.path)")
 
@@ -182,93 +37,35 @@ class RecordingStore: ObservableObject {
         try Self.makeMigrator().migrate(dbQueue)
     }
 
-    /// The full schema history of the recordings database.
-    ///
-    /// Exposed separately from `setupDatabase()` so migrations can be exercised
-    /// against a throwaway database instead of the user's real one.
+    /// The full schema history of the recordings database, from
+    /// `RecordingSchema`. Kept spelled here because every migration test and
+    /// every call site names it on the store.
     nonisolated static func makeMigrator() -> DatabaseMigrator {
-        var migrator = DatabaseMigrator()
-
-        migrator.registerMigration("v1") { db in
-            try db.create(table: Recording.databaseTableName, ifNotExists: true) { t in
-                t.column("id", .text).primaryKey()
-                t.column("timestamp", .datetime).notNull().indexed()
-                t.column("fileName", .text).notNull()
-                t.column("transcription", .text).notNull().indexed().collate(.nocase)
-                t.column("duration", .double).notNull()
-            }
-        }
-        
-        migrator.registerMigration("v2_add_status") { db in
-            let columns = try db.columns(in: Recording.databaseTableName)
-            let columnNames = columns.map { $0.name }
-            
-            if !columnNames.contains("status") {
-                try db.alter(table: Recording.databaseTableName) { t in
-                    t.add(column: "status", .text).notNull().defaults(to: "completed")
-                }
-            }
-            if !columnNames.contains("progress") {
-                try db.alter(table: Recording.databaseTableName) { t in
-                    t.add(column: "progress", .double).notNull().defaults(to: 1.0)
-                }
-            }
-            if !columnNames.contains("sourceFileURL") {
-                try db.alter(table: Recording.databaseTableName) { t in
-                    t.add(column: "sourceFileURL", .text)
-                }
-            }
-        }
-
-        migrator.registerMigration("v3_add_raw_transcription") { db in
-            let columnNames = try db.columns(in: Recording.databaseTableName).map { $0.name }
-
-            if !columnNames.contains("rawTranscription") {
-                try db.alter(table: Recording.databaseTableName) { t in
-                    t.add(column: "rawTranscription", .text)
-                }
-            }
-        }
-
-        /// Provenance: what kind of session produced a row, and what became of
-        /// it (`RecordingProvenance`).
-        ///
-        /// All three columns are nullable with no default, and that is the
-        /// migration's whole safety story: every recording a user already has
-        /// gets NULL, reads back as `.unknown`, and is shown as "Older
-        /// recording". Back-filling them with `'dictation'` would have been one
-        /// `UPDATE` and would have written the app's guess into the user's
-        /// record - including onto every YouTube command they ran before this
-        /// existed, which is exactly the history they are trying to read.
-        migrator.registerMigration("v4_add_provenance") { db in
-            let columnNames = try db.columns(in: Recording.databaseTableName).map { $0.name }
-
-            for column in ["provenanceKind", "provenanceReason", "provenanceDetail"]
-            where !columnNames.contains(column) {
-                try db.alter(table: Recording.databaseTableName) { t in
-                    t.add(column: column, .text)
-                }
-            }
-        }
-
-        /// When "Fix with AI" last corrected a row (`TranscriptCorrection`).
-        ///
-        /// Nullable with no default, for the reason every column added here is:
-        /// every recording a user already has gets NULL and reads back as a row
-        /// nobody has corrected, which is exactly what it is. Nothing is
-        /// back-filled and nothing is inferred.
-        migrator.registerMigration("v5_add_ai_correction") { db in
-            let columnNames = try db.columns(in: Recording.databaseTableName).map { $0.name }
-
-            if !columnNames.contains("aiCorrectedAt") {
-                try db.alter(table: Recording.databaseTableName) { t in
-                    t.add(column: "aiCorrectedAt", .datetime)
-                }
-            }
-        }
-
-        return migrator
+        RecordingSchema.makeMigrator()
     }
+
+    /// The history query for one filter. See `RecordingSchema.query(matching:)`.
+    nonisolated static func query(
+        matching filter: HistoryProvenanceFilter
+    ) -> QueryInterfaceRequest<Recording> {
+        RecordingSchema.query(matching: filter)
+    }
+
+    /// The history query for one filter **and** one search phrase.
+    /// See `RecordingSchema.query(matching:searching:)`.
+    nonisolated static func query(
+        matching filter: HistoryProvenanceFilter,
+        searching search: HistorySearchQuery
+    ) -> QueryInterfaceRequest<Recording> {
+        RecordingSchema.query(matching: filter, searching: search)
+    }
+
+    /// Neutralises the three characters LIKE reads as syntax.
+    /// See `RecordingSchema.escapedForLike`.
+    nonisolated static func escapedForLike(_ text: String) -> String {
+        RecordingSchema.escapedForLike(text)
+    }
+
 
     private nonisolated func fetchAllRecordings() async throws -> [Recording] {
         try await dbQueue.read { db in
@@ -287,97 +84,6 @@ class RecordingStore: ObservableObject {
                 .limit(limit, offset: offset)
                 .fetchAll(db)
         }
-    }
-
-    /// The history query for one filter.
-    ///
-    /// In SQL rather than over the loaded page, because history is paged: a
-    /// filter applied to the hundred rows that happen to be in memory would
-    /// quietly hide every older row that matches, which is the opposite of what
-    /// somebody looking for a command that failed last week is asking for.
-    ///
-    /// The NULL arm is the load-bearing part. Every recording made before
-    /// provenance existed has no kind stored, and `provenanceKind IN (...)` is
-    /// false for NULL in SQL - so "Older recording" has to ask for the NULL
-    /// explicitly, and every other filter has to leave it out.
-    nonisolated static func query(
-        matching filter: HistoryProvenanceFilter
-    ) -> QueryInterfaceRequest<Recording> {
-        guard let kinds = filter.kinds else { return Recording.all() }
-        let raw = kinds.map(\.rawValue)
-        let named = raw.contains(Recording.Columns.provenanceKind)
-        return Recording.filter(
-            filter.includesUnrecorded ? (named || Recording.Columns.provenanceKind == nil) : named
-        )
-    }
-
-    /// The history query for one filter **and** one search phrase.
-    ///
-    /// The two are ANDed, and that is the contract the list depends on: choosing
-    /// a kind narrows a search rather than replacing it, so a user who has typed
-    /// a word and then picked "Voice edit" sees the voice edits carrying that
-    /// word rather than every voice edit they have ever made.
-    ///
-    /// The phrase itself is ORed across the four things a card shows and the
-    /// database can answer for: the transcript, the original the "Show original"
-    /// disclosure holds, the provenance sentence under the badge, and - through
-    /// `HistorySearchQuery`, which resolved them before the query was built -
-    /// the badge's own label and the row's date. Nothing here reaches `fileName`
-    /// or `sourceFileURL`: one is an internal `UUID.wav` and the other an
-    /// absolute path whose directories the user has never been shown.
-    nonisolated static func query(
-        matching filter: HistoryProvenanceFilter,
-        searching search: HistorySearchQuery
-    ) -> QueryInterfaceRequest<Recording> {
-        let filtered = query(matching: filter)
-        guard !search.isEmpty else { return filtered }
-
-        let pattern = "%\(escapedForLike(search.text))%"
-        var matches = Recording.Columns.transcription
-            .like(pattern, escape: likeEscapeCharacter).collating(.nocase)
-        matches = matches
-            || Recording.Columns.rawTranscription
-                .like(pattern, escape: likeEscapeCharacter).collating(.nocase)
-        matches = matches
-            || Recording.Columns.provenanceDetail
-                .like(pattern, escape: likeEscapeCharacter).collating(.nocase)
-
-        if !search.matchedKinds.isEmpty {
-            matches = matches
-                || search.matchedKinds.map(\.rawValue)
-                    .contains(Recording.Columns.provenanceKind)
-        }
-        // The same NULL arm `query(matching:)` needs, for the same reason:
-        // "Older recording" is what a row with nothing stored is *shown* as, and
-        // `provenanceKind IN (…)` is false for NULL.
-        if search.matchesUnrecordedProvenance {
-            matches = matches || (Recording.Columns.provenanceKind == nil)
-        }
-        if let interval = search.dateInterval {
-            matches = matches
-                || (Recording.Columns.timestamp >= interval.start
-                    && Recording.Columns.timestamp < interval.end)
-        }
-
-        return filtered.filter(matches)
-    }
-
-    /// The escape character the search patterns are built with.
-    ///
-    /// LIKE has wildcards of its own, and a search field does not: without this
-    /// a user typing `100%` would be asking for every row starting `100`, and
-    /// one typing `_` for every row at all. See `escapedForLike`.
-    private static let likeEscapeCharacter = "\\"
-
-    /// Neutralises the three characters LIKE reads as syntax.
-    ///
-    /// The backslash first, or escaping the wildcards would escape the escapes
-    /// that were just added.
-    nonisolated static func escapedForLike(_ text: String) -> String {
-        text
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "%", with: "\\%")
-            .replacingOccurrences(of: "_", with: "\\_")
     }
 
     func getPendingRecordings() -> [Recording] {

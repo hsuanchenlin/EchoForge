@@ -114,29 +114,45 @@ final class HistoryProvenancePrivacyTests: XCTestCase {
     /// A stored row can only ever hold what `RecordingProvenance` produced, so
     /// the check above is only worth what this one is: nothing else writes those
     /// columns.
-    func testOnlyTheProvenanceTypeWritesThoseColumns() throws {
-        let sources = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("OpenSuperWhisper")
-        guard let files = FileManager.default.enumerator(atPath: sources.path)?
-            .allObjects as? [String]
-        else {
-            throw XCTSkip("Sources are not beside the tests: \(sources.path)")
-        }
+    /// Every directory a row could be written from: the app, the code it shares
+    /// with the `echoforge` command-line tool, and the tool itself. The CLI
+    /// reads history and must never write it, so it is scanned on the same
+    /// terms as the app rather than left outside the rule.
+    static let scannedSourceRoots = ["OpenSuperWhisper", "EchoForgeCore", "EchoForgeCLI"]
 
-        let allowed = ["Models/Recording.swift", "Models/RecordingProvenance.swift"]
+    func testOnlyTheProvenanceTypeWritesThoseColumns() throws {
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+
+        // The row declares the columns and the schema creates them; nothing else
+        // may name one. Both live in EchoForgeCore because the CLI reads the same
+        // database, and a second declaration of a column is a second schema.
+        let allowed: Set<String> = [
+            "EchoForgeCore/History/Recording.swift",
+            "EchoForgeCore/History/RecordingProvenance.swift",
+            "EchoForgeCore/History/RecordingSchema.swift",
+            "OpenSuperWhisper/Models/RecordingStore.swift",
+        ]
         var scanned = 0
-        for file in files where file.hasSuffix(".swift") {
-            let text = try String(
-                contentsOf: sources.appendingPathComponent(file), encoding: .utf8)
-            scanned += 1
-            guard !allowed.contains(file) else { continue }
-            for column in ["provenanceKind", "provenanceReason", "provenanceDetail"]
-            where text.contains(column) {
-                XCTFail(
-                    "\(file) writes \(column) directly. RecordingProvenance is the one thing "
-                        + "that decides what goes in those columns, so a surface cannot put "
-                        + "something in history that never went through it.")
+        for root in Self.scannedSourceRoots {
+            let sources = repositoryRoot.appendingPathComponent(root)
+            guard let files = FileManager.default.enumerator(atPath: sources.path)?
+                .allObjects as? [String]
+            else {
+                throw XCTSkip("Sources are not beside the tests: \(sources.path)")
+            }
+            for file in files where file.hasSuffix(".swift") {
+                let text = try String(
+                    contentsOf: sources.appendingPathComponent(file), encoding: .utf8)
+                scanned += 1
+                guard !allowed.contains("\(root)/\(file)") else { continue }
+                for column in ["provenanceKind", "provenanceReason", "provenanceDetail"]
+                where text.contains(column) {
+                    XCTFail(
+                        "\(root)/\(file) writes \(column) directly. RecordingProvenance is the "
+                            + "one thing that decides what goes in those columns, so a surface "
+                            + "cannot put something in history that never went through it.")
+                }
             }
         }
         XCTAssertGreaterThan(scanned, 20, "the scan found almost no sources")

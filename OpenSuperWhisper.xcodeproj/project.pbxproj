@@ -190,6 +190,11 @@
 			path = OpenSuperWhisper;
 			sourceTree = "<group>";
 		};
+		EF0000012D52C7BB00929AF3 /* EchoForgeCore */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = EchoForgeCore;
+			sourceTree = "<group>";
+		};
 		CE57B03C2D52C7BC00929AF3 /* OpenSuperWhisperTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = OpenSuperWhisperTests;
@@ -281,6 +286,7 @@
 			children = (
 				840156592D79EA1A00FB5FFE /* Bridge.h */,
 				840156402D79E87600FB5FFE /* libwhisper.xcodeproj */,
+				EF0000012D52C7BB00929AF3 /* EchoForgeCore */,
 				CE57B02A2D52C7BB00929AF3 /* OpenSuperWhisper */,
 				CE57B03C2D52C7BC00929AF3 /* OpenSuperWhisperTests */,
 				CE57B0462D52C7BC00929AF3 /* OpenSuperWhisperUITests */,
@@ -423,6 +429,7 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
+				EF0000012D52C7BB00929AF3 /* EchoForgeCore */,
 				CE57B02A2D52C7BB00929AF3 /* OpenSuperWhisper */,
 			);
 			name = OpenSuperWhisper;
