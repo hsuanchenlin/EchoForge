@@ -31,7 +31,7 @@ final class SettingsCommandTests: XCTestCase {
 
         XCTAssertEqual(execution.exitCode, .sourceUnavailable)
         XCTAssertTrue(execution.output.isEmpty)
-        XCTAssertTrue(execution.diagnostic.contains("could not be"))
+        XCTAssertTrue(execution.diagnostic.contains("could not provide values"))
     }
 
     // MARK: - Secrecy

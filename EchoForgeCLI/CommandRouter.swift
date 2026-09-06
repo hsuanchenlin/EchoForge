@@ -101,7 +101,12 @@ enum CommandRouter {
                 diagnostic: "",
                 exitCode: result.exitCode)
         } catch {
-            return failed(CLIError.wrapping(error), asJSON: parsed.wantsJSON)
+            // `wantsJSON` as well as the parsed switch: a value-taking option
+            // swallows the flag it precedes, so `history --limit --json` is the
+            // very invocation whose failure has to be a document - the parse
+            // recorded `--json` as the value being complained about rather than
+            // as a switch.
+            return failed(CLIError.wrapping(error), asJSON: parsed.wantsJSON || wantsJSON)
         }
     }
 
