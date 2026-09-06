@@ -64,6 +64,25 @@ enum AppDataLocation {
             .appendingPathComponent("whisper-models", isDirectory: true)
     }
 
+    /// Where FluidAudio downloads the weights for the on-device engines.
+    ///
+    /// **This project does not own this path.** It is upstream's
+    /// `MLModelConfigurationUtils.defaultModelsDirectory`, which is why it is
+    /// outside the app's own Application Support folder and why nothing here
+    /// creates it or writes to it - the engines ask FluidAudio, and this only
+    /// reads, so `echoforge status` can say which weights are on the disk
+    /// without loading a CoreML stack to find out. `AppDataLocationTests` pins
+    /// it against the pinned FluidAudio, so a version that moves it fails a test
+    /// rather than reporting "no models" forever.
+    static func fluidAudioModelsDirectory(fileManager: FileManager = .default) -> URL {
+        let applicationSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Application Support", isDirectory: true)
+        return applicationSupport
+            .appendingPathComponent("FluidAudio", isDirectory: true)
+            .appendingPathComponent("Models", isDirectory: true)
+    }
+
     /// The directory holding the `.wav` beside each row.
     static func recordingsDirectory(
         bundleIdentifier: String = AppDataLocation.bundleIdentifier,

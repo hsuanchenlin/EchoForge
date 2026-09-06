@@ -436,6 +436,20 @@ final class UpdateInstaller {
     private let commandRunner: CommandRunning
     private let fileManager: FileManager
     private let installedAppURL: URL
+
+    /// The bundle identifier a downloaded build must declare to be allowed to
+    /// replace `installedAppURL`.
+    ///
+    /// Injected rather than read from `Bundle.main` at the point of use, because
+    /// the app is no longer the only process that installs an update: the
+    /// `echoforge` command-line tool does too, and `Bundle.main` there is the
+    /// tool. Left to default, that check would have compared the downloaded
+    /// Kongweh against the tool's own identity and refused every genuine
+    /// release - the same class of mistake as `UpdateManifest.repositoryPath`
+    /// once being a name that redirected. The app passes nothing and keeps
+    /// comparing against itself; the tool passes the identity of the bundle it
+    /// is about to replace.
+    private let expectedBundleIdentifier: String
     private let partialStore: PartialDownloadStore
     private let checksumFetcher: ChecksumFetching
     /// The image this installer has attached, if any, so a quit can detach it
@@ -447,12 +461,14 @@ final class UpdateInstaller {
         commandRunner: CommandRunning = SystemCommandRunner(),
         fileManager: FileManager = .default,
         installedAppURL: URL = Bundle.main.bundleURL,
+        expectedBundleIdentifier: String = AppBuildIdentity.current().bundleIdentifier,
         partialStore: PartialDownloadStore = PartialDownloadStore(),
         checksumFetcher: ChecksumFetching = GitHubChecksumFetcher()
     ) {
         self.commandRunner = commandRunner
         self.fileManager = fileManager
         self.installedAppURL = installedAppURL
+        self.expectedBundleIdentifier = expectedBundleIdentifier
         self.partialStore = partialStore
         self.checksumFetcher = checksumFetcher
     }
@@ -541,7 +557,9 @@ final class UpdateInstaller {
             throw UpdateInstallError.noApplicationInDiskImage
         }
 
-        try await verify(mountedApp, against: .forOffered(release))
+        try await verify(
+            mountedApp,
+            against: .forOffered(release, bundleIdentifier: expectedBundleIdentifier))
 
         // A staged copy from an earlier attempt that was never installed - "Not
         // Now", a crash, or the app quitting before install - would otherwise
