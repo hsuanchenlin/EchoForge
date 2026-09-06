@@ -58,22 +58,19 @@ enum SettingsCommand: CLICommand {
 
     static func text(for rows: [(InspectablePreference, StoredValue)]) -> String {
         var lines: [String] = []
-        var section: String?
-        for (preference, value) in rows {
-            if preference.section != section {
-                if section != nil { lines.append("") }
-                lines.append(preference.section.uppercased())
-                section = preference.section
-            }
-            lines.append("  \(preference.label.padding(toLength: 32, withPad: " ", startingAt: 0))\(value.display)")
-        }
         let withheldRows = PreferenceInventory.secrets + PreferenceInventory.withheldContent
-        let sections = withheldRows.reduce(into: [String]()) { result, row in
-            if !result.contains(row.section) { result.append(row.section) }
-        }
-        for section in sections {
-            lines.append("")
+        let sections = (rows.map { $0.0.section } + withheldRows.map(\.section))
+            .reduce(into: [String]()) { result, section in
+                if !result.contains(section) { result.append(section) }
+            }
+        for (index, section) in sections.enumerated() {
+            if index > 0 { lines.append("") }
             lines.append(section.uppercased())
+            for (preference, value) in rows where preference.section == section {
+                lines.append(
+                    "  \(preference.label.padding(toLength: 32, withPad: " ", startingAt: 0))"
+                        + value.display)
+            }
             for withheld in withheldRows where withheld.section == section {
                 lines.append(
                     "  \(withheld.label.padding(toLength: 32, withPad: " ", startingAt: 0))"

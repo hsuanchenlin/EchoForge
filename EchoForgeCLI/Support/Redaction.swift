@@ -48,6 +48,8 @@ struct Redaction {
         "fix with ai:",
         "rewrite:",
         "transcript:",
+        "ask:",
+        "voice edit:",
     ]
 
     /// The longest a single log message is printed at.
@@ -122,7 +124,7 @@ struct Redaction {
         text.split(separator: "\n", omittingEmptySubsequences: false)
             .map { line -> String in
                 for prefix in transcriptPrefixes {
-                    if let range = line.range(of: prefix, options: .caseInsensitive) {
+                    if let range = line.range(of: prefix, options: [.caseInsensitive, .anchored]) {
                         return String(line[line.startIndex..<range.upperBound]) + " " + marker
                     }
                 }

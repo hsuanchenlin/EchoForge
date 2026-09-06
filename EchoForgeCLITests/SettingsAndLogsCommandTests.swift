@@ -76,6 +76,16 @@ final class SettingsCommandTests: XCTestCase {
         XCTAssertTrue(execution.output.contains(Redaction.marker))
     }
 
+    func testEachTextSectionHeaderAppearsOnce() async throws {
+        let execution = await runCLI(["settings"], environment: environment([:]))
+        for section in Set(PreferenceInventory.all.map(\.section)) {
+            XCTAssertEqual(
+                execution.output.components(separatedBy: "\n\(section.uppercased())\n").count - 1
+                    + (execution.output.hasPrefix(section.uppercased() + "\n") ? 1 : 0),
+                1)
+        }
+    }
+
     // MARK: - Type mismatches
 
     /// A hand-edited domain must be reported as the mismatch it is, not coerced.
@@ -257,9 +267,21 @@ final class RedactionTests: XCTestCase {
     }
 
     func testTranscriptPrefixesTakeTheRestOfTheirLine() {
-        XCTAssertEqual(
-            Redaction.redactingTranscripts(in: "Transcription result: hello world"),
-            "Transcription result: \(Redaction.marker)")
+        for message in [
+            "Transcription result: hello world",
+            "Ask: private question",
+            "Voice edit: private instruction -> private rewrite",
+        ] {
+            let redacted = Redaction.redactingTranscripts(in: message)
+            XCTAssertTrue(redacted.hasSuffix(Redaction.marker))
+            XCTAssertFalse(redacted.contains("private"))
+            XCTAssertFalse(redacted.contains("hello world"))
+        }
+    }
+
+    func testTranscriptPrefixesOnlyMatchAtMessageStart() {
+        let message = "Task: Ask: inspect the updater"
+        XCTAssertEqual(Redaction.redactingTranscripts(in: message), message)
     }
 
     func testTheHomeDirectoryIsFolded() {
