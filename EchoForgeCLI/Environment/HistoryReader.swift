@@ -81,9 +81,14 @@ struct ReadOnlyHistoryReader: HistoryReading {
 
         var configuration = Configuration()
         configuration.readonly = true
+        configuration.busyMode = .timeout(2)
         let queue: DatabaseQueue
         do {
             queue = try DatabaseQueue(path: databaseURL.path, configuration: configuration)
+        } catch let error as DatabaseError where error.resultCode == .SQLITE_BUSY {
+            throw CLIError(
+                "The history database is busy because Kongweh is updating it. Try again shortly.",
+                exitCode: .sourceUnavailable)
         } catch {
             throw CLIError(
                 "The history database could not be opened. \(error.localizedDescription)",
@@ -104,6 +109,10 @@ struct ReadOnlyHistoryReader: HistoryReading {
                     .fetchAll(database)
                 return HistoryPage(rows: rows, totalMatching: total, databasePath: databaseURL.path)
             }
+        } catch let error as DatabaseError where error.resultCode == .SQLITE_BUSY {
+            throw CLIError(
+                "The history database is busy because Kongweh is updating it. Try again shortly.",
+                exitCode: .sourceUnavailable)
         } catch {
             // A column the app added and this build has never heard of lands
             // here as a decoding failure. Saying which file and what to do is

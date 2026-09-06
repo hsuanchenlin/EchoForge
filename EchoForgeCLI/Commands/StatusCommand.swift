@@ -5,7 +5,7 @@ import Foundation
 ///
 /// The command's one rule is that **"I cannot tell" is a different answer from
 /// "no"**, and it is the reason so much of this file is about shapes rather than
-/// values. A Mac where the preferences domain could not be opened must not
+/// values. An unavailable injected preference reader must not
 /// report every switch as off; a Mac where the history database has never been
 /// created must not report zero dictations as though the user had made none.
 /// Each section therefore reports itself as available or not, with the reason.
@@ -197,7 +197,7 @@ struct EngineStatus: Equatable {
     }
 
     var summary: String {
-        guard isReadable else { return "unavailable - the preferences domain could not be read" }
+        guard isReadable else { return "unavailable - the preference reader could not provide values" }
         var parts = ["selected \(selected ?? "not set")"]
         if let lastReady, lastReady != selected { parts.append("last ready \(lastReady)") }
         if let preparing { parts.append("preparing \(preparing)") }
@@ -235,8 +235,10 @@ struct ModelStatus: Equatable {
         let label: String
         let path: String
         let exists: Bool
-        let entries: [String]
-        let bytes: Int64
+        let isReadable: Bool
+        let unavailableReason: String?
+        let entries: [String]?
+        let bytes: Int64?
     }
 
     let roots: [Root]
@@ -250,26 +252,34 @@ struct ModelStatus: Equatable {
             roots: roots.map { label, url in
                 guard environment.fileSystem.isDirectory(at: url) else {
                     return Root(
-                        label: label, path: url.path, exists: false, entries: [], bytes: 0)
+                        label: label, path: url.path, exists: false, isReadable: true,
+                        unavailableReason: nil, entries: [], bytes: 0)
                 }
-                let children = environment.fileSystem.contentsOfDirectory(at: url)
-                    .sorted { $0.lastPathComponent < $1.lastPathComponent }
-                return Root(
-                    label: label,
-                    path: url.path,
-                    exists: true,
-                    entries: children.map(\.lastPathComponent),
-                    bytes: children.reduce(0) { $0 + (environment.fileSystem.fileSize(at: $1) ?? 0) })
+                do {
+                    let children = try environment.fileSystem.contentsOfDirectory(at: url)
+                        .sorted { $0.lastPathComponent < $1.lastPathComponent }
+                    return Root(
+                        label: label, path: url.path, exists: true, isReadable: true,
+                        unavailableReason: nil, entries: children.map(\.lastPathComponent),
+                        bytes: children.reduce(0) {
+                            $0 + (environment.fileSystem.fileSize(at: $1) ?? 0)
+                        })
+                } catch {
+                    return Root(
+                        label: label, path: url.path, exists: true, isReadable: false,
+                        unavailableReason: error.localizedDescription, entries: nil, bytes: nil)
+                }
             })
     }
 
     var summary: String {
         roots
             .map { root in
-                root.exists
-                    ? "\(root.label) \(root.entries.count)"
-                        + (root.entries.isEmpty ? "" : " (\(root.entries.joined(separator: ", ")))")
-                    : "\(root.label) none"
+                guard root.isReadable else { return "\(root.label) unavailable - not readable" }
+                guard root.exists else { return "\(root.label) none" }
+                let entries = root.entries ?? []
+                return "\(root.label) \(entries.count)"
+                    + (entries.isEmpty ? "" : " (\(entries.joined(separator: ", ")))")
             }
             .joined(separator: "; ")
     }
@@ -281,11 +291,13 @@ struct ModelStatus: Equatable {
                     ("label", .string(root.label)),
                     ("path", .string(root.path)),
                     ("exists", .bool(root.exists)),
-                    ("entries", .array(root.entries.map { .string($0) })),
+                    ("available", .bool(root.isReadable)),
+                    ("reason", .string(root.unavailableReason)),
+                    ("entries", root.entries.map { .array($0.map { .string($0) }) } ?? .null),
                     // Only the top level is measured: a model cache is a tree,
                     // and walking every one of them to add up bytes is not what
                     // a status command should spend a user's disk on.
-                    ("topLevelBytes", .int(Int(root.bytes))),
+                    ("topLevelBytes", .int(root.bytes.map(Int.init))),
                 ])
             })
     }

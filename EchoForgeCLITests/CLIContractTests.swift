@@ -86,6 +86,14 @@ final class CLIJSONShapeTests: XCTestCase {
         XCTAssertNotNil(json["error"] as? String)
         XCTAssertEqual(json["exitCode"] as? Int, Int(ExitCode.appNotFound.rawValue))
     }
+
+    func testPreParseFailuresHonorJSON() async throws {
+        for arguments in [["wat", "--json"], ["history", "--limit", "--json"]] {
+            let execution = await runCLI(arguments, environment: CLITestEnvironment.empty())
+            XCTAssertEqual(execution.exitCode, .usage)
+            XCTAssertNoThrow(try execution.decodedErrorJSON())
+        }
+    }
 }
 
 /// The rules that hold this tool's shape, checked by reading its own sources.

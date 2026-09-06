@@ -18,6 +18,7 @@ final class StatusCommandTests: XCTestCase {
         let json = try await runCLI(["status", "--json"], environment: environment).decodedJSON()
 
         XCTAssertEqual((json["app"] as? [String: Any])?["version"] as? String, "0.9.4")
+        XCTAssertEqual((json["app"] as? [String: Any])?["installed"] as? Bool, true)
         let process = json["process"] as? [String: Any]
         XCTAssertEqual(process?["running"] as? Bool, true)
         XCTAssertEqual(process?["processIdentifier"] as? Int, 4050)
@@ -160,6 +161,25 @@ final class StatusCommandTests: XCTestCase {
         XCTAssertEqual(whisperRoot["exists"] as? Bool, true)
         XCTAssertEqual(whisperRoot["entries"] as? [String], ["ggml-large-v3-turbo.bin"])
         XCTAssertEqual(whisperRoot["topLevelBytes"] as? Int, 1024)
+    }
+
+    func testAnUnreadableModelRootIsUnavailableRatherThanEmpty() async throws {
+        var environment = CLITestEnvironment.withInstalledApp()
+        let fileSystem = environment.fileSystem as! FakeFileSystem
+        let whisper = AppDataLocation.whisperModelsDirectory().path
+        fileSystem.directories.insert(whisper)
+        fileSystem.unreadableDirectories.insert(whisper)
+        environment.fileSystem = fileSystem
+
+        let execution = await runCLI(["status", "--json"], environment: environment)
+        let models = try XCTUnwrap(execution.decodedJSON()["models"] as? [[String: Any]])
+        let root = try XCTUnwrap(models.first { $0["label"] as? String == "whisper" })
+        XCTAssertEqual(root["exists"] as? Bool, true)
+        XCTAssertEqual(root["available"] as? Bool, false)
+        XCTAssertTrue(root["entries"] is NSNull)
+        XCTAssertNotNil(root["reason"] as? String)
+        let text = await runCLI(["status"], environment: environment)
+        XCTAssertTrue(text.output.contains("unavailable - not readable"))
     }
 
     /// Nothing in a status read may change anything.

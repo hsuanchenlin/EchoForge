@@ -23,6 +23,7 @@ struct InstalledApplication: Equatable {
 
     var json: JSONValue {
         .object([
+            ("installed", .bool(true)),
             ("path", .string(url.path)),
             ("version", .string(identity.marketingVersion)),
             ("build", .string(identity.buildNumber)),

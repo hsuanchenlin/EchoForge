@@ -790,7 +790,7 @@ genuine release. **`AppDataLocation` names the data directory with a constant**,
 `Bundle.main`: asking each process for its own identity gives a different answer in each, and
 every one but the app's points at a directory with none of the user's recordings in it -
 which looks like an empty history rather than a bug. **Unavailable is never reported as
-false**: a preferences domain that could not be opened is not "every setting is off", and
+false**: an unavailable preference reader is not "every setting is off", and
 live recording state is reported as unavailable with the reason, because it exists only
 inside the running app and answering it would mean adding a permanently-listening surface to
 an app that deliberately has none. And **everything outside the tool goes through

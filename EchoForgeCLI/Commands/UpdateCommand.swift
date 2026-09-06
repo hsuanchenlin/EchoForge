@@ -180,6 +180,17 @@ enum UpdateCommand: CLICommand {
             throw failure(from: error, release: release)
         }
 
+        if let copy = ApplicationLocator.runningCopies(in: environment).first {
+            throw CLIError(
+                "Kongweh started while the update was downloading (pid \(copy.processIdentifier)). "
+                    + "The verified update was not installed - quit Kongweh and run this again.",
+                details: [
+                    ("installed", .bool(false)),
+                    ("reason", .string("appRunning")),
+                    ("processIdentifier", .int(Int(copy.processIdentifier))),
+                ])
+        }
+
         do {
             try await environment.updates.installAndRelaunch(stagedApp: staged, replacing: application)
         } catch {

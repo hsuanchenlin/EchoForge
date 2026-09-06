@@ -156,6 +156,23 @@ final class UpdateCommandTests: XCTestCase {
         XCTAssertEqual(try execution.decodedErrorJSON()["reason"] as? String, "appRunning")
     }
 
+    func testInstallRefusesIfTheAppStartsDuringTheDownload() async throws {
+        let (environment, updates) = self.environment(confirm: { _ in true })
+        updates.availability = .available(.fixture())
+        let applications = environment.runningApplications as! FakeRunningApplications
+        updates.afterDownload = {
+            applications.copies = [
+                RunningCopy(processIdentifier: 4051, bundleURL: nil, launchDate: nil)
+            ]
+        }
+
+        let execution = await runCLI(
+            ["update", "install", "--yes", "--json"], environment: environment)
+
+        XCTAssertEqual(try execution.decodedErrorJSON()["reason"] as? String, "appRunning")
+        XCTAssertTrue(updates.installedStagedApps.isEmpty)
+    }
+
     func testInstallWithNothingNewerDoesNothing() async throws {
         let (environment, updates) = self.environment(confirm: { _ in true })
         updates.availability = .upToDate(current: AppVersion("0.9.4")!)

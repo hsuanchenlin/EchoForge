@@ -130,9 +130,8 @@ models    whisper 1 (ggml-large-v3-turbo.bin); on-device engines 4 (…)
 ```
 
 Every section says whether it could be read. **"Unavailable" is never reported
-as "false"**: a preferences domain that could not be opened does not become
-"every setting is off", and a database that does not exist yet does not become
-"no dictations".
+as "false"**: an unreadable model directory does not become "no models", and a
+database that does not exist yet does not become "no dictations".
 
 **Known limitation - live recording state.** Whether the microphone is open at
 this instant lives only in a `@Published` property inside the running process.

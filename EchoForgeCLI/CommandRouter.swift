@@ -55,6 +55,7 @@ enum CommandRouter {
     }
 
     static func execute(arguments: [String], environment: CLIEnvironment) async -> Execution {
+        let wantsJSON = arguments.contains("--json")
         guard let first = arguments.first else {
             return Execution(output: overviewHelp + "\n", diagnostic: "", exitCode: .success)
         }
@@ -73,10 +74,12 @@ enum CommandRouter {
         }
 
         guard let command = command(named: first) else {
-            return Execution(
-                output: "",
-                diagnostic: "Unknown command \"\(first)\".\n\n" + overviewHelp,
-                exitCode: .usage)
+            let error = CLIError("Unknown command \"\(first)\".", exitCode: .usage)
+            return wantsJSON
+                ? failed(error, asJSON: true)
+                : Execution(
+                    output: "", diagnostic: error.message + "\n\n" + overviewHelp,
+                    exitCode: .usage)
         }
 
         let spec = command.spec
@@ -84,7 +87,7 @@ enum CommandRouter {
         do {
             parsed = try ArgumentParser.parse(Array(arguments.dropFirst()), spec: spec)
         } catch {
-            return failed(CLIError.wrapping(error, exitCode: .usage), asJSON: false)
+            return failed(CLIError.wrapping(error, exitCode: .usage), asJSON: wantsJSON)
         }
 
         if parsed.wantsHelp {

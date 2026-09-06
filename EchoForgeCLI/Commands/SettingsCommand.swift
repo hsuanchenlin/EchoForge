@@ -35,8 +35,8 @@ enum SettingsCommand: CLICommand {
         let preferences = environment.preferences
         guard preferences.isReadable else {
             throw CLIError(
-                "Kongweh's preferences domain (\(AppDataLocation.storageIdentifier)) could not be "
-                    + "opened, so nothing here would be true. Reporting every setting as off "
+                "Kongweh's preference reader could not provide values, so nothing here would be true. "
+                    + "Reporting every setting as off "
                     + "would be worse than saying so.",
                 exitCode: .sourceUnavailable)
         }
@@ -67,12 +67,18 @@ enum SettingsCommand: CLICommand {
             }
             lines.append("  \(preference.label.padding(toLength: 32, withPad: " ", startingAt: 0))\(value.display)")
         }
-        for withheld in PreferenceInventory.secrets + PreferenceInventory.withheldContent {
+        let withheldRows = PreferenceInventory.secrets + PreferenceInventory.withheldContent
+        let sections = withheldRows.reduce(into: [String]()) { result, row in
+            if !result.contains(row.section) { result.append(row.section) }
+        }
+        for section in sections {
             lines.append("")
-            lines.append(withheld.section.uppercased())
-            lines.append(
-                "  \(withheld.label.padding(toLength: 32, withPad: " ", startingAt: 0))"
-                    + "\(Redaction.marker)  (\(withheld.reason))")
+            lines.append(section.uppercased())
+            for withheld in withheldRows where withheld.section == section {
+                lines.append(
+                    "  \(withheld.label.padding(toLength: 32, withPad: " ", startingAt: 0))"
+                        + "\(Redaction.marker)  (\(withheld.reason))")
+            }
         }
         return lines.joined(separator: "\n")
     }

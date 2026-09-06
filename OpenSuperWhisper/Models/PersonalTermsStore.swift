@@ -25,13 +25,7 @@ final class PersonalTermsStore {
     /// `~/Library/Application Support/<bundle id>/terms.json`, beside the
     /// recordings database and the models directory.
     static var defaultFileURL: URL {
-        let applicationSupport = FileManager.default.urls(
-            for: .applicationSupportDirectory, in: .userDomainMask
-        ).first!
-        let appDirectory = applicationSupport.appendingPathComponent(
-            Bundle.main.bundleIdentifier ?? "EchoForge"
-        )
-        return appDirectory.appendingPathComponent("terms.json")
+        AppDataLocation.applicationSupportDirectory().appendingPathComponent("terms.json")
     }
 
     let fileURL: URL

@@ -44,7 +44,7 @@ struct CLIEnvironment {
 protocol FileSystemReading {
     func fileExists(at url: URL) -> Bool
     func isDirectory(at url: URL) -> Bool
-    func contentsOfDirectory(at url: URL) -> [URL]
+    func contentsOfDirectory(at url: URL) throws -> [URL]
     func fileSize(at url: URL) -> Int64?
     func modificationDate(at url: URL) -> Date?
     func contents(at url: URL) -> Data?
@@ -78,12 +78,10 @@ protocol ApplicationLaunching {
     func launch(at url: URL) throws -> RunningCopy?
 }
 
-/// Whether a preferences domain could be read at all, and what is in it.
+/// Whether a preference reader can provide values, and what it contains.
 ///
-/// `isReadable` is separate from "every key is nil" for the reason the whole
-/// `status` command exists: a Mac where Kongweh has never run and a Mac whose
-/// preferences could not be opened are different answers, and reporting both as
-/// "off" would be a lie in the second case.
+/// `isReadable` remains separate from "every key is nil" so injected readers
+/// can preserve an unavailable result instead of turning it into "off".
 protocol PreferencesReading {
     var isReadable: Bool { get }
     func value(forKey key: String) -> Any?
@@ -108,10 +106,9 @@ struct SystemFileSystem: FileSystemReading {
         return exists && isDirectory.boolValue
     }
 
-    func contentsOfDirectory(at url: URL) -> [URL] {
-        (try? fileManager.contentsOfDirectory(
-            at: url, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles]))
-            ?? []
+    func contentsOfDirectory(at url: URL) throws -> [URL] {
+        try fileManager.contentsOfDirectory(
+            at: url, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles])
     }
 
     func fileSize(at url: URL) -> Int64? {
@@ -136,8 +133,7 @@ struct SystemFileSystem: FileSystemReading {
 /// `UserDefaults(suiteName:)` rather than `.standard`, because `.standard` in
 /// this process is the *tool's* own domain and would be empty forever. The app
 /// is not sandboxed, so the domain is an ordinary plist this user owns; a
-/// sandboxed app's would be inside its container and this would read nothing,
-/// which `isReadable` would then report honestly rather than as "all defaults".
+/// sandboxed app's would be inside its container and this would read nothing.
 struct AppDefaults: PreferencesReading {
     private let defaults: UserDefaults?
 

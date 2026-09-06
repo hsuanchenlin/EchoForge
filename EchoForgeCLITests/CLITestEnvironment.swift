@@ -61,6 +61,7 @@ final class FakeFileSystem: FileSystemReading {
     var bundles: [String: [String: Any]] = [:]
     var sizes: [String: Int64] = [:]
     var modificationDates: [String: Date] = [:]
+    var unreadableDirectories: Set<String> = []
 
     func fileExists(at url: URL) -> Bool {
         files[url.path] != nil || directories.contains(url.path)
@@ -68,7 +69,10 @@ final class FakeFileSystem: FileSystemReading {
 
     func isDirectory(at url: URL) -> Bool { directories.contains(url.path) }
 
-    func contentsOfDirectory(at url: URL) -> [URL] {
+    func contentsOfDirectory(at url: URL) throws -> [URL] {
+        if unreadableDirectories.contains(url.path) {
+            throw CocoaError(.fileReadNoPermission)
+        }
         let prefix = url.path.hasSuffix("/") ? url.path : url.path + "/"
         let paths: [String] = Array(files.keys) + Array(directories)
         var children: Set<String> = []
@@ -158,6 +162,7 @@ final class FakeUpdates: UpdateServicing, @unchecked Sendable {
     var downloadFailure: Error?
     var installFailure: Error?
     var stagedURL = URL(fileURLWithPath: "/Applications/.EchoForgeUpdate-test/EchoForge.app")
+    var afterDownload: (() -> Void)?
 
     private(set) var checkedIdentities: [AppBuildIdentity] = []
     private(set) var downloadedReleases: [PublishedRelease] = []
@@ -178,6 +183,7 @@ final class FakeUpdates: UpdateServicing, @unchecked Sendable {
         downloadedReleases.append(release)
         replacedApplications.append(application)
         if let downloadFailure { throw downloadFailure }
+        afterDownload?()
         return stagedURL
     }
 
