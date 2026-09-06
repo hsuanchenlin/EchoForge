@@ -26,6 +26,8 @@
 		840156D42D79EDBA00FB5FFE /* libggml-cpu.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 840156CB2D79ED9900FB5FFE /* libggml-cpu.a */; };
 		840156D52D79EDBA00FB5FFE /* libggml-metal.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 840156CD2D79ED9900FB5FFE /* libggml-metal.a */; };
 		CE0EAD6E2D56ACA80067FDEE /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = CE0EAD6D2D56ACA80067FDEE /* GRDB */; };
+		EF0000412D52C7BB00929AF3 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = EF0000402D52C7BB00929AF3 /* GRDB */; };
+		EF0000812D52C7BB00929AF3 /* GRDB in Frameworks */ = {isa = PBXBuildFile; productRef = EF0000802D52C7BB00929AF3 /* GRDB */; };
 		CE84DF6E2D55777800C54EA6 /* libc++.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = CE84DF6D2D55777800C54EA6 /* libc++.tbd */; };
 		CE84DF712D55778000C54EA6 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CE84DF6F2D55778000C54EA6 /* Metal.framework */; };
 		CE84DF722D55778000C54EA6 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CE84DF702D55778000C54EA6 /* MetalKit.framework */; };
@@ -127,6 +129,8 @@
 		840156402D79E87600FB5FFE /* libwhisper.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; name = libwhisper.xcodeproj; path = libwhisper/build/libwhisper.xcodeproj; sourceTree = "<group>"; };
 		840156592D79EA1A00FB5FFE /* Bridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = Bridge.h; sourceTree = "<group>"; };
 		CE57B0282D52C7BB00929AF3 /* EchoForge.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = EchoForge.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		EF0000302D52C7BB00929AF3 /* echoforge */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = echoforge; sourceTree = BUILT_PRODUCTS_DIR; };
+		EF0000702D52C7BB00929AF3 /* EchoForgeCLITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EchoForgeCLITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CE57B0392D52C7BC00929AF3 /* OpenSuperWhisperTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OpenSuperWhisperTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CE57B0432D52C7BC00929AF3 /* OpenSuperWhisperUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OpenSuperWhisperUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CE84DF242D550BB400C54EA6 /* Entitlements.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Entitlements.plist; sourceTree = "<group>"; };
@@ -172,6 +176,13 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		EF0000042D52C7BB00929AF3 /* Exceptions for "EchoForgeCLI" folder in "EchoForgeCLITests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				main.swift,
+			);
+			target = EF0000502D52C7BB00929AF3 /* EchoForgeCLITests */;
+		};
 		840156D62D79EE2600FB5FFE /* Exceptions for "OpenSuperWhisper" folder in "OpenSuperWhisper" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -188,6 +199,19 @@
 				840156D62D79EE2600FB5FFE /* Exceptions for "OpenSuperWhisper" folder in "OpenSuperWhisper" target */,
 			);
 			path = OpenSuperWhisper;
+			sourceTree = "<group>";
+		};
+		EF0000022D52C7BB00929AF3 /* EchoForgeCLI */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				EF0000042D52C7BB00929AF3 /* Exceptions for "EchoForgeCLI" folder in "EchoForgeCLITests" target */,
+			);
+			path = EchoForgeCLI;
+			sourceTree = "<group>";
+		};
+		EF0000032D52C7BB00929AF3 /* EchoForgeCLITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = EchoForgeCLITests;
 			sourceTree = "<group>";
 		};
 		EF0000012D52C7BB00929AF3 /* EchoForgeCore */ = {
@@ -208,6 +232,22 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		EF0000122D52C7BB00929AF3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EF0000412D52C7BB00929AF3 /* GRDB in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EF0000522D52C7BB00929AF3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				EF0000812D52C7BB00929AF3 /* GRDB in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CE57B0252D52C7BB00929AF3 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -286,6 +326,8 @@
 			children = (
 				840156592D79EA1A00FB5FFE /* Bridge.h */,
 				840156402D79E87600FB5FFE /* libwhisper.xcodeproj */,
+				EF0000022D52C7BB00929AF3 /* EchoForgeCLI */,
+				EF0000032D52C7BB00929AF3 /* EchoForgeCLITests */,
 				EF0000012D52C7BB00929AF3 /* EchoForgeCore */,
 				CE57B02A2D52C7BB00929AF3 /* OpenSuperWhisper */,
 				CE57B03C2D52C7BC00929AF3 /* OpenSuperWhisperTests */,
@@ -302,6 +344,8 @@
 			isa = PBXGroup;
 			children = (
 				CE57B0282D52C7BB00929AF3 /* EchoForge.app */,
+				EF0000302D52C7BB00929AF3 /* echoforge */,
+				EF0000702D52C7BB00929AF3 /* EchoForgeCLITests.xctest */,
 				CE57B0392D52C7BC00929AF3 /* OpenSuperWhisperTests.xctest */,
 				CE57B0432D52C7BC00929AF3 /* OpenSuperWhisperUITests.xctest */,
 			);
@@ -414,6 +458,53 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		EF0000102D52C7BB00929AF3 /* echoforge */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EF0000202D52C7BB00929AF3 /* Build configuration list for PBXNativeTarget "echoforge" */;
+			buildPhases = (
+				EF0000112D52C7BB00929AF3 /* Sources */,
+				EF0000122D52C7BB00929AF3 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				EF0000012D52C7BB00929AF3 /* EchoForgeCore */,
+				EF0000022D52C7BB00929AF3 /* EchoForgeCLI */,
+			);
+			name = echoforge;
+			packageProductDependencies = (
+				EF0000402D52C7BB00929AF3 /* GRDB */,
+			);
+			productName = echoforge;
+			productReference = EF0000302D52C7BB00929AF3 /* echoforge */;
+			productType = "com.apple.product-type.tool";
+		};
+		EF0000502D52C7BB00929AF3 /* EchoForgeCLITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EF0000602D52C7BB00929AF3 /* Build configuration list for PBXNativeTarget "EchoForgeCLITests" */;
+			buildPhases = (
+				EF0000512D52C7BB00929AF3 /* Sources */,
+				EF0000522D52C7BB00929AF3 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				EF0000012D52C7BB00929AF3 /* EchoForgeCore */,
+				EF0000022D52C7BB00929AF3 /* EchoForgeCLI */,
+				EF0000032D52C7BB00929AF3 /* EchoForgeCLITests */,
+			);
+			name = EchoForgeCLITests;
+			packageProductDependencies = (
+				EF0000802D52C7BB00929AF3 /* GRDB */,
+			);
+			productName = EchoForgeCLITests;
+			productReference = EF0000702D52C7BB00929AF3 /* EchoForgeCLITests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		CE57B0272D52C7BB00929AF3 /* OpenSuperWhisper */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = CE57B04D2D52C7BC00929AF3 /* Build configuration list for PBXNativeTarget "OpenSuperWhisper" */;
@@ -498,6 +589,12 @@
 				LastSwiftUpdateCheck = 1610;
 				LastUpgradeCheck = 1620;
 				TargetAttributes = {
+					EF0000102D52C7BB00929AF3 = {
+						CreatedOnToolsVersion = 16.1;
+					};
+					EF0000502D52C7BB00929AF3 = {
+						CreatedOnToolsVersion = 16.1;
+					};
 					CE57B0272D52C7BB00929AF3 = {
 						CreatedOnToolsVersion = 16.1;
 					};
@@ -536,6 +633,8 @@
 			);
 			projectRoot = "";
 			targets = (
+				EF0000102D52C7BB00929AF3 /* echoforge */,
+				EF0000502D52C7BB00929AF3 /* EchoForgeCLITests */,
 				CE57B0272D52C7BB00929AF3 /* OpenSuperWhisper */,
 				CE57B0382D52C7BC00929AF3 /* OpenSuperWhisperTests */,
 				CE57B0422D52C7BC00929AF3 /* OpenSuperWhisperUITests */,
@@ -631,6 +730,20 @@
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		EF0000112D52C7BB00929AF3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EF0000512D52C7BB00929AF3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		CE57B0242D52C7BB00929AF3 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -680,6 +793,86 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		EF0000212D52C7BB00929AF3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 35;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 8LLDD7HWZK;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				MACOSX_DEPLOYMENT_TARGET = 15.1;
+				MARKETING_VERSION = 0.9.5;
+				PRODUCT_NAME = echoforge;
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		EF0000222D52C7BB00929AF3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 35;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 8LLDD7HWZK;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				MACOSX_DEPLOYMENT_TARGET = 15.1;
+				MARKETING_VERSION = 0.9.5;
+				PRODUCT_NAME = echoforge;
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		EF0000612D52C7BB00929AF3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 35;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 8LLDD7HWZK;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.1;
+				MARKETING_VERSION = 0.9.5;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hsuanchenlin.EchoForgeCLITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		EF0000622D52C7BB00929AF3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 35;
+				DEAD_CODE_STRIPPING = YES;
+				DEVELOPMENT_TEAM = 8LLDD7HWZK;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.1;
+				MARKETING_VERSION = 0.9.5;
+				PRODUCT_BUNDLE_IDENTIFIER = com.hsuanchenlin.EchoForgeCLITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 		CE57B04B2D52C7BC00929AF3 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1010,6 +1203,24 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		EF0000202D52C7BB00929AF3 /* Build configuration list for PBXNativeTarget "echoforge" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EF0000212D52C7BB00929AF3 /* Debug */,
+				EF0000222D52C7BB00929AF3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		EF0000602D52C7BB00929AF3 /* Build configuration list for PBXNativeTarget "EchoForgeCLITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EF0000612D52C7BB00929AF3 /* Debug */,
+				EF0000622D52C7BB00929AF3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		CE57B0232D52C7BB00929AF3 /* Build configuration list for PBXProject "OpenSuperWhisper" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -1076,6 +1287,16 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		EF0000402D52C7BB00929AF3 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CE0EAD6C2D56ACA80067FDEE /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
+		};
+		EF0000802D52C7BB00929AF3 /* GRDB */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = CE0EAD6C2D56ACA80067FDEE /* XCRemoteSwiftPackageReference "GRDB.swift" */;
+			productName = GRDB;
+		};
 		CE0EAD6D2D56ACA80067FDEE /* GRDB */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = CE0EAD6C2D56ACA80067FDEE /* XCRemoteSwiftPackageReference "GRDB.swift" */;

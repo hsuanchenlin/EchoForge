@@ -14,21 +14,23 @@ import Foundation
 /// Keychain item and their TCC grants. Changing it hands every user an empty app.
 /// See the naming section of `AGENTS.md`.
 ///
-/// `Bundle.main` still wins when there is one, so a test host or a differently
-/// signed build reads its own container rather than the user's real data.
+/// The constant is deliberately **not** `Bundle.main.bundleIdentifier`, even
+/// though the app's is the same string. The identity of the data has to be the
+/// same answer in every process that reads it, and asking each process for its
+/// own identity gives a different answer in each: `nil` in a plain tool, the
+/// tool's own identifier once it carries an embedded Info.plist section, and the
+/// host app's under a test host. Every one of those but the last would point at
+/// a directory with none of the user's recordings in it - and it would look
+/// like an empty history rather than like a bug.
 enum AppDataLocation {
-    /// The identifier the app's data is filed under. The literal is the
-    /// fallback for a process with no bundle of its own - the CLI - and is
-    /// pinned by `AppIdentityTests`.
+    /// The identifier the app's data is filed under, everywhere, in every
+    /// process. Pinned against the app's own bundle identifier by
+    /// `AppIdentityTests`; changing it hands every user an empty app.
     static let storageIdentifier = "com.hsuanchenlin.EchoForge"
 
-    /// The identifier this *process* files data under.
-    ///
-    /// The app answers with its own, which is `storageIdentifier`; the CLI has
-    /// no bundle and falls through to the constant, so both reach one directory.
-    static var bundleIdentifier: String {
-        Bundle.main.bundleIdentifier ?? storageIdentifier
-    }
+    /// The name the data directory carries. An alias for `storageIdentifier`,
+    /// kept because that is what the path is *called* at every call site.
+    static var bundleIdentifier: String { storageIdentifier }
 
     /// `~/Library/Application Support/com.hsuanchenlin.EchoForge/`, the home of
     /// the recordings database, `terms.json` and the downloaded models.

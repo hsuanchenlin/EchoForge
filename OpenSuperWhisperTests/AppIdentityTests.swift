@@ -27,6 +27,18 @@ import XCTest
 final class AppIdentityTests: XCTestCase {
     private var app: Bundle { Bundle.main }
 
+    /// `AppDataLocation` names the data directory with a constant rather than
+    /// with `Bundle.main`, because the `echoforge` command-line tool reads the
+    /// same directory from a process that has a different identity - or none.
+    /// The two must still agree, or the app would write where the CLI does not
+    /// read.
+    func testTheDataDirectoryIsNamedAfterThisBundle() {
+        XCTAssertEqual(AppDataLocation.storageIdentifier, app.bundleIdentifier)
+        XCTAssertTrue(
+            AppDataLocation.applicationSupportDirectory().path
+                .hasSuffix("/com.hsuanchenlin.EchoForge"))
+    }
+
     func testBundleIdentifierIsEchoForge() {
         XCTAssertEqual(app.bundleIdentifier, "com.hsuanchenlin.EchoForge")
     }
