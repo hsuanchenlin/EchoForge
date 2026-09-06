@@ -62,7 +62,7 @@ final class TranscriptionQueueBehaviourTests: XCTestCase {
                        "nor may the transcription task")
 
         // The other half: the writes have to have an answer to give.
-        let store = try Self.source(of: "OpenSuperWhisper/Models/Recording.swift")
+        let store = try Self.source(of: "OpenSuperWhisper/Models/RecordingStore.swift")
         for signature in [
             "func updateRecordingProgressOnlySync(_ id: UUID, transcription: String, rawTranscription: String? = nil, progress: Float, status: RecordingStatus, isRegeneration: Bool? = nil) async -> Bool {",
             "func updateRecordingStatusOnly(_ id: UUID, progress: Float, status: RecordingStatus, isRegeneration: Bool? = nil) async -> Bool {",
@@ -104,7 +104,7 @@ final class TranscriptionQueueBehaviourTests: XCTestCase {
     /// The comment on `updateRecordingProgressTransient` says so; this is what
     /// keeps it true.
     func testAProgressTickWritesNothingToTheDatabase() throws {
-        let store = try Self.source(of: "OpenSuperWhisper/Models/Recording.swift")
+        let store = try Self.source(of: "OpenSuperWhisper/Models/RecordingStore.swift")
         let tick = try Self.body(
             of: "func updateRecordingProgressTransient(_ id: UUID, progress: Float, status: RecordingStatus) {",
             in: store)

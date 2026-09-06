@@ -499,7 +499,7 @@ final class TranscriptCorrectionTests: XCTestCase {
     func testEveryWriteThatReplacesATranscriptSaysWhatBecomesOfTheMark() throws {
         let source = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("OpenSuperWhisper/Models/Recording.swift")
+            .appendingPathComponent("OpenSuperWhisper/Models/RecordingStore.swift")
         let text = try String(contentsOf: source, encoding: .utf8)
 
         let statements = text.components(separatedBy: ".updateAll(db, [").dropFirst()
