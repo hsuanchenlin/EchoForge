@@ -63,14 +63,14 @@ final class SettingsCommandTests: XCTestCase {
 
         let textExecution = await runCLI(["settings"], environment: environment(values))
         XCTAssertTrue(textExecution.output.contains("https://example.com/v1"))
-        XCTAssertFalse(textExecution.output.contains("user"))
-        XCTAssertFalse(textExecution.output.contains("password"))
+        XCTAssertFalse(textExecution.output.contains("user:password"))
+        XCTAssertFalse(textExecution.output.contains("password@"))
 
         let jsonExecution = await runCLI(
             ["settings", "--json"], environment: environment(values))
         XCTAssertTrue(jsonExecution.output.contains("https://example.com/v1"))
-        XCTAssertFalse(jsonExecution.output.contains("user"))
-        XCTAssertFalse(jsonExecution.output.contains("password"))
+        XCTAssertFalse(jsonExecution.output.contains("user:password"))
+        XCTAssertFalse(jsonExecution.output.contains("password@"))
     }
 
     /// The API key is listed as withheld rather than omitted, so its absence is

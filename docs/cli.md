@@ -4,10 +4,11 @@ A local control and inspection surface for Kongweh: start it, see what it is
 doing, read your own history and settings, and update it, from a terminal or a
 script.
 
-It is **local-first, like the app**. Six of the seven commands only read, and
-nothing reaches the network except the update check and install, which use the
-app's own updater. There is no server, no daemon, no telemetry, and no second
-copy of the recordings database.
+It is **local-first, like the app**. Five of the seven commands only read;
+`start` launches the app, and `update install` can replace it. Nothing reaches
+the network except the update check and install, which use the app's own
+updater. There is no server, no daemon, no telemetry, and no second copy of the
+recordings database.
 
 ---
 
@@ -258,15 +259,18 @@ nothing else**. There is no `--force` and no "install anyway".
 **Quit Kongweh before installing.** The swap runs in a detached script that
 waits for a process to exit and then renames the app bundle, and a running
 application cannot be replaced. The command checks this *before* downloading, so
-you are told at the start rather than after 11 MB.
+you are told at the start rather than after 11 MB. It checks again immediately
+before the swap in case Kongweh started while the update was downloading; the
+verified update is not installed in that case.
 
-The four outcomes are distinct, in the text, in `--json` and in the exit code:
+The outcomes are distinct, in the text, in `--json` and in the exit code:
 
 | Outcome | Exit | `--json` |
 | --- | --- | --- |
 | No update | 0 | `installed: false, reason: "upToDate"` |
 | Update available (`check`) | 0 | `updateAvailable: true` |
 | Cancelled | 6 | `installed: false, reason: "cancelled"` |
+| Kongweh running | 1 | `installed: false, reason: "appRunning"` |
 | Failed verification | 5 | `installed: false, reason: "verificationFailed"` |
 | Failed download | 1 | `installed: false, reason: "downloadFailed"` |
 
@@ -283,7 +287,7 @@ and no amount of retrying will help, which a dropped connection is not.
 | 1 | Ran and could not finish |
 | 2 | Bad arguments; nothing was read or done |
 | 3 | No Kongweh app at the expected path or at `--app` |
-| 4 | A local source could not be read (history, log, preferences) |
+| 4 | A local source could not be read (history or log) |
 | 5 | A download failed verification |
 | 6 | Cancelled, or the user said no |
 
