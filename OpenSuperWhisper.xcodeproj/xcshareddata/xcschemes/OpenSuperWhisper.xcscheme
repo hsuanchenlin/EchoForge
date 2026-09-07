@@ -21,6 +21,20 @@
                ReferencedContainer = "container:OpenSuperWhisper.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "EF0000102D52C7BB00929AF3"
+               BuildableName = "echoforge"
+               BlueprintName = "echoforge"
+               ReferencedContainer = "container:OpenSuperWhisper.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -60,6 +74,17 @@
                BlueprintIdentifier = "CE37B5F22D54F09A009D6564"
                BuildableName = "WhisperCppBindingTests.xctest"
                BlueprintName = "WhisperCppBindingTests"
+               ReferencedContainer = "container:OpenSuperWhisper.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO"
+            parallelizable = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "EF0000502D52C7BB00929AF3"
+               BuildableName = "EchoForgeCLITests.xctest"
+               BlueprintName = "EchoForgeCLITests"
                ReferencedContainer = "container:OpenSuperWhisper.xcodeproj">
             </BuildableReference>
          </TestableReference>

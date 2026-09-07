@@ -60,7 +60,9 @@ The toolchain is Xcode plus Homebrew `cmake`, `libomp` and a Rust toolchain;
 `Scripts/build_release.sh` checks all of them up front and names what to install.
 
 `./run.sh build` builds everything (CMake for whisper.cpp, cargo for the autocorrect dylib,
-then `xcodebuild`); `./run.sh` also launches the app. CI runs exactly `./run.sh build`
+then `xcodebuild`); `./run.sh` also launches the app. The `OpenSuperWhisper` scheme builds
+**two** products - the app and the `echoforge` command-line tool - so both compile in CI and
+in a release build, and the DMG still contains only the app. CI runs exactly `./run.sh build`
 (`.github/workflows/build.yml`) and does not run tests. The GitHub check name is the job
 name `build`; a repository ruleset requires that check on pull requests to `master`.
 This repository is a fork, so Actions has to stay enabled in the Actions tab or pull
@@ -230,6 +232,9 @@ xcodebuild test -scheme OpenSuperWhisper -configuration Debug -derivedDataPath b
   -clonedSourcePackagesDirPath SourcePackages CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" \
   CODE_SIGNING_REQUIRED=NO -only-testing:OpenSuperWhisperTests
 ```
+
+The tool's tests are a separate target with no host app, so they are a separate run:
+`-only-testing:EchoForgeCLITests` in the same command.
 
 Five tests fail on any machine without the right hardware and TCC grants, independent of your
 change - verify against a clean checkout before assuming you broke them:
@@ -762,6 +767,41 @@ Both live in `~/Library/Application Support/<bundle id>/`, along with downloaded
 bundle identifier is load-bearing user data - changing it hands every user an empty app. The
 EchoForge rename did exactly that once, on purpose (it is what lets an upstream install stay), and
 `docs/install.md` tells users what they lose and how to copy it across. Do not change it again.
+
+## The command-line tool
+
+`EchoForgeCLI/` is `echoforge`, a local control and inspection surface: start the app, report
+its version and state, read history, settings and the system's log about it, and check for or
+install an update. `docs/cli.md` is its whole story - build, PATH, app resolution, every
+command and every exit code. It is built by the `OpenSuperWhisper` scheme and is **not** in
+the DMG; the release artifact is still the app and nothing else.
+
+`EchoForgeCore/` exists because of it: the source both products compile, so there is one
+updater, one recordings schema and one set of preference keys rather than two.
+`RecordingStore` stays in the app - it is what migrates and writes - and forwards to
+`RecordingSchema`, which the tool opens **read-only** and never migrates.
+
+Four things there are absolute. **The tool adds no security rule to the update path and skips
+none**: `UpdateManifest`, `UpdateChecker` and `UpdateInstaller` are the app's, `--yes` skips
+the confirmation and nothing else, and there is no `--force`. Three values that default to
+`Bundle.main` are injected, because `Bundle.main` in the tool is the tool - left alone, the
+installer compares the downloaded Kongweh against the tool's own identity and refuses every
+genuine release. **`AppDataLocation` names the data directory with a constant**, not with
+`Bundle.main`: asking each process for its own identity gives a different answer in each, and
+every one but the app's points at a directory with none of the user's recordings in it -
+which looks like an empty history rather than a bug. **Unavailable is never reported as
+false**: live recording state is reported as unavailable with the reason, because it exists only
+inside the running app and answering it would mean adding a permanently-listening surface to
+an app that deliberately has none. And **everything outside the tool goes through
+`CLIEnvironment`**, so no test can start the app on a developer's desktop, replace the copy in
+`/Applications` or reach GitHub; `CLISeamTests` scans the sources to keep that true, along
+with the rules that nothing there opens the Keychain, writes to the database, or implements a
+second downloader.
+
+Its tests are their own target, run with `-only-testing:EchoForgeCLITests`, and need no
+permission, no model weights and no credential. `BuiltToolSmokeTests` runs the built binary's
+`--help` and `--version` - the same idea as `verify_release_package.sh` starting the app it
+verifies, one size down.
 
 ## Dictation overlays
 

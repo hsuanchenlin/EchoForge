@@ -55,13 +55,13 @@ final class AppPreferences {
     
     private func migrateOldPreferences() {
         if let oldPath = PreferenceStore.defaults.string(forKey: "selectedModelPath"),
-           PreferenceStore.defaults.string(forKey: "selectedWhisperModelPath") == nil {
-            PreferenceStore.defaults.set(oldPath, forKey: "selectedWhisperModelPath")
+           PreferenceStore.defaults.string(forKey: PreferenceKeys.selectedWhisperModelPath) == nil {
+            PreferenceStore.defaults.set(oldPath, forKey: PreferenceKeys.selectedWhisperModelPath)
         }
     }
     
     // Engine settings
-    @RawRepresentableUserDefault(key: "selectedEngine", defaultValue: EngineKind.fallback)
+    @RawRepresentableUserDefault(key: PreferenceKeys.selectedEngine, defaultValue: EngineKind.fallback)
     var selectedEngine: EngineKind
 
     // Model settings
@@ -79,7 +79,7 @@ final class AppPreferences {
         }
     }
     
-    @OptionalUserDefault(key: "selectedWhisperModelPath")
+    @OptionalUserDefault(key: PreferenceKeys.selectedWhisperModelPath)
     var selectedWhisperModelPath: String?
 
     /// The engine that last actually loaded and transcribed, which is not the
@@ -91,7 +91,7 @@ final class AppPreferences {
     /// chosen one downloads, without a fallback ever overwriting the choice -
     /// see `EngineSelector`. Optional because a fresh install has no such engine
     /// yet, which is the case the bundled starter answers.
-    @OptionalUserDefault(key: "lastReadyEngine")
+    @OptionalUserDefault(key: PreferenceKeys.lastReadyEngine)
     var lastReadyEngineRawValue: String?
 
     var lastReadyEngine: EngineKind? {
@@ -101,7 +101,7 @@ final class AppPreferences {
 
     /// The Whisper file that was loaded alongside `lastReadyEngine`, for the one
     /// engine where naming the engine is only half of a configuration.
-    @OptionalUserDefault(key: "lastReadyWhisperModelPath")
+    @OptionalUserDefault(key: PreferenceKeys.lastReadyWhisperModelPath)
     var lastReadyWhisperModelPath: String?
 
     /// The engine whose weights were being fetched when the app last quit.
@@ -112,7 +112,7 @@ final class AppPreferences {
     /// download interrupted by a quit is resumed, not overruled - otherwise
     /// quitting during a 240 MB fetch would silently undo the choice that
     /// started it.
-    @OptionalUserDefault(key: "pendingEnginePreparation")
+    @OptionalUserDefault(key: PreferenceKeys.pendingEnginePreparation)
     var pendingEnginePreparationRawValue: String?
 
     var pendingEnginePreparation: EngineKind? {
@@ -120,38 +120,38 @@ final class AppPreferences {
         set { pendingEnginePreparationRawValue = newValue?.rawValue }
     }
 
-    @UserDefault(key: "fluidAudioModelVersion", defaultValue: "v3")
+    @UserDefault(key: PreferenceKeys.fluidAudioModelVersion, defaultValue: "v3")
     var fluidAudioModelVersion: String
     
-    @UserDefault(key: "whisperLanguage", defaultValue: "en")
+    @UserDefault(key: PreferenceKeys.whisperLanguage, defaultValue: "en")
     var whisperLanguage: String
     
     // Transcription settings
-    @UserDefault(key: "suppressBlankAudio", defaultValue: true)
+    @UserDefault(key: PreferenceKeys.suppressBlankAudio, defaultValue: true)
     var suppressBlankAudio: Bool
     
-    @UserDefault(key: "showTimestamps", defaultValue: false)
+    @UserDefault(key: PreferenceKeys.showTimestamps, defaultValue: false)
     var showTimestamps: Bool
     
-    @UserDefault(key: "temperature", defaultValue: 0.0)
+    @UserDefault(key: PreferenceKeys.temperature, defaultValue: 0.0)
     var temperature: Double
     
-    @UserDefault(key: "noSpeechThreshold", defaultValue: 0.6)
+    @UserDefault(key: PreferenceKeys.noSpeechThreshold, defaultValue: 0.6)
     var noSpeechThreshold: Double
     
-    @UserDefault(key: "initialPrompt", defaultValue: "")
+    @UserDefault(key: PreferenceKeys.initialPrompt, defaultValue: "")
     var initialPrompt: String
     
-    @UserDefault(key: "useBeamSearch", defaultValue: false)
+    @UserDefault(key: PreferenceKeys.useBeamSearch, defaultValue: false)
     var useBeamSearch: Bool
     
-    @UserDefault(key: "beamSize", defaultValue: 5)
+    @UserDefault(key: PreferenceKeys.beamSize, defaultValue: 5)
     var beamSize: Int
     
-    @UserDefault(key: "debugMode", defaultValue: false)
+    @UserDefault(key: PreferenceKeys.debugMode, defaultValue: false)
     var debugMode: Bool
     
-    @UserDefault(key: "playSoundOnRecordStart", defaultValue: false)
+    @UserDefault(key: PreferenceKeys.playSoundOnRecordStart, defaultValue: false)
     var playSoundOnRecordStart: Bool
 
     /// Whether a dictation is shown as the floating capsule at the top of the
@@ -172,7 +172,7 @@ final class AppPreferences {
     /// never expressed a preference, and anyone who turned it off keeps the
     /// card. `Settings → Shortcuts → Recording Behavior → Floating capsule HUD`
     /// is where it is turned back off.
-    @UserDefault(key: "capsuleHUDEnabled", defaultValue: true)
+    @UserDefault(key: PreferenceKeys.capsuleHUDEnabled, defaultValue: true)
     var capsuleHUDEnabled: Bool
 
     /// Whether a dictation is read for a spoken command - "Ask: …",
@@ -184,7 +184,7 @@ final class AppPreferences {
     /// shortcut works either way - it is this routing, not the panel, that the
     /// toggle is about.
     /// See `SpokenIntentRouter` and `docs/spoken-intents.md`.
-    @UserDefault(key: "spokenIntentsEnabled", defaultValue: false)
+    @UserDefault(key: PreferenceKeys.spokenIntentsEnabled, defaultValue: false)
     var spokenIntentsEnabled: Bool
 
     /// Whether a spoken snippet trigger - "insert email signoff", "插入會議記錄" -
@@ -194,7 +194,7 @@ final class AppPreferences {
     /// anyone's dictation: snippets ride on `spokenIntentsEnabled`, which is
     /// off, so this switches the macro family off *within* spoken commands
     /// without also switching off Ask and Translate. See `VoiceSnippetStore`.
-    @UserDefault(key: "voiceSnippetsEnabled", defaultValue: true)
+    @UserDefault(key: PreferenceKeys.voiceSnippetsEnabled, defaultValue: true)
     var voiceSnippetsEnabled: Bool
 
     /// Whether the YouTube command shortcut opens a video from one of the
@@ -209,7 +209,7 @@ final class AppPreferences {
     /// The key stays bound while this is off, so a press says the feature is
     /// switched off rather than doing nothing at all
     /// (`YouTubeChannelResolution.disabled`). See `docs/youtube-latest-video.md`.
-    @UserDefault(key: "youTubeLatestVideoEnabled", defaultValue: true)
+    @UserDefault(key: PreferenceKeys.youTubeLatestVideoEnabled, defaultValue: true)
     var youTubeLatestVideoEnabled: Bool
 
     /// Whether a spoken channel name neither deterministic tier could place is
@@ -223,7 +223,7 @@ final class AppPreferences {
     /// (`OnDeviceModelFeature.channelMatching` has no cloud feature), and the
     /// Settings pane beside the switch says all of this before it is pressed.
     /// See `YouTubeChannelModelMatch` and `docs/youtube-latest-video.md`.
-    @UserDefault(key: "youTubeChannelModelMatchEnabled", defaultValue: false)
+    @UserDefault(key: PreferenceKeys.youTubeChannelModelMatchEnabled, defaultValue: false)
     var youTubeChannelModelMatchEnabled: Bool
 
     /// Whether a spoken channel name nothing could place puts the user's own
@@ -241,7 +241,7 @@ final class AppPreferences {
     /// Off restores exactly the behaviour that shipped before it existed - the
     /// refusal, its sentence, and its history row. See
     /// `YouTubeChannelPickerOffer` and `docs/youtube-latest-video.md`.
-    @UserDefault(key: "youTubeChannelPickerEnabled", defaultValue: true)
+    @UserDefault(key: PreferenceKeys.youTubeChannelPickerEnabled, defaultValue: true)
     var youTubeChannelPickerEnabled: Bool
 
     // MARK: - Cloud
@@ -257,24 +257,24 @@ final class AppPreferences {
     /// .cloud`, because the app already stores exactly one answer to "which
     /// engine transcribes" and a second one would be free to disagree with it.
     /// See `CloudSettings`.
-    @UserDefault(key: "cloudTranslationEnabled", defaultValue: false)
+    @UserDefault(key: PreferenceKeys.cloudTranslationEnabled, defaultValue: false)
     var cloudTranslationEnabled: Bool
 
     /// The provider's base URL. Whatever the user typed - `CloudEndpoint` is the
     /// only thing that decides whether it is usable, and it refuses plain http to
     /// anywhere but this machine.
-    @UserDefault(key: "cloudBaseURL", defaultValue: CloudEndpoint.openAIBaseURL)
+    @UserDefault(key: PreferenceKeys.cloudBaseURL, defaultValue: CloudEndpoint.openAIBaseURL)
     var cloudBaseURL: String
 
     /// The speech model asked for by name. A free-text field rather than a
     /// picker: every compatible provider names its models differently and none
     /// of them publishes a list this app could enumerate.
-    @UserDefault(key: "cloudTranscriptionModel", defaultValue: "whisper-1")
+    @UserDefault(key: PreferenceKeys.cloudTranscriptionModel, defaultValue: "whisper-1")
     var cloudTranscriptionModel: String
 
     /// The text model translation is asked of. A different field from the speech
     /// one because no provider has a model that is both.
-    @UserDefault(key: "cloudTranslationModel", defaultValue: "gpt-4o-mini")
+    @UserDefault(key: PreferenceKeys.cloudTranslationModel, defaultValue: "gpt-4o-mini")
     var cloudTranslationModel: String
 
     /// The `CloudFeature` raw values whose one-time consent sheet was accepted.
@@ -284,14 +284,14 @@ final class AppPreferences {
     /// it independently of the enable flags. A value written by a newer build is
     /// ignored rather than trusted - `CloudSettings.current` drops anything that
     /// is not a known feature.
-    @UserDefault(key: "cloudConsentedFeatures", defaultValue: [])
+    @UserDefault(key: PreferenceKeys.cloudConsentedFeatures, defaultValue: [])
     var cloudConsentedFeatures: [String]
 
     /// The engine that was in use before the cloud one was chosen, so turning
     /// cloud transcription off puts the user back where they were instead of on
     /// `EngineKind.fallback` and a Whisper model they may never have downloaded.
     /// See `CloudTranscriptionSelection`.
-    @OptionalUserDefault(key: "cloudPreviousLocalEngine")
+    @OptionalUserDefault(key: PreferenceKeys.cloudPreviousLocalEngine)
     var cloudPreviousLocalEngineRawValue: String?
 
     var cloudPreviousLocalEngine: EngineKind? {
@@ -299,10 +299,10 @@ final class AppPreferences {
         set { cloudPreviousLocalEngineRawValue = newValue?.rawValue }
     }
 
-    @UserDefault(key: "hasCompletedOnboarding", defaultValue: false)
+    @UserDefault(key: PreferenceKeys.hasCompletedOnboarding, defaultValue: false)
     var hasCompletedOnboarding: Bool
     
-    @UserDefault(key: "useAsianAutocorrect", defaultValue: true)
+    @UserDefault(key: PreferenceKeys.useAsianAutocorrect, defaultValue: true)
     var useAsianAutocorrect: Bool
 
     /// Which Chinese a Chinese transcript is written in, whichever script the
@@ -322,7 +322,7 @@ final class AppPreferences {
     /// as a fresh one, and nothing already in history is rewritten:
     /// normalization is part of transcribing, so it applies to the next
     /// dictation and to nothing that was stored before it.
-    @RawRepresentableUserDefault(key: "chineseOutputScript", defaultValue: ChineseScriptVariant.traditional)
+    @RawRepresentableUserDefault(key: PreferenceKeys.chineseOutputScript, defaultValue: ChineseScriptVariant.traditional)
     var chineseOutputScript: ChineseScriptVariant
 
     /// Deterministic safe correction: the personal terms dictionary and the
@@ -336,7 +336,7 @@ final class AppPreferences {
     /// On by default and a peer of any later style-rewriting setting, never its
     /// child. It depends on nothing - no model, no network, no macOS version -
     /// so it must keep working when rewriting is off, unavailable or rejected.
-    @UserDefault(key: "safeCorrectionEnabled", defaultValue: true)
+    @UserDefault(key: PreferenceKeys.safeCorrectionEnabled, defaultValue: true)
     var safeCorrectionEnabled: Bool
 
     /// Whether the transcript is rewritten into a style after the deterministic
@@ -360,7 +360,7 @@ final class AppPreferences {
     /// A stored value still wins, so an install that turned rewriting off keeps
     /// it off. Turning it off must never turn off `safeCorrectionEnabled` -
     /// they are peers, not parent and child.
-    @UserDefault(key: "styleRewriteEnabled", defaultValue: true)
+    @UserDefault(key: PreferenceKeys.styleRewriteEnabled, defaultValue: true)
     var styleRewriteEnabled: Bool
 
     /// The chosen style's identifier, from `StyleRewriteCatalog`.
@@ -369,14 +369,14 @@ final class AppPreferences {
     /// identifier written by a newer build reads back as the default style
     /// instead of leaving the app with none - see
     /// `StyleRewriteCatalog.style(forStoredID:)`.
-    @UserDefault(key: "styleRewriteStyleID", defaultValue: StyleRewriteCatalog.defaultStyleID)
+    @UserDefault(key: PreferenceKeys.styleRewriteStyleID, defaultValue: StyleRewriteCatalog.defaultStyleID)
     var styleRewriteStyleID: String
 
     /// The user's own rewriting instruction, used by the custom style.
     ///
     /// Kept even while another style is selected, so switching away and back
     /// does not silently discard something they wrote.
-    @UserDefault(key: "styleRewriteCustomPrompt", defaultValue: "")
+    @UserDefault(key: PreferenceKeys.styleRewriteCustomPrompt, defaultValue: "")
     var styleRewriteCustomPrompt: String
 
     /// Whether the app being dictated into may choose the rewriting style.
@@ -386,7 +386,7 @@ final class AppPreferences {
     /// Slack and Mail should not get the same words, and it changes nothing at
     /// all while `styleRewriteEnabled` is off.
     /// See `AppStyleMappingStore`.
-    @UserDefault(key: "appAwareStyleEnabled", defaultValue: false)
+    @UserDefault(key: PreferenceKeys.appAwareStyleEnabled, defaultValue: false)
     var appAwareStyleEnabled: Bool
 
     /// Per-app rules: normalized bundle identifier -> style identifier, with the
@@ -396,55 +396,55 @@ final class AppPreferences {
     /// titles, document names or addresses are read, so none can be stored here.
     /// `AppStyleMappingTests` asserts that about what actually lands in the
     /// domain.
-    @UserDefault(key: "appStyleMappings", defaultValue: [:])
+    @UserDefault(key: PreferenceKeys.appStyleMappings, defaultValue: [:])
     var appStyleMappings: [String: String]
 
     /// Per-category rules: `AppCategory` raw value -> style identifier, same
     /// encoding. Absent entries take `AppStyleMappingStore.builtInCategoryStyles`.
-    @UserDefault(key: "appStyleCategoryStyles", defaultValue: [:])
+    @UserDefault(key: PreferenceKeys.appStyleCategoryStyles, defaultValue: [:])
     var appStyleCategoryStyles: [String: String]
 
-    @OptionalUserDefault(key: "selectedMicrophoneData")
+    @OptionalUserDefault(key: PreferenceKeys.selectedMicrophoneData)
     var selectedMicrophoneData: Data?
     
-    @UserDefault(key: "modifierOnlyHotkey", defaultValue: "none")
+    @UserDefault(key: PreferenceKeys.modifierOnlyHotkey, defaultValue: "none")
     var modifierOnlyHotkey: String
     
     /// Last non-none modifier key, used to restore the user's choice
     /// when switching back to Single Modifier Key mode.
-    @UserDefault(key: "lastModifierOnlyHotkey", defaultValue: "leftCommand")
+    @UserDefault(key: PreferenceKeys.lastModifierOnlyHotkey, defaultValue: "leftCommand")
     var lastModifierOnlyHotkey: String
     
-    @UserDefault(key: "mouseButtonHotkey", defaultValue: "none")
+    @UserDefault(key: PreferenceKeys.mouseButtonHotkey, defaultValue: "none")
     var mouseButtonHotkey: String
 
 
-    @UserDefault(key: "holdToRecord", defaultValue: true)
+    @UserDefault(key: PreferenceKeys.holdToRecord, defaultValue: true)
     var holdToRecord: Bool
 
-    @UserDefault(key: "doublePressToTrigger", defaultValue: false)
+    @UserDefault(key: PreferenceKeys.doublePressToTrigger, defaultValue: false)
     var doublePressToTrigger: Bool
     
-    @UserDefault(key: "addSpaceAfterSentence", defaultValue: true)
+    @UserDefault(key: PreferenceKeys.addSpaceAfterSentence, defaultValue: true)
     var addSpaceAfterSentence: Bool
 
     // Clipboard settings
-    @UserDefault(key: "autoCopyToClipboard", defaultValue: false)
+    @UserDefault(key: PreferenceKeys.autoCopyToClipboard, defaultValue: false)
     var autoCopyToClipboard: Bool
 
-    @UserDefault(key: "autoPasteTranscription", defaultValue: true)
+    @UserDefault(key: PreferenceKeys.autoPasteTranscription, defaultValue: true)
     var autoPasteTranscription: Bool
 
-    @UserDefault(key: "escCancelWithoutConfirmation", defaultValue: false)
+    @UserDefault(key: PreferenceKeys.escCancelWithoutConfirmation, defaultValue: false)
     var escCancelWithoutConfirmation: Bool
 
-    @UserDefault(key: "startHiddenInMenuBar", defaultValue: false)
+    @UserDefault(key: PreferenceKeys.startHiddenInMenuBar, defaultValue: false)
     var startHiddenInMenuBar: Bool
 
-    @UserDefault(key: "autoDeleteRecordingsEnabled", defaultValue: false)
+    @UserDefault(key: PreferenceKeys.autoDeleteRecordingsEnabled, defaultValue: false)
     var autoDeleteRecordingsEnabled: Bool
 
-    @UserDefault(key: "autoDeleteRecordingsAfterDays", defaultValue: 30)
+    @UserDefault(key: PreferenceKeys.autoDeleteRecordingsAfterDays, defaultValue: 30)
     var autoDeleteRecordingsAfterDays: Int
 
     /// Whether macOS has ever been asked for Screen Recording on this install.
@@ -455,6 +455,6 @@ final class AppPreferences {
     /// refused screen query can tell the first press - the OS dialog is on
     /// screen, leave it alone - from every later one, where System Settings is
     /// the only door left. See `AskPanelWindowController.screenRecordingRefusal`.
-    @UserDefault(key: "screenRecordingAccessRequested", defaultValue: false)
+    @UserDefault(key: PreferenceKeys.screenRecordingAccessRequested, defaultValue: false)
     var screenRecordingAccessRequested: Bool
 }

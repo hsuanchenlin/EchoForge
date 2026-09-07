@@ -75,8 +75,10 @@ struct PartialDownloadStore {
         } else {
             let caches = fileManager.urls(for: .cachesDirectory, in: .userDomainMask).first
                 ?? fileManager.temporaryDirectory
-            let identifier = Bundle.main.bundleIdentifier ?? "com.hsuanchenlin.EchoForge"
-            self.root = caches.appendingPathComponent(identifier, isDirectory: true)
+            // `AppDataLocation` rather than `Bundle.main` so the app and the
+            // `echoforge` CLI reach one directory: a transfer either of them
+            // started is one the other resumes rather than restarts.
+            self.root = caches.appendingPathComponent(AppDataLocation.bundleIdentifier, isDirectory: true)
                 .appendingPathComponent("Updates", isDirectory: true)
         }
     }

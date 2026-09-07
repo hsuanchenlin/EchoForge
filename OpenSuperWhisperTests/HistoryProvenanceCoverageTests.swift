@@ -15,19 +15,24 @@ import XCTest
 final class HistoryProvenanceCoverageTests: XCTestCase {
 
     func testEveryStoredRecordingConstructionAssignsAProvenance() throws {
-        let sources = URL(fileURLWithPath: #filePath)
+        let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("OpenSuperWhisper")
-        guard let files = FileManager.default.enumerator(atPath: sources.path)?
-            .allObjects as? [String]
-        else {
-            throw XCTSkip("Sources are not beside the tests: \(sources.path)")
+        var files: [(root: String, path: String)] = []
+        for root in HistoryProvenancePrivacyTests.scannedSourceRoots {
+            let sources = repositoryRoot.appendingPathComponent(root)
+            guard let found = FileManager.default.enumerator(atPath: sources.path)?
+                .allObjects as? [String]
+            else {
+                throw XCTSkip("Sources are not beside the tests: \(sources.path)")
+            }
+            files.append(contentsOf: found.map { (root, $0) })
         }
 
         var constructions = 0
-        for file in files where file.hasSuffix(".swift") {
+        for (root, relative) in files where relative.hasSuffix(".swift") {
+            let file = "\(root)/\(relative)"
             let text = try String(
-                contentsOf: sources.appendingPathComponent(file), encoding: .utf8)
+                contentsOf: repositoryRoot.appendingPathComponent(file), encoding: .utf8)
             var cursor = text.startIndex
             while let construction = text.range(
                 of: "= Recording(", range: cursor..<text.endIndex)
