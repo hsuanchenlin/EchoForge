@@ -42,7 +42,8 @@ enum SettingsCommand: CLICommand {
         }
 
         let rows = PreferenceInventory.all.map { preference -> (InspectablePreference, StoredValue) in
-            (preference, StoredValue(preferences.value(forKey: preference.key), kind: preference.kind))
+            let raw = sanitizedValue(preferences.value(forKey: preference.key), for: preference)
+            return (preference, StoredValue(raw, kind: preference.kind))
         }
 
         // The home directory is folded to `~` in the text rendering and left
@@ -54,6 +55,19 @@ enum SettingsCommand: CLICommand {
         let redaction = Redaction(homeDirectory: NSHomeDirectory())
         return CommandResult(
             text: redaction.foldingHomeDirectory(in: text(for: rows)), json: json(for: rows))
+    }
+
+    static func sanitizedValue(_ raw: Any?, for preference: InspectablePreference) -> Any? {
+        guard preference.key == PreferenceKeys.cloudBaseURL,
+            let value = raw as? String
+        else { return raw }
+        guard var components = URLComponents(string: value) else {
+            return value.contains("://") && value.contains("@") ? Redaction.marker : value
+        }
+        guard components.user != nil || components.password != nil else { return value }
+        components.user = nil
+        components.password = nil
+        return components.string ?? Redaction.marker
     }
 
     static func text(for rows: [(InspectablePreference, StoredValue)]) -> String {

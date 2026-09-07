@@ -67,14 +67,19 @@ enum ApplicationLocator {
             return try locateOverride(override, in: environment)
         }
         for candidate in environment.defaultApplicationLocations {
-            if let application = read(candidate, in: environment) {
-                guard application.isKongweh else {
-                    throw CLIError(
-                        "\(candidate.path) is \(application.identity.bundleIdentifier), not Kongweh.",
-                        exitCode: .appNotFound)
-                }
-                return application
+            guard environment.fileSystem.isDirectory(at: candidate) else { continue }
+            guard let application = read(candidate, in: environment) else {
+                throw CLIError(
+                    "\(candidate.path) exists but has no readable Info.plist. "
+                        + "Repair or remove that copy, or pass --app <absolute-path> to name another.",
+                    exitCode: .appNotFound)
             }
+            guard application.isKongweh else {
+                throw CLIError(
+                    "\(candidate.path) is \(application.identity.bundleIdentifier), not Kongweh.",
+                    exitCode: .appNotFound)
+            }
+            return application
         }
         throw CLIError(
             "No Kongweh app is installed. Looked in: "

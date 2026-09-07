@@ -58,6 +58,21 @@ final class SettingsCommandTests: XCTestCase {
         XCTAssertTrue(execution.output.contains("https://api.openai.com/v1"))
     }
 
+    func testCloudBaseURLUserInfoIsRemovedFromTextAndJSON() async throws {
+        let values = [PreferenceKeys.cloudBaseURL: "https://user:password@example.com/v1"]
+
+        let textExecution = await runCLI(["settings"], environment: environment(values))
+        XCTAssertTrue(textExecution.output.contains("https://example.com/v1"))
+        XCTAssertFalse(textExecution.output.contains("user"))
+        XCTAssertFalse(textExecution.output.contains("password"))
+
+        let jsonExecution = await runCLI(
+            ["settings", "--json"], environment: environment(values))
+        XCTAssertTrue(jsonExecution.output.contains("https://example.com/v1"))
+        XCTAssertFalse(jsonExecution.output.contains("user"))
+        XCTAssertFalse(jsonExecution.output.contains("password"))
+    }
+
     /// The API key is listed as withheld rather than omitted, so its absence is
     /// visible: an omitted row reads as "there is no key".
     func testTheKeychainRowIsPresentAndRedacted() async throws {
@@ -230,6 +245,22 @@ final class LogsCommandTests: XCTestCase {
         let execution = await runCLI(["logs", "--follow", "--json"], environment: environment)
 
         XCTAssertEqual(execution.exitCode, .usage)
+    }
+}
+
+final class LogStreamTests: XCTestCase {
+    func testInterruptForceStopsAChildThatIgnoresTermination() throws {
+        let started = Date()
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
+            raise(SIGINT)
+        }
+
+        try LogStream.run(
+            executable: "/bin/sh",
+            arguments: ["-c", "trap '' TERM; exec /bin/sleep 30"],
+            onLine: { _ in })
+
+        XCTAssertLessThan(Date().timeIntervalSince(started), 4)
     }
 }
 

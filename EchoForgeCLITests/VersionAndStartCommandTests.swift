@@ -23,6 +23,31 @@ final class VersionCommandTests: XCTestCase {
         XCTAssertTrue(execution.diagnostic.contains("No Kongweh app is installed"))
     }
 
+    func testFirstExistingAppWithUnreadableInfoPlistStopsResolution() async throws {
+        var environment = CLITestEnvironment.empty()
+        let first = "/Applications/EchoForge.app"
+        let second = "/Users/test/Applications/EchoForge.app"
+        let fileSystem = FakeFileSystem()
+        fileSystem.directories.formUnion([first, second])
+        fileSystem.bundles[second] = [
+            "CFBundleShortVersionString": "1.2.3",
+            "CFBundleVersion": "99",
+            "CFBundleIdentifier": AppDataLocation.storageIdentifier,
+        ]
+        environment.fileSystem = fileSystem
+        environment.defaultApplicationLocations = [
+            URL(fileURLWithPath: first), URL(fileURLWithPath: second),
+        ]
+
+        let execution = await runCLI(["version"], environment: environment)
+
+        XCTAssertEqual(execution.exitCode, .appNotFound)
+        XCTAssertTrue(execution.diagnostic.contains(first))
+        XCTAssertTrue(execution.diagnostic.contains("Info.plist"))
+        XCTAssertTrue(execution.diagnostic.contains("--app"))
+        XCTAssertFalse(execution.output.contains("1.2.3"))
+    }
+
     /// The version comes from whichever bundle was resolved, so `--app` reports
     /// that copy rather than the one in `/Applications`.
     func testAppOverrideReportsTheOverriddenCopy() async throws {

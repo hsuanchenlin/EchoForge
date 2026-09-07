@@ -41,17 +41,21 @@ enum LogStream {
 
         // Installed before the process starts, so a Ctrl-C in the window
         // between launching and reading is still caught.
-        signal(SIGINT, SIG_IGN)
+        let previousSignalHandler = signal(SIGINT, SIG_IGN)
         let interrupts = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
         var interrupted = false
+        var terminationDeadline: Date?
         interrupts.setEventHandler {
             interrupted = true
-            if process.isRunning { process.terminate() }
+            if process.isRunning {
+                terminationDeadline = Date().addingTimeInterval(terminationGracePeriod)
+                process.terminate()
+            }
         }
         interrupts.resume()
         defer {
             interrupts.cancel()
-            signal(SIGINT, SIG_DFL)
+            signal(SIGINT, previousSignalHandler)
         }
 
         do {
@@ -82,12 +86,12 @@ enum LogStream {
         // rather than blocking on the semaphore.
         while finished.wait(timeout: .now() + 0.1) == .timedOut {
             RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
-        }
-
-        if interrupted {
-            let deadline = Date().addingTimeInterval(terminationGracePeriod)
-            while process.isRunning, Date() < deadline {
-                usleep(20_000)
+            if interrupted,
+                process.isRunning,
+                let terminationDeadline,
+                Date() >= terminationDeadline
+            {
+                kill(process.processIdentifier, SIGKILL)
             }
         }
     }
