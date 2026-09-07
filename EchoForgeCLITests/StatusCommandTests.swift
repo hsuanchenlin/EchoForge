@@ -32,8 +32,33 @@ final class StatusCommandTests: XCTestCase {
 
         XCTAssertEqual(execution.exitCode, .success)
         let json = try execution.decodedJSON()
-        XCTAssertEqual((json["app"] as? [String: Any])?["installed"] as? Bool, false)
+        let app = json["app"] as? [String: Any]
+        XCTAssertEqual(app?["available"] as? Bool, true)
+        XCTAssertEqual(app?["installed"] as? Bool, false)
+        XCTAssertTrue(app?["reason"] is NSNull)
         XCTAssertEqual((json["process"] as? [String: Any])?["running"] as? Bool, false)
+    }
+
+    func testUnreadableAuthoritativeAppIsUnavailableRatherThanMissing() async throws {
+        var environment = CLITestEnvironment.empty()
+        let path = "/Applications/EchoForge.app"
+        let fileSystem = FakeFileSystem()
+        fileSystem.directories.insert(path)
+        environment.fileSystem = fileSystem
+
+        let execution = await runCLI(["status", "--json"], environment: environment)
+
+        XCTAssertEqual(execution.exitCode, .success)
+        let app = try execution.decodedJSON()["app"] as? [String: Any]
+        XCTAssertEqual(app?["available"] as? Bool, false)
+        XCTAssertTrue(app?["installed"] is NSNull)
+        XCTAssertEqual(app?["path"] as? String, path)
+        XCTAssertTrue((app?["reason"] as? String ?? "").contains("Info.plist"))
+
+        let text = await runCLI(["status"], environment: environment)
+        XCTAssertTrue(text.output.contains("app       unavailable"))
+        XCTAssertTrue(text.output.contains(path))
+        XCTAssertTrue(text.output.contains("--app"))
     }
 
     /// A named `--app` is different: if it resolves to nothing, that is a typo.

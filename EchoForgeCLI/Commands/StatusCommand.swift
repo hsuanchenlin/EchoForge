@@ -42,11 +42,12 @@ enum StatusCommand: CLICommand {
         // an empty default path is not. The rest of this command reads the
         // user's data, which outlives any particular installation and is
         // exactly what somebody asks about after deleting the app.
-        let application: InstalledApplication?
+        let appResolution: DefaultApplicationResolution
         if let override = arguments.option("app") {
-            application = try ApplicationLocator.locate(override: override, in: environment)
+            appResolution = .installed(
+                try ApplicationLocator.locate(override: override, in: environment))
         } else {
-            application = try? ApplicationLocator.locate(override: nil, in: environment)
+            appResolution = ApplicationLocator.resolveDefault(in: environment)
         }
 
         let running = ApplicationLocator.runningCopies(in: environment)
@@ -55,12 +56,15 @@ enum StatusCommand: CLICommand {
         let models = ModelStatus.read(in: environment)
 
         var lines: [String] = []
-        if let application {
+        switch appResolution {
+        case .installed(let application):
             lines.append(
                 "app       \(application.identity.marketingVersion) "
                     + "(\(application.identity.buildNumber))  \(application.url.path)")
-        } else {
+        case .notInstalled:
             lines.append("app       not installed")
+        case .unavailable(_, let reason):
+            lines.append("app       unavailable - \(reason)")
         }
         if let copy = running.first {
             lines.append(
@@ -79,8 +83,7 @@ enum StatusCommand: CLICommand {
             json: .object([
                 (
                     "app",
-                    application?.json
-                        ?? .object([("installed", .bool(false)), ("path", .null)])
+                    appJSON(for: appResolution)
                 ),
                 (
                     "process",
@@ -102,6 +105,35 @@ enum StatusCommand: CLICommand {
                 ("engine", engine.json),
                 ("models", models.json),
             ]))
+    }
+
+    static func appJSON(for resolution: DefaultApplicationResolution) -> JSONValue {
+        switch resolution {
+        case .installed(let application):
+            return .object([
+                ("available", .bool(true)),
+                ("installed", .bool(true)),
+                ("reason", .null),
+                ("path", .string(application.url.path)),
+                ("version", .string(application.identity.marketingVersion)),
+                ("build", .string(application.identity.buildNumber)),
+                ("bundleIdentifier", .string(application.identity.bundleIdentifier)),
+            ])
+        case .notInstalled:
+            return .object([
+                ("available", .bool(true)),
+                ("installed", .bool(false)),
+                ("reason", .null),
+                ("path", .null),
+            ])
+        case .unavailable(let path, let reason):
+            return .object([
+                ("available", .bool(false)),
+                ("installed", .null),
+                ("reason", .string(reason)),
+                ("path", .string(path.path)),
+            ])
+        }
     }
 
     /// Said the same way in both renderings, because it is the one thing this

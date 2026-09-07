@@ -32,6 +32,12 @@ struct InstalledApplication: Equatable {
     }
 }
 
+enum DefaultApplicationResolution: Equatable {
+    case installed(InstalledApplication)
+    case notInstalled
+    case unavailable(path: URL, reason: String)
+}
+
 /// Where the tool looks for the app, in order, and what it refuses.
 ///
 /// The order is fixed and documented rather than clever. LaunchServices could
@@ -66,26 +72,37 @@ enum ApplicationLocator {
         if let override {
             return try locateOverride(override, in: environment)
         }
+        switch resolveDefault(in: environment) {
+        case .installed(let application):
+            return application
+        case .notInstalled:
+            throw CLIError(
+                "No Kongweh app is installed. Looked in: "
+                    + environment.defaultApplicationLocations.map(\.path).joined(separator: ", ")
+                    + ". Pass --app <absolute-path> to name a copy somewhere else.",
+                exitCode: .appNotFound)
+        case .unavailable(_, let reason):
+            throw CLIError(reason, exitCode: .appNotFound)
+        }
+    }
+
+    static func resolveDefault(in environment: CLIEnvironment) -> DefaultApplicationResolution {
         for candidate in environment.defaultApplicationLocations {
             guard environment.fileSystem.isDirectory(at: candidate) else { continue }
             guard let application = read(candidate, in: environment) else {
-                throw CLIError(
-                    "\(candidate.path) exists but has no readable Info.plist. "
-                        + "Repair or remove that copy, or pass --app <absolute-path> to name another.",
-                    exitCode: .appNotFound)
+                return .unavailable(
+                    path: candidate,
+                    reason: "\(candidate.path) exists but has no readable Info.plist. "
+                        + "Repair or remove that copy, or pass --app <absolute-path> to name another.")
             }
             guard application.isKongweh else {
-                throw CLIError(
-                    "\(candidate.path) is \(application.identity.bundleIdentifier), not Kongweh.",
-                    exitCode: .appNotFound)
+                return .unavailable(
+                    path: candidate,
+                    reason: "\(candidate.path) is \(application.identity.bundleIdentifier), not Kongweh.")
             }
-            return application
+            return .installed(application)
         }
-        throw CLIError(
-            "No Kongweh app is installed. Looked in: "
-                + environment.defaultApplicationLocations.map(\.path).joined(separator: ", ")
-                + ". Pass --app <absolute-path> to name a copy somewhere else.",
-            exitCode: .appNotFound)
+        return .notInstalled
     }
 
     private static func locateOverride(
