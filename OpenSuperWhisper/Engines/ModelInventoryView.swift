@@ -186,21 +186,7 @@ struct ModelInventoryView: View {
 
             VStack(spacing: 8) {
                 ForEach(viewModel.entries) { entry in
-                    ModelInventoryRow(
-                        entry: entry,
-                        isRecommended: entry.engine == recommended,
-                        isActive: service.selection.active == entry.engine,
-                        isSelected: settings.selectedEngine == entry.engine,
-                        recommendationReason: EngineRecommendation.reason(for: machine),
-                        languages: ModelInventory.languageNames(
-                            for: entry.engine,
-                            fluidAudioModelVersion: settings.fluidAudioModelVersion),
-                        download: { Task { await download(entry) } },
-                        cancel: { cancel(entry) },
-                        choose: { settings.selectedEngine = entry.engine },
-                        reveal: { viewModel.reveal(entry) },
-                        remove: { viewModel.requestRemoval(of: entry) }
-                    )
+                    row(for: entry)
                 }
             }
 
@@ -292,6 +278,32 @@ struct ModelInventoryView: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// One row, built outside the `ForEach`.
+    ///
+    /// Hoisted because the initialiser grew past what the type checker will take
+    /// inside a view builder: it failed with "unable to type-check this
+    /// expression in reasonable time" rather than with anything about the code.
+    private func row(for entry: ModelInventoryEntry) -> some View {
+        let isBlocked = settings.isDownloading && settings.downloadingEngine != entry.engine
+        return ModelInventoryRow(
+            entry: entry,
+            isRecommended: entry.engine == recommended,
+            isActive: service.selection.active == entry.engine,
+            isSelected: settings.selectedEngine == entry.engine,
+            recommendationReason: EngineRecommendation.reason(for: machine),
+            languages: ModelInventory.languageNames(
+                for: entry.engine, fluidAudioModelVersion: settings.fluidAudioModelVersion),
+            // Only one transfer runs at a time. A row that is not the one
+            // running says so rather than offering a button whose guard returns
+            // in silence.
+            isBlockedByAnotherDownload: isBlocked,
+            download: { Task { await download(entry) } },
+            cancel: { cancel(entry) },
+            choose: { settings.selectedEngine = entry.engine },
+            reveal: { viewModel.reveal(entry) },
+            remove: { viewModel.requestRemoval(of: entry) })
+    }
+
     private func download(_ entry: ModelInventoryEntry) async {
         viewModel.failure = nil
         do {
@@ -359,6 +371,13 @@ struct ModelInventoryRow: View {
     /// `ModelInventory.languageNames` - an explicit attribute of the row rather
     /// than something left inside the outcome prose.
     let languages: [String]
+
+    /// Whether some *other* row's download is holding the one transfer slot.
+    ///
+    /// One at a time is the right rule, but a rule enforced by a guard that
+    /// returns silently is a button that does nothing when pressed. The row
+    /// says which it is instead.
+    var isBlockedByAnotherDownload: Bool = false
 
     let download: () -> Void
     let cancel: () -> Void
@@ -465,6 +484,9 @@ struct ModelInventoryRow: View {
         if !languages.isEmpty { parts.append("Languages: \(languages.joined(separator: ", "))") }
         if isRecommended { parts.append("Recommended") }
         if isActive { parts.append("In use") }
+        if isBlockedByAnotherDownload {
+            parts.append(ModelInventoryRow.blockedByAnotherDownloadHelp)
+        }
         return parts.filter { !$0.isEmpty }.joined(separator: ". ")
     }
 
@@ -508,13 +530,9 @@ struct ModelInventoryRow: View {
                     .buttonStyle(.bordered)
                     .controlSize(.small)
             case .notInstalled where hasSingleDownload:
-                Button("Download", action: download)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                transferButton("Download")
             case .incomplete where hasSingleDownload:
-                Button("Retry", action: download)
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                transferButton("Retry")
             case .notInstalled, .incomplete:
                 // Whisper and Parakeet: several models, and which one is a
                 // choice this row must not make on the user's behalf.
@@ -552,6 +570,22 @@ struct ModelInventoryRow: View {
             Spacer(minLength: 0)
         }
     }
+
+    /// Download or Retry, disabled while another row owns the one transfer slot
+    /// and naming that rather than going quiet.
+    private func transferButton(_ title: String) -> some View {
+        Button(title, action: download)
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(isBlockedByAnotherDownload)
+            .help(
+                isBlockedByAnotherDownload
+                    ? ModelInventoryRow.blockedByAnotherDownloadHelp
+                    : "Fetch this engine's weights")
+    }
+
+    static let blockedByAnotherDownloadHelp =
+        "Another model is downloading. Kongweh fetches one at a time."
 
     private var readinessColor: Color {
         switch entry.readiness {

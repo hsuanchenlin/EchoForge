@@ -422,3 +422,59 @@ final class ModelInventoryTests: XCTestCase {
             "memory must not quietly change which engine is recommended")
     }
 }
+
+/// The two guards that keep the inventory's buttons honest while a transfer is
+/// running.
+@MainActor
+final class ModelInventoryTransferGuardTests: IsolatedPreferencesTestCase {
+
+    /// Every download path has to name the engine it is fetching, or the
+    /// removal guard is blind to it. Whisper and Parakeet were the two that did
+    /// not, and they have the largest models here - so Remove was offered during
+    /// exactly the longest transfers.
+    func testEveryDownloadPathNamesTheEngineItIsFetching() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("OpenSuperWhisper/Settings.swift"),
+            encoding: .utf8)
+
+        for signature in [
+            "func downloadModel(_ model: SettingsDownloadableModel) async throws {",
+            "func downloadFluidAudioModel(_ model: SettingsFluidAudioModel) async throws {",
+            "func downloadEngineModel(_ kind: EngineKind) async throws {",
+        ] {
+            let start = try XCTUnwrap(
+                source.range(of: signature), "no function \(signature) to read")
+            let rest = source[start.upperBound...]
+            let end = rest.range(of: "\n    }\n")
+            let body = String(rest[..<(end?.upperBound ?? rest.endIndex)])
+
+            XCTAssertTrue(
+                body.contains("downloadingEngine ="),
+                "\(signature) starts a transfer without naming its engine, so "
+                    + "ModelRemoval cannot refuse a removal while it runs")
+        }
+    }
+
+    /// Clearing "a download is running" clears "which engine is downloading"
+    /// with it. They are read together, and a stale engine would refuse a
+    /// removal for a transfer that had already finished.
+    func testTheDownloadingEngineCannotOutliveTheDownload() {
+        let viewModel = SettingsViewModel()
+        viewModel.isDownloading = true
+        XCTAssertNil(viewModel.engineDownloadPreparation, "no engine named yet")
+
+        viewModel.isDownloading = false
+        XCTAssertNil(viewModel.downloadingEngine)
+        XCTAssertNil(viewModel.engineDownloadPreparation)
+    }
+
+    /// The one-at-a-time rule is right; going silent about it is not.
+    func testABlockedRowSaysWhyRatherThanOfferingADeadButton() {
+        XCTAssertFalse(ModelInventoryRow.blockedByAnotherDownloadHelp.isEmpty)
+        XCTAssertTrue(
+            ModelInventoryRow.blockedByAnotherDownloadHelp.lowercased().contains("one at a time"))
+        XCTAssertFalse(ModelInventoryRow.blockedByAnotherDownloadHelp.contains("EchoForge"))
+    }
+}

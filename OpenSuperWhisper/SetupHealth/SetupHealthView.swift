@@ -246,7 +246,7 @@ struct MicrophoneTestCard: View {
         case .running(let remaining):
             Button("Stop (\(Int(remaining.rounded(.up))))") { test.stop() }
                 .buttonStyle(.bordered)
-        case .idle, .finished, .refused:
+        case .idle, .finished, .refused, .tooShortToTell:
             Button("Test microphone") { test.start() }
                 .buttonStyle(.borderedProminent)
         }
@@ -275,6 +275,14 @@ struct MicrophoneTestCard: View {
                 .font(.caption)
                 .foregroundColor(.orange)
                 .fixedSize(horizontal: false, vertical: true)
+        // Not a verdict, and deliberately not styled as a problem: the
+        // microphone may well be fine, and the app simply did not listen for
+        // long enough to have an opinion.
+        case .tooShortToTell:
+            Label(MicrophoneTestCard.tooShortText, systemImage: "clock")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -283,6 +291,14 @@ struct MicrophoneTestCard: View {
     static func liveText(for signal: MicrophoneSignal) -> String {
         signal.shortLabel ?? "Listening. Say a sentence."
     }
+
+    /// What a test stopped inside the grace interval says.
+    ///
+    /// It reports the absence of a measurement rather than a measurement of
+    /// absence. Saying "No signal" here would send somebody who just spoke
+    /// clearly off to check an input that is working.
+    static let tooShortText =
+        "Stopped too soon to tell. Let it run for a couple of seconds while you say something."
 
     /// What is said afterwards: the state and what to do about it, or the one
     /// sentence that means nothing needs doing.

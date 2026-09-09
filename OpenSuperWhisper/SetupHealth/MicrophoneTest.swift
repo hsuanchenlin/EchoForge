@@ -39,6 +39,10 @@ final class MicrophoneTestViewModel: ObservableObject {
         case running(remaining: TimeInterval)
         /// Finished, with what was heard.
         case finished(MicrophoneSignal)
+        /// Stopped by hand before the monitor had gathered enough to say
+        /// anything. Its own case rather than a verdict, because there is no
+        /// verdict - see `finish(with:)`.
+        case tooShortToTell
         /// It never started. The microphone was held by a dictation, or
         /// CoreAudio refused it.
         case refused(String)
@@ -99,9 +103,13 @@ final class MicrophoneTestViewModel: ObservableObject {
     }
 
     /// Ends the test early, keeping whatever verdict has been reached.
+    ///
+    /// "Whatever has been reached" includes *nothing*: inside the monitor's
+    /// grace interval there is no verdict yet, and this must not borrow the
+    /// timer path's one - see `finish(with:)`.
     func stop() {
         guard isRunning else { return }
-        finish(with: monitor.signal(at: Date()))
+        finish(with: monitor.signal(at: Date()), ranToCompletion: false)
     }
 
     /// Gives the microphone back without leaving a verdict on screen - for a
@@ -163,19 +171,34 @@ final class MicrophoneTestViewModel: ObservableObject {
         guard isRunning, let endsAt else { return }
         let remaining = endsAt.timeIntervalSinceNow
         guard remaining > 0 else {
-            finish(with: monitor.signal(at: Date()))
+            finish(with: monitor.signal(at: Date()), ranToCompletion: true)
             return
         }
         state = .running(remaining: remaining)
     }
 
-    private func finish(with verdict: MicrophoneSignal) {
+    /// - Parameter ranToCompletion: whether the test used its whole `duration`.
+    ///   It is the difference between the two ways `.measuring` can arrive here,
+    ///   and they mean opposite things.
+    private func finish(with verdict: MicrophoneSignal, ranToCompletion: Bool) {
         teardown()
-        // A test that heard nothing at all in five seconds is `noSignal` even if
-        // the grace period technically has not decided: five seconds is four
-        // times the grace, so `.measuring` here would be the pane declining to
-        // answer the one question it was asked.
-        state = .finished(verdict == .measuring ? .noSignal : verdict)
+
+        guard verdict == .measuring else {
+            state = .finished(verdict)
+            return
+        }
+
+        // A test that ran its full five seconds and is still `.measuring` heard
+        // nothing at all: five seconds is more than three times the grace
+        // interval, so `.measuring` there is the pane declining to answer the
+        // one question it was asked.
+        //
+        // An early Stop is the opposite. Inside the grace interval the monitor
+        // has not looked at `loudestPeak` yet, so `.measuring` means "no
+        // evidence", and reporting that as "No signal" tells somebody who just
+        // spoke clearly to go and check an input that is fine. A diagnostic that
+        // does that is worse than no diagnostic.
+        state = ranToCompletion ? .finished(.noSignal) : .tooShortToTell
     }
 
     private func teardown() {

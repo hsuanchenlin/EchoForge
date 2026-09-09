@@ -157,15 +157,33 @@ class SettingsViewModel: ObservableObject {
     
     @Published var downloadableModels: [SettingsDownloadableModel] = []
     @Published var downloadableFluidAudioModels: [SettingsFluidAudioModel] = []
-    @Published var isDownloading: Bool = false
+    /// Whether a Settings-driven model download is in flight.
+    ///
+    /// Clearing it clears `downloadingEngine` too, and that is an invariant
+    /// rather than tidiness: the two are read together by
+    /// `engineDownloadPreparation`, they are set in five places between the
+    /// three download paths, and "which engine is downloading" outliving "a
+    /// download is running" is how the model inventory would refuse a removal
+    /// for a transfer that finished. One `didSet` is cheaper to keep true than
+    /// five call sites.
+    @Published var isDownloading: Bool = false {
+        didSet {
+            guard !isDownloading else { return }
+            downloadingEngine = nil
+        }
+    }
     @Published var downloadProgress: Double = 0.0
     @Published var downloadingModelName: String?
 
-    /// The engine a `downloadEngineModel` call is fetching. `downloadingModelName`
+    /// The engine whose weights a download is fetching. `downloadingModelName`
     /// answers "which model" for the model lists; this answers "which engine" for
     /// the surfaces that think in engines - the model inventory, which must not
     /// offer to delete a cache directory a download is writing into.
-    @Published private(set) var downloadingEngine: EngineKind?
+    ///
+    /// Every download path sets it, including the two multi-model ones: Whisper
+    /// and Parakeet have the largest models here, so leaving them unnamed
+    /// offered Remove during exactly the longest transfers.
+    @Published fileprivate(set) var downloadingEngine: EngineKind?
 
     /// The in-flight engine download as a preparation value, for surfaces that
     /// already know how to render one. The fraction comes off FluidAudio's scale
@@ -442,6 +460,12 @@ class SettingsViewModel: ObservableObject {
         try DiskSpaceUtil.ensureEnoughFreeSpaceForModelDownload()
         
         isDownloading = true
+        // Named here as well as in `downloadEngineModel`, because the model
+        // inventory refuses a removal while *this* engine's weights are moving
+        // and `engineDownloadPreparation` is nil without it. Whisper and
+        // Parakeet are exactly the two engines whose downloads are the largest,
+        // so leaving them unnamed offered Remove during the longest transfers.
+        downloadingEngine = .whisper
         downloadingModelName = model.name
         downloadProgress = 0.0
         
@@ -545,6 +569,9 @@ class SettingsViewModel: ObservableObject {
         try DiskSpaceUtil.ensureEnoughFreeSpaceForModelDownload()
         
         isDownloading = true
+        // The same reason as `downloadModel` above: the inventory's removal
+        // guard reads this.
+        downloadingEngine = .fluidaudio
         downloadingModelName = model.name
         downloadProgress = 0.0
         

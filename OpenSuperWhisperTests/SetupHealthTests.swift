@@ -461,3 +461,50 @@ final class DictationShortcutTests: XCTestCase {
         XCTAssertTrue(conflicts.isEmpty)
     }
 }
+
+/// What the five-second microphone test is willing to conclude, and when.
+///
+/// The verdict path is the whole of it: this feature exists to tell somebody
+/// whether their input works, so a wrong verdict is worse than no feature.
+@MainActor
+final class MicrophoneTestVerdictTests: XCTestCase {
+
+    /// A test that ran its full five seconds and heard nothing really did hear
+    /// nothing: five seconds is more than three times the monitor's grace
+    /// interval, so declining to answer there would be the pane refusing the one
+    /// question it was asked.
+    func testAFullLengthSilentTestReportsNoSignal() {
+        XCTAssertGreaterThan(
+            MicrophoneTestViewModel.duration, MicrophoneSignalMonitor.graceInterval * 3,
+            "the full-length mapping below is only honest while this holds")
+    }
+
+    /// An early Stop inside the grace interval has gathered no evidence, and
+    /// must not borrow the full-length reading. Reporting "No signal" there
+    /// tells somebody who just spoke clearly to go and check an input that is
+    /// working, which is the one thing a diagnostic must not do.
+    func testStoppingInsideTheGraceIntervalSaysItWasTooShortRatherThanNoSignal() {
+        var monitor = MicrophoneSignalMonitor()
+        let start = Date()
+        // Loud, clear speech - and stopped almost immediately.
+        monitor.record(MicrophoneLevel(averageDecibels: -20, peakDecibels: -10), at: start)
+
+        let verdict = monitor.signal(at: start.addingTimeInterval(0.3))
+        XCTAssertEqual(
+            verdict, .measuring,
+            "the monitor has not looked at loudestPeak yet, which is the state the card "
+                + "must report as 'too short' rather than as 'no signal'")
+    }
+
+    /// The two sentences are different claims and must not be confused: one
+    /// reports a measurement, the other reports the absence of one.
+    func testTheTooShortSentenceMakesNoClaimAboutTheMicrophone() {
+        let tooShort = MicrophoneTestCard.tooShortText
+        XCTAssertFalse(tooShort.contains("No signal"))
+        XCTAssertFalse(tooShort.lowercased().contains("not reaching"))
+        XCTAssertTrue(tooShort.lowercased().contains("too soon"))
+
+        XCTAssertTrue(
+            MicrophoneTestCard.verdictText(for: .noSignal).contains("Nothing is reaching"))
+    }
+}
