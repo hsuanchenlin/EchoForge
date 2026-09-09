@@ -479,43 +479,18 @@ build.
 ## Text post-processing
 
 Everything between the engine and the user is three stages, described in
-`docs/text-post-processing.md`: the deterministic transcript stage
-(`TextPostProcessor.process` - Chinese output script, spoken corrections,
-personal terms, then CJK spacing), the style rewriting stage
-(`StyleRewriteService.apply`), and the live-dictation insertion stage. The first
+`docs/text-post-processing.md`: the deterministic transcript stage (`TextPostProcessor.process`), the style rewriting stage (`StyleRewriteService.apply`), and the live-dictation insertion stage. The first
 and third are synchronous and cannot fail; keep them that way.
 
 **Spoken corrections** (`Utils/SpokenCorrection.swift`, off by default) are the
-transcript stage's second pass: "scratch that", "delete the last sentence",
-"replace Friday with Monday", "start over", and optional hesitation-sound
-pruning. `docs/spoken-corrections.md` is the whole story. Four things there are
-absolute. It is **pure grammar** - no model executes a destructive edit, for a
-sharper version of the reason `SpokenIntentRouter` classifies nothing. A trigger
-fires only when it is the **whole of a clause** (`TranscriptClauses`), which is
-what keeps "I want to scratch that itch" as dictation and is the entire defence
-against the one failure that costs a user anything. An edit it cannot place is
-**not made** - "scratch that" with nothing before it leaves the words verbatim
-and records a `SpokenCorrectionRefusal` - and untouched clauses come back byte
-for byte, because `TranscriptClause` partitions the transcript rather than
-describing it. And it needs *two* conditions, `spokenCorrectionsEnabled` and a
-caller passing `Settings(correctsSpokenEdits: true)`, which only live dictation
-does: a dropped file is somebody's recording, and a ⌥E instruction ("replace
-Friday with Monday") *is* the instruction. It runs after script normalization so
-its Chinese tables need only the user's own script, and before the dictionary
-because the dictionary hands back ranges an edit would invalidate and splices in
-words the user typed rather than said.
+transcript stage's second pass. `docs/spoken-corrections.md` is its whole story,
+including the clause-boundary rule that makes it safe and the gates that keep it
+out of history regeneration.
 
 The app being dictated into can also add words to what the recognizer is shown,
 off by default: `Context/AppVocabularyProfile.swift` and
-`Context/AppVocabularyStore.swift`, with `docs/app-vocabulary.md` as the whole
-story. It inherits app-aware style's privacy invariant exactly - the frontmost
-**bundle identifier** is the whole of the signal, enforced by the shape of
-`DictationTargetApp` plus a source scan in `AppVocabularyPrivacyTests` - and
-adds two rules of its own. It reaches **only Whisper**, the one engine with a
-decoding prompt, and never `Cloud/`; and it is composed **after** the user's own
-dictionary into the same token budget, so a prompt that runs out of room drops
-the app's words and never one of the user's. Browsers deliberately have no
-profile, for the reason `AppStyleMappingStore` gives them `.chosenStyle`.
+`Context/AppVocabularyStore.swift`. `docs/app-vocabulary.md` is its whole story,
+including the absolute privacy rule that only reads the frontmost bundle identifier.
 
 The personal terms dictionary also reaches **one** engine before it decodes: `WhisperEngine`
 shows it to whisper.cpp as the initial prompt, composed by `WhisperInitialPrompt` (`Engines/`)
@@ -811,13 +786,6 @@ it, and check for or install an update. `docs/cli.md` is its whole story - build
 resolution, every command and every exit code. It is built by the `OpenSuperWhisper` scheme
 and is **not** in the DMG; the release artifact is still the app and nothing else.
 
-`transcribe` **loads no model**. It hands the file to the app the way "Open With" does and
-watches the read-only database until the row settles, which is the only design that adds
-neither a second process holding the same weights nor a second writer to the database - and
-the only one in which `echoforge transcribe` and a dropped file cannot produce different
-text. There is deliberately no `--engine` and no `--language`: the app owns those preferences
-and this tool never writes one.
-
 `EchoForgeCore/` exists because of it: the source both products compile, so there is one
 updater, one recordings schema and one set of preference keys rather than two.
 `RecordingStore` stays in the app - it is what migrates and writes - and forwards to
@@ -854,15 +822,7 @@ or the other, never both, because they are two presentations of the same session
 per session into `sessionUsesCapsule`; a preference flipped mid-recording would otherwise leave a
 session with two overlays or none. Nothing in `CapsuleHUD/` starts, stops or alters a dictation.
 
-While decoding, the capsule also shows the words the engine has **committed** so far.
-`PartialTranscriptEmitting` is a separate protocol from `TranscriptionEngine` on purpose:
-Whisper segments as it decodes and never revises a committed segment, and the other three
-engines return one final string, so a property they could never fill would turn "does this
-engine have partial output" into a runtime question. `TranscriptionService.partialTranscript`
-is global like `StyleRewriteActivity`, so the view model scopes it the same way - refused
-unless the capsule is showing its own decode.
-
-`docs/capsule-hud.md` is the capsule's whole story. Three things there are easy to get wrong and are
+`docs/capsule-hud.md` is the capsule's whole story, including how partial transcripts are shown. Its load-bearing rules are
 pinned by `CapsuleHUDViewModelTests`: an auto-hide belongs to the state that scheduled it (1.5 s is
 long enough for the next dictation to start, and a stale hide would close it); `complete()` is
 ignored unless a session is in flight, so a cancelled or already-failed dictation cannot end on a
