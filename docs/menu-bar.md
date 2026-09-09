@@ -141,5 +141,21 @@ dozen `NSMenuItem`s in sync with published state and nothing is recomputed while
 nobody is looking. The **icon follows live**, because it is on screen the whole
 time - that is the one thing a status item is for.
 
+**Nothing on the menu-open path reads the disk or the Keychain.** The safe engine
+list needs `EngineAvailability.current()`, which reads the model caches and - on
+an install that has chosen the cloud - reaches the Keychain, so it is cached and
+recomputed on the three events that can change it instead. That is not a
+micro-optimisation: deciding it inside `menuNeedsUpdate` was measured on an
+ad-hoc-signed build to put a Keychain *dialog* in front of the menu, and because
+`menuNeedsUpdate` never returned, the menu never opened and the app's whole
+accessibility tree went with it. `MenuBarMenuOpenCostTests` is a source scan that
+keeps that path clean.
+
+The cloud engine is never offered from the menu (`isCloudSelectable: false`), and
+that is the product decision `EngineCatalog.pickerOrder` already makes rather than
+a way around the Keychain: one tap must not be all it takes to start sending
+dictation to a company. A user already on it still sees it named as their choice,
+with a line saying where it is chosen.
+
 `MenuBarSnapshotTests` is the state matrix, asserted without a microphone, a model
 or a TCC grant.

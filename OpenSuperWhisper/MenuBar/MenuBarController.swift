@@ -43,6 +43,21 @@ final class MenuBarController: NSObject {
     /// bounded query.
     private var recentTranscripts: [MenuBarTranscript] = []
 
+    /// The engines a pick may safely land on, from `EngineCycle.available`.
+    ///
+    /// **Cached, and never computed while the menu is opening.** Deciding it
+    /// needs `EngineAvailability.current()`, which reads the model caches and -
+    /// on an install that has chosen the cloud - reaches the Keychain. Doing
+    /// that inside `menuNeedsUpdate` puts a synchronous XPC round trip in front
+    /// of every menu open, and on a build whose signature does not match the
+    /// Keychain item it puts a **system dialog** there: measured on an ad-hoc
+    /// build, the menu never opened and the app's whole accessibility tree went
+    /// with it, because `menuNeedsUpdate` had not returned.
+    ///
+    /// So it is recomputed on the three events that can change it, all of which
+    /// already re-resolve availability anyway.
+    private var selectableEngines: [EngineKind] = []
+
     /// Opens the main window. Injected because it belongs to `AppDelegate`, which
     /// owns the window, and this owns the menu.
     private let showMainWindow: () -> Void
@@ -65,6 +80,7 @@ final class MenuBarController: NSObject {
 
         observe()
         refreshIcon()
+        refreshSelectableEngines()
         Task { await refreshRecentTranscripts() }
     }
 
@@ -79,25 +95,38 @@ final class MenuBarController: NSObject {
             preparation: transcriptionService.modelPreparation)
     }
 
-    private func snapshot() -> MenuBarSnapshot {
+    /// Recomputes the engines a pick may land on.
+    ///
+    /// Never called from `menuNeedsUpdate` - see `selectableEngines`.
+    ///
+    /// `isCloudSelectable` is **false**, always, and that is a product decision
+    /// rather than a shortcut around the Keychain. `EngineCatalog.pickerOrder`
+    /// leaves the cloud engine out for a reason - one tap must not be all it
+    /// takes to start sending dictation to a company - and this menu is the
+    /// picker without opening Settings. A user already on the cloud engine still
+    /// sees it named as their choice; going back to it is done where the consent
+    /// sheet is.
+    private func refreshSelectableEngines() {
         let preferences = AppPreferences.shared
-        let selection = transcriptionService.selection
-        let cycle = EngineCycle.available(
+        selectableEngines = EngineCycle.available(
             whisperModelPath: preferences.selectedWhisperModelPath,
             language: preferences.whisperLanguage,
             fluidAudioModelVersion: preferences.fluidAudioModelVersion,
             availability: EngineAvailability.current(
                 fluidAudioModelVersion: preferences.fluidAudioModelVersion),
-            // The one question that can reach the Keychain, and it stops before
-            // it on an install that never chose the cloud (`CloudAccess`).
-            isCloudSelectable: CloudAccess.isSelectable(.transcription))
+            isCloudSelectable: false)
+    }
+
+    private func snapshot() -> MenuBarSnapshot {
+        let preferences = AppPreferences.shared
+        let selection = transcriptionService.selection
 
         let current = state
         return MenuBarSnapshot(
             state: current,
             desiredEngine: selection.desired,
             activeEngine: selection.active,
-            selectableEngines: cycle,
+            selectableEngines: selectableEngines,
             // A dictation that has started belongs to the engine it started on -
             // the same rule `EngineCycle` applies to a press of ⌥M, which defers
             // rather than switching mid-session.
@@ -129,6 +158,21 @@ final class MenuBarController: NSObject {
         NotificationCenter.default.publisher(for: RecordingStore.recordingsDidUpdateNotification)
             .sink { [weak self] _ in Task { await self?.refreshRecentTranscripts() } }
             .store(in: &cancellables)
+
+        // The three moments the safe engine list can change, all of which
+        // already re-resolve availability elsewhere. Off the menu-open path on
+        // purpose - see `selectableEngines`.
+        transcriptionService.$selection
+            .sink { [weak self] _ in self?.refreshSelectableEngines() }
+            .store(in: &cancellables)
+        for name in [
+            Notification.Name.engineModelStateChanged, .selectedEngineChanged,
+            .appPreferencesLanguageChanged,
+        ] {
+            NotificationCenter.default.publisher(for: name)
+                .sink { [weak self] _ in self?.refreshSelectableEngines() }
+                .store(in: &cancellables)
+        }
     }
 
     private func refreshIcon() {
@@ -261,6 +305,10 @@ final class MenuBarController: NSObject {
         if !snapshot.canChangeEngine {
             submenu.addItem(.separator())
             submenu.addItem(disabledItem("Finish the dictation first"))
+        }
+        if snapshot.desiredEngine.usesCloudProvider {
+            submenu.addItem(.separator())
+            submenu.addItem(disabledItem("Cloud is chosen in Settings → Cloud"))
         }
 
         item.submenu = submenu

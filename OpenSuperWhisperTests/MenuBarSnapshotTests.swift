@@ -164,6 +164,65 @@ final class MenuBarSnapshotTests: XCTestCase {
     }
 }
 
+/// The rule that cannot be expressed as a type: opening the menu must not
+/// read the disk or the Keychain.
+///
+/// A source scan rather than a behavioural test, because the failure it guards
+/// against is a future edit adding one line to `snapshot()` - and because the
+/// failure it *already caught* cannot be reproduced in a unit test at all. On a
+/// build whose signature does not match the Keychain item, deciding the safe
+/// engine list inside `menuNeedsUpdate` put a system dialog in front of it: the
+/// menu never opened, and the app's whole accessibility tree went with it,
+/// because `menuNeedsUpdate` had not returned. It was found by driving the real
+/// status item and reading the log.
+final class MenuBarMenuOpenCostTests: XCTestCase {
+
+    private func source(of relativePath: String) throws -> String {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+        return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
+    }
+
+    /// The body of a function, from its signature to the first line that closes
+    /// it at four spaces of indentation.
+    private func body(of signature: String, in source: String) throws -> String {
+        let start = try XCTUnwrap(source.range(of: signature), "no function \(signature) to read")
+        let rest = source[start.upperBound...]
+        let end = rest.range(of: "\n    }\n")
+        return String(rest[..<(end?.upperBound ?? rest.endIndex)])
+    }
+
+    func testNothingOnTheMenuOpenPathReadsTheDiskOrTheKeychain() throws {
+        let controller = try source(of: "OpenSuperWhisper/MenuBar/MenuBarController.swift")
+
+        for signature in [
+            "func menuNeedsUpdate(_ menu: NSMenu) {",
+            "private func snapshot() -> MenuBarSnapshot {",
+        ] {
+            let body = try self.body(of: signature, in: controller)
+            for forbidden in ["EngineAvailability.current", "CloudAccess.", "RecordingStore.shared"] {
+                XCTAssertFalse(
+                    body.contains(forbidden),
+                    "\(signature) reaches \(forbidden). Opening the menu would pay for it - and "
+                        + "on a build whose signature does not match the Keychain item, pay for it "
+                        + "with a system dialog that never returns.")
+            }
+        }
+    }
+
+    /// And the cloud engine is never offered from the menu, which is the same
+    /// product decision `EngineCatalog.pickerOrder` makes: one tap must not be
+    /// all it takes to start sending dictation to a company.
+    func testTheMenuNeverOffersTheCloudEngine() throws {
+        let controller = try source(of: "OpenSuperWhisper/MenuBar/MenuBarController.swift")
+        let body = try self.body(of: "private func refreshSelectableEngines() {", in: controller)
+
+        XCTAssertTrue(
+            body.contains("isCloudSelectable: false"),
+            "the menu bar offers the cloud engine, which is chosen where the consent sheet is")
+    }
+}
+
 /// Which stored rows reach the menu, and what one line of them looks like.
 final class MenuBarTranscriptTests: XCTestCase {
 
