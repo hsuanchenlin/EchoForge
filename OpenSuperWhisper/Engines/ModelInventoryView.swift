@@ -163,10 +163,17 @@ final class ModelInventoryViewModel: ObservableObject {
             break
         }
 
-        guard service.reserveEngineForRemoval(pending.engine) else {
+        switch service.reserveEngineForRemoval(pending.engine) {
+        case .engineInUse:
+            pendingRemoval = nil
+            failure = "This model started loading or preparing. Try again when it has finished."
+            return
+        case .alreadyReserved:
             pendingRemoval = nil
             failure = "This model is already being removed."
             return
+        case .reserved:
+            break
         }
         pendingRemoval = nil
 

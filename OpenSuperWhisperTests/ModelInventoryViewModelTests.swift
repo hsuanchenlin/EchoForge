@@ -81,12 +81,20 @@ final class ModelInventoryViewModelTests: XCTestCase {
     func testConfirmedRemovalReservesWeightsAgainstNewUse() {
         let service = TranscriptionService()
 
-        XCTAssertTrue(service.reserveEngineForRemoval(.paraformer))
+        XCTAssertEqual(service.reserveEngineForRemoval(.paraformer), .reserved)
         XCTAssertTrue(service.isEngineReservedForRemoval(.paraformer))
-        XCTAssertFalse(service.reserveEngineForRemoval(.paraformer))
+        XCTAssertEqual(service.reserveEngineForRemoval(.paraformer), .alreadyReserved)
 
         service.releaseEngineRemovalReservation(.paraformer)
         XCTAssertFalse(service.isEngineReservedForRemoval(.paraformer))
+    }
+
+    func testConfirmingRemovalIsRefusedWhileAnEngineLoadIsStarting() {
+        let service = TranscriptionService()
+
+        XCTAssertTrue(EngineWeightUseCoordinator.shared.beginUse(of: .paraformer))
+        XCTAssertEqual(service.reserveEngineForRemoval(.paraformer), .engineInUse)
+        EngineWeightUseCoordinator.shared.endUse(of: .paraformer)
     }
 
     func testOpeningRemovalDialogDoesNotReserveWeightsBeforeConfirmation() throws {
