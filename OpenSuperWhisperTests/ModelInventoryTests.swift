@@ -59,12 +59,60 @@ final class ModelInventoryTests: XCTestCase {
     func testAModelBeingPreparedSaysSoRatherThanReportingHalfACache() {
         let entries = ModelInventory.measure(
             availability: availability([]),
-            preparing: ModelPreparation(engine: .sensevoice, stage: .downloading(fraction: 0.4)),
+            preparing: [ModelPreparation(engine: .sensevoice, stage: .downloading(fraction: 0.4))],
             engines: [.sensevoice],
             sizeOfDirectory: { _ in 90_000_000 })
 
         XCTAssertEqual(entries.first?.readiness, .preparing(.downloading(fraction: 0.4)))
         XCTAssertEqual(entries.first?.readiness.label, "Downloading 40%")
+    }
+
+    /// Two transfers can be in flight at once - the background preparation of
+    /// the desired engine and a download started from Settings are different
+    /// tasks - and both rows have to say so.
+    func testTwoPreparationsInFlightAreBothReflected() {
+        let entries = ModelInventory.measure(
+            availability: availability([]),
+            preparing: [
+                ModelPreparation(engine: .sensevoice, stage: .preparing),
+                ModelPreparation(engine: .paraformer, stage: .downloading(fraction: 0.1)),
+            ],
+            engines: [.sensevoice, .paraformer],
+            sizeOfDirectory: { _ in 50_000_000 })
+
+        XCTAssertEqual(entries.first?.readiness, .preparing(.preparing))
+        XCTAssertEqual(entries.last?.readiness, .preparing(.downloading(fraction: 0.1)))
+    }
+
+    /// A preparation of a *different* engine does not masquerade as this row's:
+    /// the engine with bytes and no loader is still Incomplete.
+    func testAPreparationOfAnotherEngineDoesNotChangeThisRow() {
+        let entries = ModelInventory.measure(
+            availability: availability([]),
+            preparing: [ModelPreparation(engine: .sensevoice, stage: .preparing)],
+            engines: [.paraformer],
+            sizeOfDirectory: { _ in 50_000_000 })
+
+        XCTAssertEqual(entries.first?.readiness, .incomplete)
+    }
+
+    /// The row's language tags name languages, not modes: auto-detect is how
+    /// the engine is asked, not something it transcribes.
+    func testLanguageTagsNameLanguagesRatherThanModes() {
+        let whisper = ModelInventory.languageNames(for: .whisper, fluidAudioModelVersion: "v3")
+        XCTAssertTrue(whisper.contains("English"))
+        XCTAssertTrue(whisper.contains("Chinese"))
+        XCTAssertFalse(whisper.contains("Auto-detect"))
+
+        XCTAssertEqual(
+            ModelInventory.languageNames(for: .paraformer, fluidAudioModelVersion: "v3"),
+            ["Chinese"])
+        XCTAssertEqual(
+            ModelInventory.languageNames(for: .fluidaudio, fluidAudioModelVersion: "v2"),
+            ["English"])
+        XCTAssertEqual(
+            ModelInventory.languageNames(for: .fluidaudio, fluidAudioModelVersion: "v3").count,
+            LanguageUtil.parakeetV3Languages.count)
     }
 
     func testAnIndeterminatePreparationDoesNotInventAPercentage() {
@@ -160,7 +208,7 @@ final class ModelInventoryTests: XCTestCase {
         usable: Set<EngineKind>,
         active: EngineKind?,
         isTranscribing: Bool = false,
-        preparing: EngineKind? = nil,
+        preparing: [EngineKind] = [],
         language: String = "en",
         whisperModelPaths: [String] = []
     ) -> Result<ModelRemoval.Consequence, ModelRemoval.Refusal> {
@@ -200,7 +248,18 @@ final class ModelInventoryTests: XCTestCase {
     func testRemovalIsRefusedWhileTheModelIsBeingPrepared() {
         let decision = decide(
             engine: .paraformer, usable: [.sensevoice], active: .sensevoice,
-            preparing: .paraformer)
+            preparing: [.paraformer])
+
+        XCTAssertEqual(decision, .failure(.engineIsBeingPrepared))
+    }
+
+    /// The Settings pane's own download and the background preparation of the
+    /// desired engine are different transfers, and both can be in flight:
+    /// removal is refused when the engine is *any* of them, not only the first.
+    func testRemovalIsRefusedWhenTheEngineIsAnyOfTheTransfersInFlight() {
+        let decision = decide(
+            engine: .paraformer, usable: [.sensevoice], active: .sensevoice,
+            preparing: [.sensevoice, .paraformer])
 
         XCTAssertEqual(decision, .failure(.engineIsBeingPrepared))
     }

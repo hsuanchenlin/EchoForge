@@ -114,6 +114,24 @@ final class ModelInventoryRenderTests: XCTestCase {
             showing: ["Ready", "Recommended"])
     }
 
+    /// Every row says which languages the engine covers, as tags beside the
+    /// outcome - the attribute the picker above it cannot convey.
+    func testARowStatesTheLanguagesTheEngineCovers() throws {
+        try assert(
+            row(engine: .sensevoice, readiness: .ready, bytes: 268_000_000, expected: 240),
+            named: "model-languages",
+            showing: ["Languages:", "Chinese", "Cantonese", "Japanese"])
+    }
+
+    /// A wide-coverage engine does not grow a wall of tags: the list is cut and
+    /// the overflow says how much more there is.
+    func testAWideCoverageEngineCutsTheTagList() throws {
+        try assert(
+            row(engine: .whisper, readiness: .ready, bytes: 1_600_000_000, expected: nil),
+            named: "model-languages-overflow",
+            showing: ["Languages:", "English", "more"])
+    }
+
     /// A row is read to somebody who cannot see it as one thing, not as eight
     /// labels and five buttons.
     func testARowSaysWhatItIsAndWhereItStandsToAReaderWhoCannotSeeIt() {
@@ -135,7 +153,8 @@ final class ModelInventoryRenderTests: XCTestCase {
         expected: Int?,
         isRecommended: Bool = false,
         isActive: Bool = false,
-        isSelected: Bool = false
+        isSelected: Bool = false,
+        languages: [String]? = nil
     ) -> ModelInventoryRow {
         ModelInventoryRow(
             entry: ModelInventoryEntry(
@@ -152,6 +171,8 @@ final class ModelInventoryRenderTests: XCTestCase {
                     dictationLanguage: "zh", systemLanguage: "en",
                     physicalMemoryBytes: 32 << 30, mixesEnglishAndChinese: false,
                     fluidAudioModelVersion: "v3")),
+            languages: languages
+                ?? ModelInventory.languageNames(for: engine, fluidAudioModelVersion: "v3"),
             download: {}, cancel: {}, choose: {}, reveal: {}, remove: {})
     }
 

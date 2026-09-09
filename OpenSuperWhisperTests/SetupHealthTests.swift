@@ -393,6 +393,30 @@ final class DictationShortcutTests: XCTestCase {
         XCTAssertNotEqual(trigger.longDescription, trigger.shortDescription)
     }
 
+    /// The main window's hint used to re-derive the three-mode resolution
+    /// inline, which is how a hint drifts into naming a key the app is not
+    /// listening on. It reads `DictationTrigger.current` now; this scan fails
+    /// if a second derivation grows back beside the one this type owns.
+    func testTheMainWindowHintReadsTheTriggerFromTheOneResolver() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("OpenSuperWhisper/ContentView.swift")
+        guard let text = try? String(contentsOf: source, encoding: .utf8) else {
+            throw XCTSkip("Sources are not beside the tests: \(source.path)")
+        }
+
+        guard let start = text.range(of: "var currentShortcutDescription"),
+              let end = text.range(of: "\n    }", range: start.upperBound..<text.endIndex)
+        else {
+            XCTFail("currentShortcutDescription is gone, and this scan needs re-pointing")
+            return
+        }
+
+        XCTAssertTrue(
+            text[start.upperBound..<end.lowerBound].contains("DictationTrigger.current()"),
+            "the main window's hint re-derives the trigger instead of asking DictationTrigger")
+    }
+
     // MARK: - Conflicts
 
     func testTwoShortcutsOnTheSameKeysCollide() {

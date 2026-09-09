@@ -101,21 +101,24 @@ enum ModelRemoval {
     ///   - activeEngine: what dictation runs on at this moment
     ///     (`EngineSelection.active`), which is not the same as the engine the
     ///     user chose.
-    ///   - preparing: the engine whose weights are being fetched, if any.
+    ///   - preparing: the engines whose weights are being fetched. A list
+    ///     because more than one transfer can be in flight: the background
+    ///     preparation of the desired engine and a download started from
+    ///     Settings are different tasks.
     static func decide(
         engine: EngineKind,
         installedBytes: Int64,
         availability: EngineAvailability,
         activeEngine: EngineKind?,
         isTranscribing: Bool,
-        preparing: EngineKind?,
+        preparing: [EngineKind],
         language: String,
         fluidAudioModelVersion: String
     ) -> Result<Consequence, Refusal> {
         if ModelInventory.cacheDirectories(for: engine).isEmpty {
             return .failure(.engineHasNoWeights)
         }
-        if preparing == engine { return .failure(.engineIsBeingPrepared) }
+        if preparing.contains(engine) { return .failure(.engineIsBeingPrepared) }
         if isTranscribing, activeEngine == engine { return .failure(.engineIsInUse) }
         guard installedBytes > 0 else { return .failure(.nothingInstalled) }
 

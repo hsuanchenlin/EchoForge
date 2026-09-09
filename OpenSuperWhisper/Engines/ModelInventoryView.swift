@@ -43,6 +43,12 @@ final class ModelInventoryViewModel: ObservableObject {
 
     private let service: TranscriptionService
 
+    /// A Settings-driven engine download, which `service.modelPreparation` knows
+    /// nothing about: that tracks only the desired engine's background
+    /// preparation, while the inventory's own Download button can be fetching a
+    /// different engine's weights. The view keeps this current.
+    var settingsPreparation: ModelPreparation?
+
     init(service: TranscriptionService = .shared) {
         self.service = service
     }
@@ -59,11 +65,11 @@ final class ModelInventoryViewModel: ObservableObject {
 
         let availability = EngineAvailability.current(
             fluidAudioModelVersion: AppPreferences.shared.fluidAudioModelVersion)
-        let preparation = service.modelPreparation
+        let preparations = [service.modelPreparation, settingsPreparation].compactMap { $0 }
 
         Task.detached(priority: .utility) {
             let measured = ModelInventory.measure(
-                availability: availability, preparing: preparation)
+                availability: availability, preparing: preparations)
             let recordings = RecordingStore.recordingsDiskUsage()
             await MainActor.run { [weak self] in
                 guard let self else { return }
@@ -101,7 +107,8 @@ final class ModelInventoryViewModel: ObservableObject {
                 fluidAudioModelVersion: preferences.fluidAudioModelVersion),
             activeEngine: service.selection.active,
             isTranscribing: service.isTranscribing,
-            preparing: service.modelPreparation?.engine,
+            preparing: [service.modelPreparation?.engine, settingsPreparation?.engine]
+                .compactMap { $0 },
             language: preferences.whisperLanguage,
             fluidAudioModelVersion: preferences.fluidAudioModelVersion
         )
@@ -185,6 +192,9 @@ struct ModelInventoryView: View {
                         isActive: service.selection.active == entry.engine,
                         isSelected: settings.selectedEngine == entry.engine,
                         recommendationReason: EngineRecommendation.reason(for: machine),
+                        languages: ModelInventory.languageNames(
+                            for: entry.engine,
+                            fluidAudioModelVersion: settings.fluidAudioModelVersion),
                         download: { Task { await download(entry) } },
                         cancel: { cancel(entry) },
                         choose: { settings.selectedEngine = entry.engine },
@@ -210,8 +220,15 @@ struct ModelInventoryView: View {
 
             totals
         }
-        .onAppear { viewModel.refresh() }
+        .onAppear {
+            viewModel.settingsPreparation = settings.engineDownloadPreparation
+            viewModel.refresh()
+        }
         .onChange(of: service.modelPreparation) { _, _ in viewModel.refresh() }
+        .onChange(of: settings.engineDownloadPreparation) { _, preparation in
+            viewModel.settingsPreparation = preparation
+            viewModel.refresh()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .engineModelStateChanged)) { _ in
             viewModel.refresh()
         }
@@ -307,6 +324,11 @@ struct ModelInventoryRow: View {
     let isSelected: Bool
     let recommendationReason: String
 
+    /// The engine's language coverage, as display names, from
+    /// `ModelInventory.languageNames` - an explicit attribute of the row rather
+    /// than something left inside the outcome prose.
+    let languages: [String]
+
     let download: () -> Void
     let cancel: () -> Void
     let choose: () -> Void
@@ -355,6 +377,24 @@ struct ModelInventoryRow: View {
                 .foregroundColor(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            if !languages.isEmpty {
+                HStack(alignment: .top, spacing: 6) {
+                    Text("Languages:")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    FlowLayout(spacing: 4) {
+                        ForEach(visibleLanguages, id: \.self) { language in
+                            languageTag(language)
+                        }
+                        if hiddenLanguageCount > 0 {
+                            languageTag("+\(hiddenLanguageCount) more")
+                                .help(languages.joined(separator: ", "))
+                        }
+                    }
+                }
+            }
+
             Text(entry.sizeSummary)
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -391,9 +431,32 @@ struct ModelInventoryRow: View {
 
     private var accessibilityValue: String {
         var parts = [entry.readiness.label, entry.sizeSummary]
+        if !languages.isEmpty { parts.append("Languages: \(languages.joined(separator: ", "))") }
         if isRecommended { parts.append("Recommended") }
         if isActive { parts.append("In use") }
         return parts.filter { !$0.isEmpty }.joined(separator: ". ")
+    }
+
+    /// Long lists (Whisper's nineteen, Parakeet's twenty-five) are cut so the
+    /// row stays a row; the overflow chip's tooltip and the accessibility value
+    /// both carry the full list.
+    private static let maximumVisibleLanguageTags = 6
+
+    private var visibleLanguages: [String] {
+        Array(languages.prefix(Self.maximumVisibleLanguageTags))
+    }
+
+    private var hiddenLanguageCount: Int {
+        languages.count - visibleLanguages.count
+    }
+
+    private func languageTag(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2)
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(Color.secondary.opacity(colorScheme == .dark ? 0.20 : 0.10)))
     }
 
     @ViewBuilder private func progress(_ stage: ModelPreparationStage) -> some View {

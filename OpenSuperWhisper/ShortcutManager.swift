@@ -132,7 +132,10 @@ class ShortcutManager {
     }
     
     @objc private func hotkeySettingsChanged() {
-        setupRecordingTrigger()
+        Task { @MainActor [weak self] in
+            guard let self, !ShortcutPause.shared.isPaused else { return }
+            self.setupRecordingTrigger()
+        }
     }
     
     private func setupKeyboardShortcuts() {

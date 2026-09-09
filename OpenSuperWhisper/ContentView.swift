@@ -509,17 +509,7 @@ struct ContentView: View {
     @FocusState private var isSearchFocused: Bool
 
     private var currentShortcutDescription: String {
-        let mouseButton = MouseButton(rawValue: AppPreferences.shared.mouseButtonHotkey) ?? .none
-        if mouseButton != .none {
-            return mouseButton.shortSymbol
-        }
-        let modifierKey = ModifierKey(rawValue: AppPreferences.shared.modifierOnlyHotkey) ?? .none
-        if modifierKey != .none {
-            return modifierKey.shortSymbol
-        } else if let shortcut = KeyboardShortcuts.getShortcut(for: .toggleRecord) {
-            return shortcut.description
-        }
-        return ""
+        DictationTrigger.current().shortDescription
     }
     
     /// The one action that takes the list back to everything.

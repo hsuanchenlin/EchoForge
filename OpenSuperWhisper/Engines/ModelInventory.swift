@@ -194,12 +194,15 @@ struct ModelInventory {
     ///   - availability: what the engines' own checks say will load. Passed in
     ///     rather than read here so the whole inventory is a function of a
     ///     snapshot.
-    ///   - preparing: the model being fetched right now, if any.
+    ///   - preparing: the models being fetched right now, if any. A list rather
+    ///     than one value because two transfers can be in flight at once: the
+    ///     background preparation of the desired engine and a download started
+    ///     from Settings are different tasks.
     ///   - sizeOfDirectory: injected so a test can describe a disk it does not
     ///     have.
     static func measure(
         availability: EngineAvailability,
-        preparing: ModelPreparation? = nil,
+        preparing: [ModelPreparation] = [],
         engines: [EngineKind]? = nil,
         sizeOfDirectory: (URL) -> Int64 = { DirectorySize.bytes(of: $0) }
     ) -> [ModelInventoryEntry] {
@@ -221,12 +224,22 @@ struct ModelInventory {
         of engine: EngineKind,
         bytes: Int64,
         availability: EngineAvailability,
-        preparing: ModelPreparation?
+        preparing: [ModelPreparation]
     ) -> ModelReadiness {
-        if let preparing, preparing.engine == engine { return .preparing(preparing.stage) }
+        if let current = preparing.first(where: { $0.engine == engine }) {
+            return .preparing(current.stage)
+        }
         if engine.usesCloudProvider { return .noWeightsToInstall }
         if availability.isUsable(engine) { return .ready }
         return bytes > 0 ? .incomplete : .notInstalled
+    }
+
+    /// The languages an engine transcribes, as display names for the inventory
+    /// row's tags. `auto` is a mode rather than a language, so it is not a tag.
+    static func languageNames(for engine: EngineKind, fluidAudioModelVersion: String) -> [String] {
+        LanguageUtil.supportedLanguages(engine: engine, fluidAudioModelVersion: fluidAudioModelVersion)
+            .filter { $0 != "auto" }
+            .map { LanguageUtil.languageNames[$0] ?? $0 }
     }
 
     /// Everything the app's own models occupy, across every engine.

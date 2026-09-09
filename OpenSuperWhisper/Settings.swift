@@ -160,6 +160,27 @@ class SettingsViewModel: ObservableObject {
     @Published var isDownloading: Bool = false
     @Published var downloadProgress: Double = 0.0
     @Published var downloadingModelName: String?
+
+    /// The engine a `downloadEngineModel` call is fetching. `downloadingModelName`
+    /// answers "which model" for the model lists; this answers "which engine" for
+    /// the surfaces that think in engines - the model inventory, which must not
+    /// offer to delete a cache directory a download is writing into.
+    @Published private(set) var downloadingEngine: EngineKind?
+
+    /// The in-flight engine download as a preparation value, for surfaces that
+    /// already know how to render one. The fraction comes off FluidAudio's scale
+    /// the way `ModelPreparationStage.from` reads it: bytes fill the first half,
+    /// the compile the second.
+    var engineDownloadPreparation: ModelPreparation? {
+        guard isDownloading, let downloadingEngine else { return nil }
+        let stage: ModelPreparationStage =
+            isCompilingModel
+            ? .preparing
+            : .downloading(
+                fraction: min(max(downloadProgress / downloadShareOfOverallProgress, 0), 1))
+        return ModelPreparation(engine: downloadingEngine, stage: stage)
+    }
+
     private var downloadTask: Task<Void, Error>?
     
     @Published var selectedLanguage: String {
@@ -513,6 +534,7 @@ class SettingsViewModel: ObservableObject {
         }
         isDownloading = false
         isCompilingModel = false
+        downloadingEngine = nil
         downloadingModelName = nil
         downloadProgress = 0.0
     }
@@ -664,6 +686,7 @@ class SettingsViewModel: ObservableObject {
         isDownloading = true
         isCompilingModel = false
         downloadingModelName = download.modelName
+        downloadingEngine = kind
         downloadProgress = 0.0
 
         downloadTask = Task {
@@ -671,6 +694,7 @@ class SettingsViewModel: ObservableObject {
                 Task { @MainActor in
                     self.isDownloading = false
                     self.isCompilingModel = false
+                    self.downloadingEngine = nil
                     self.downloadingModelName = nil
                     self.downloadProgress = 0.0
                     self.refreshDownloadedEngineModels()
