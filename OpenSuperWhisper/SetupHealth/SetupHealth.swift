@@ -12,8 +12,8 @@ import Foundation
 /// This is that answer, and its whole discipline is in what it is not:
 ///
 /// - **It reads.** Nothing on this path writes a preference, downloads a model,
-///   selects an engine or grants a permission. Every row that has something to
-///   fix links to the pane that fixes it, and a person does it there.
+///   selects an engine or grants a permission. Where a Settings pane owns a
+///   fix, the row links there and a person makes the change.
 /// - **It duplicates no facts.** Engine names and caveats come from
 ///   `EngineCatalog`, readiness and disk from `ModelInventory`, the active
 ///   engine from `EngineSelection`, the trigger from `DictationTrigger`, the
@@ -29,7 +29,7 @@ enum SetupHealthStatus: Equatable, Comparable {
     /// Nothing to do.
     case ok
 
-    /// Worst first, which is the order the rows are shown in.
+    /// Worst first for summaries; rows themselves remain in stable topic order.
     static func < (lhs: SetupHealthStatus, rhs: SetupHealthStatus) -> Bool {
         rank(lhs) < rank(rhs)
     }

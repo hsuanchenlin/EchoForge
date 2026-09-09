@@ -25,9 +25,9 @@ produce text. This pane is that answer in seven lines.
 Three rules carry the whole pane.
 
 **It reads.** Nothing on this path writes a preference, downloads a model,
-selects an engine or grants a permission. Every row that has something to fix
-carries a button that moves the sheet to the tab that owns the fix, and a person
-does it there. This is the same separation `EngineSelector` keeps between the
+selects an engine or grants a permission. Where a Settings pane owns the fix,
+the row carries a button that moves the sheet there and a person does it there.
+This is the same separation `EngineSelector` keeps between the
 engine a user *chose* and the engine that can run *now*: describing a state is
 not the same act as changing it.
 

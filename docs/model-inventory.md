@@ -31,7 +31,7 @@ answers; and retaining the model name is a licence obligation
 too. `EngineCatalogEntry.character` is the third line - how the engine trades
 quality against speed, as a measurement rather than an adjective.
 
-## Readiness is three states, not a badge
+## Readiness is not a badge
 
 `ModelReadiness` distinguishes what a "downloaded" checkmark could not:
 
