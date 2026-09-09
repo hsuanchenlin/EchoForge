@@ -992,7 +992,7 @@ struct SettingsView: View {
     @StateObject private var permissionsManager = PermissionsManager()
     @Environment(\.dismiss) var dismiss
     @State private var isRecordingNewShortcut = false
-    @State private var selectedTab: SettingsTab = .shortcuts
+    @State private var selectedTab: SettingsTab = .setup
     @State private var previousModelURL: URL?
 
     /// The tab titles and the sheet's size are one decision, and it is made in
@@ -1111,6 +1111,11 @@ struct SettingsView: View {
     /// this list and the bar cannot drift apart without the compiler saying so.
     @ViewBuilder private func pane(for tab: SettingsTab) -> some View {
         switch tab {
+        case .setup:
+            // The only pane that answers a question rather than exposing a
+            // subsystem, and the only one that can move the selection: every
+            // finding it shows links to the tab that owns the fix.
+            SetupHealthView(selectedTab: $selectedTab, permissions: permissionsManager)
         case .shortcuts:
             shortcutSettings
         case .model:
