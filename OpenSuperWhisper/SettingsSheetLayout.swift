@@ -49,6 +49,25 @@ enum SettingsTab: Hashable, CaseIterable {
     }
 }
 
+/// Which tab the next Settings sheet opens on, when something asked for one.
+///
+/// A one-shot handover rather than a notification, because the sheet's view does
+/// not exist when the request is made: the menu bar posts `.openSettings`, the
+/// window presents the sheet, and only then is `SettingsView` built. There is
+/// nothing subscribed at the moment the tab is chosen.
+///
+/// Consumed on read, so a sheet opened by any other route - the gear button, ⌘, -
+/// lands on the default tab rather than on wherever somebody was sent last week.
+@MainActor
+enum SettingsPresentation {
+    static var pendingTab: SettingsTab?
+
+    static func consumePendingTab() -> SettingsTab? {
+        defer { pendingTab = nil }
+        return pendingTab
+    }
+}
+
 /// How big the Settings sheet is, and why.
 enum SettingsSheetLayout {
     /// The size the sheet asks for when the screen allows it.

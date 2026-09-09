@@ -1068,6 +1068,12 @@ struct SettingsView: View {
             .background(Color(.windowBackgroundColor))
         }
         .onAppear {
+            // Something may have asked for a particular tab on its way here -
+            // the menu bar's About and Settings items do. Consumed once, so a
+            // sheet opened any other way lands on Setup.
+            if let requested = SettingsPresentation.consumePendingTab() {
+                selectedTab = requested
+            }
             previousModelURL = viewModel.selectedModelURL
             if viewModel.selectedEngine == .fluidaudio {
                 viewModel.initializeFluidAudioModels()

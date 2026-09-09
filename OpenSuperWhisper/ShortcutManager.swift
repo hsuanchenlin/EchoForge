@@ -97,6 +97,19 @@ class ShortcutManager {
 
         setupKeyboardShortcuts()
         setupRecordingTrigger()
+
+        // The menu bar's Pause item. It stands the triggers down rather than
+        // gating the handlers, so a paused app stops swallowing the keystroke
+        // as well as stopping the dictation - see `ShortcutPause`.
+        //
+        // Hooked up on the main actor because that is where the pause state
+        // lives; this manager is not actor-isolated, and reaching it directly
+        // from here is an error under the Swift 6 language mode.
+        Task { @MainActor [weak self] in
+            ShortcutPause.shared.onChange = { paused in
+                self?.applyPause(paused)
+            }
+        }
         
         NotificationCenter.default.addObserver(
             self,
@@ -204,6 +217,94 @@ class ShortcutManager {
         }
     }
     
+    /// Every global shortcut this app registers, which is what a pause has to
+    /// stand down and a resume has to put back.
+    ///
+    /// `.escape` is deliberately absent: it is enabled only for the length of a
+    /// dictation (`IndicatorWindowManager`), and a session already in flight when
+    /// the user pauses must still be cancellable.
+    private static let pausableShortcuts: [KeyboardShortcuts.Name] = [
+        .toggleRecord, .askPanel, .askAboutScreen, .cycleEngine, .youTubeCommand, .editSelection,
+    ]
+
+    private func applyPause(_ paused: Bool) {
+        if paused {
+            for name in Self.pausableShortcuts { KeyboardShortcuts.disable(name) }
+            ModifierKeyMonitor.shared.stop()
+            MouseButtonMonitor.shared.stop()
+            print("ShortcutManager: shortcuts paused")
+        } else {
+            for name in Self.pausableShortcuts where name != .toggleRecord {
+                KeyboardShortcuts.enable(name)
+            }
+            // The dictation trigger is one of three exclusive modes, so it is
+            // put back by the function that owns that choice rather than by
+            // enabling a shortcut the user may not be using.
+            setupRecordingTrigger()
+            print("ShortcutManager: shortcuts resumed")
+        }
+    }
+
+    /// Starts a dictation, or ends the one in flight - the same thing a press of
+    /// the dictation key does, for the menu bar item that offers it to a user who
+    /// has no shortcut bound or has paused the ones they have.
+    ///
+    /// It goes through the same path as a key press so there is one way a
+    /// dictation begins: the double-press gate and hold-to-record are what it
+    /// skips, and both are properties of a *key*, not of a dictation.
+    func toggleDictationFromMenuBar() {
+        beginOrEndSession(purpose: .dictation)
+    }
+
+    /// The body of a press: start a session, or stop the one already running.
+    ///
+    /// Extracted so the menu bar can reach it without going through the key
+    /// handling around it - the double-press gate and the hold-to-record timer
+    /// describe how a *key* behaves, and a menu item is not a key.
+    private func beginOrEndSession(purpose: DictationPurpose) {
+        Task { @MainActor in
+            if self.activeVm == nil {
+                // A voice edit has to know what it is rewriting before the
+                // overlay is drawn, so the HUD can say "Editing Selection..."
+                // rather than "Recording...". AX is capped at 0.25 s per call;
+                // the ⌘C fallback waits up to 200 ms. Capture first so a
+                // press with nothing to edit never takes the microphone.
+                let capture: SelectedTextCapture?
+                if purpose == .selectionEdit {
+                    capture = SelectedTextExtractor.capture()
+                } else {
+                    capture = nil
+                }
+
+                // Start recording immediately: resolving the caret position talks to
+                // the focused app via AX IPC and can hang for seconds if that app
+                // is busy - the first words must not be lost because of it.
+                let vm = IndicatorWindowManager.shared.prepare(
+                    purpose: purpose, selectionEdit: capture)
+                if purpose == .selectionEdit, capture == nil {
+                    vm.showNothingToEdit()
+                    let cursorPosition = FocusUtils.getCurrentCursorPosition()
+                    let anchorPoint = await Self.resolveAnchorPoint(timeoutNanoseconds: 150_000_000)
+                    let indicatorPoint = anchorPoint ?? cursorPosition
+                    IndicatorWindowManager.shared.presentWindow(for: vm, nearPoint: indicatorPoint)
+                    return
+                }
+                vm.startRecording()
+                self.activeVm = vm
+                self.activePurpose = purpose
+
+                let cursorPosition = FocusUtils.getCurrentCursorPosition()
+                let anchorPoint = await Self.resolveAnchorPoint(timeoutNanoseconds: 150_000_000)
+                let indicatorPoint = anchorPoint ?? cursorPosition
+
+                IndicatorWindowManager.shared.presentWindow(for: vm, nearPoint: indicatorPoint)
+            } else if !self.holdMode {
+                IndicatorWindowManager.shared.stopRecording()
+                self.activeVm = nil
+            }
+        }
+    }
+
     private func setupRecordingTrigger() {
         let modifierKey = ModifierKey(rawValue: AppPreferences.shared.modifierOnlyHotkey) ?? .none
         let mouseButton = MouseButton(rawValue: AppPreferences.shared.mouseButtonHotkey) ?? .none
@@ -285,47 +386,7 @@ class ShortcutManager {
         let holdToRecordEnabled = AppPreferences.shared.holdToRecord
         let isStartingRecording = activeVm == nil
 
-        Task { @MainActor in
-            if self.activeVm == nil {
-                // A voice edit has to know what it is rewriting before the
-                // overlay is drawn, so the HUD can say "Editing Selection..."
-                // rather than "Recording...". AX is capped at 0.25 s per call;
-                // the ⌘C fallback waits up to 200 ms. Capture first so a
-                // press with nothing to edit never takes the microphone.
-                let capture: SelectedTextCapture?
-                if purpose == .selectionEdit {
-                    capture = SelectedTextExtractor.capture()
-                } else {
-                    capture = nil
-                }
-
-                // Start recording immediately: resolving the caret position talks to
-                // the focused app via AX IPC and can hang for seconds if that app
-                // is busy - the first words must not be lost because of it.
-                let vm = IndicatorWindowManager.shared.prepare(
-                    purpose: purpose, selectionEdit: capture)
-                if purpose == .selectionEdit, capture == nil {
-                    vm.showNothingToEdit()
-                    let cursorPosition = FocusUtils.getCurrentCursorPosition()
-                    let anchorPoint = await Self.resolveAnchorPoint(timeoutNanoseconds: 150_000_000)
-                    let indicatorPoint = anchorPoint ?? cursorPosition
-                    IndicatorWindowManager.shared.presentWindow(for: vm, nearPoint: indicatorPoint)
-                    return
-                }
-                vm.startRecording()
-                self.activeVm = vm
-                self.activePurpose = purpose
-                
-                let cursorPosition = FocusUtils.getCurrentCursorPosition()
-                let anchorPoint = await Self.resolveAnchorPoint(timeoutNanoseconds: 150_000_000)
-                let indicatorPoint = anchorPoint ?? cursorPosition
-                
-                IndicatorWindowManager.shared.presentWindow(for: vm, nearPoint: indicatorPoint)
-            } else if !self.holdMode {
-                IndicatorWindowManager.shared.stopRecording()
-                self.activeVm = nil
-            }
-        }
+        beginOrEndSession(purpose: purpose)
 
         // Arm hold mode only when this press starts a recording. Arming it on the
         // stopping press would trigger a second stop on key-up.
