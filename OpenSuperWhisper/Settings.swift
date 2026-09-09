@@ -1300,6 +1300,17 @@ struct SettingsView: View {
                         .padding(.top, 8)
                     }
                 }
+
+                Divider()
+                    .padding(.vertical, 4)
+
+                // The storage-level view of every engine, not only the selected
+                // one: what is on the disk, what it cost, and what is safe to
+                // remove. It is below the picker rather than in a tab of its own
+                // because it is the same decision seen from the other side -
+                // the picker asks which engine, this answers what each one is
+                // for and what keeping it costs.
+                ModelInventoryView(settings: viewModel)
             }
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
