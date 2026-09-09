@@ -172,10 +172,83 @@ main-thread publish per tick, for the whole recording. A build with the HUD
 switched off pays nothing for it.
 
 `AudioRecorder.normalizedLevel(decibels:)` is linear in decibels, not in
-amplitude. Speech at a normal distance averages about -20 dBFS and
+amplitude, and `MicrophoneLevel.decibels(forNormalized:)` is its inverse for the
+callers that think in bar heights. Speech at a normal distance averages about -20 dBFS and
 `pow(10, -20/20)` is 0.1 - a meter that barely moves while someone is talking.
 Scaled from `levelSilenceDecibels` (-50 dB, roughly a quiet room on a built-in
 mic) the same speech fills about 60 % of the bar.
+
+## Microphone diagnostics
+
+A level meter confirms that *something* arrived. It cannot say that the wrong
+input is selected, that a headset came up on its call profile, or that the user
+is too far from the machine - and those are three of the ways a dictation quietly
+comes back wrong. `MicrophoneSignal` is what the app is willing to say about it,
+and `MicrophoneSignalMonitor` is the pure state machine that decides.
+
+| State | The pill | Raised when |
+| --- | --- | --- |
+| `.measuring` | nothing - the ordinary meter | for the first 1.5 s of every capture |
+| `.good` | nothing - the ordinary meter | ordinary speech |
+| `.noSignal` | orange meter, `No signal · <input>` | nothing above -42 dBFS has arrived *at any point* |
+| `.low` | ordinary meter, `Low signal · <input>` | the loudest peak of the capture is under -28 dBFS |
+| `.clipping` | orange meter, `Clipping · <input>` | a buffer peaked at or above -1 dBFS |
+
+`AudioRecorder.inputLevel` carries the mean **and** the peak
+(`MicrophoneLevel`), because the two questions are different measurements: mean
+power answers "is anything arriving, and is it loud enough", and only the peak
+answers "is this being clipped". A voice peaking at 0 dBFS between syllables
+averages out around -18 dBFS, which reads as a healthy recording right up until
+the transcript comes back full of crushed consonants. Both travel in one
+published value, so a tick still costs one main-queue hop.
+
+Four rules keep this from becoming noise:
+
+- **Nothing is claimed inside the grace period.** The opening moments of a
+  capture are when a Bluetooth input is still reaching gain and the user has not
+  started talking. Clipping is the only exception, because it is the one state
+  that is already damaging the recording.
+- **The verdict is about the whole capture, not the last moment.**
+  `loudestPeak` only grows, so somebody who says a sentence and then thinks is
+  never told their microphone went silent. `No signal` means what it says.
+- **A merely quiet recording is not painted as a warning.** Only `noSignal` and
+  `clipping` change the meter's colour; `low` keeps the accent. A warning colour
+  on every quiet dictation is a warning colour nobody reads. And colour never
+  carries any of it alone - the line beside the meter says the same thing in
+  words.
+- **Nothing is refused.** The user may be deliberately whispering. A recording
+  the app declined because it disagreed about the volume would be worse than a
+  quiet transcript.
+
+The diagnostic line names the **input device**, because "no signal" is not
+actionable until the user knows which microphone the app is on - and they are
+dictating into another app and cannot go and look. The name is taken once, at
+`beginSession`, so a device changed mid-dictation cannot rename the one this
+capture is actually running on, and it truncates rather than widening the pill
+past the panel that contains it.
+
+The line is **not clickable**, and that is the panel rule rather than an
+omission: `ignoresMouseEvents` is on for the whole recording, and a HUD that
+swallowed clicks would take the top strip of the screen away from the app being
+dictated into. Acting on a diagnostic lives in Settings → Setup Health, which has
+the five-second microphone test beside it.
+
+For VoiceOver the capsule is invisible - it is a panel that never becomes key, so
+there is no focus move to follow, the same hole `EngineSwitchAccessibility`
+fills. `CapsuleHUDViewModel.onSignalDiagnostic` posts an announcement instead,
+**on entry only and once per state per session**: the meter publishes twenty
+readings a second, and twenty announcements a second is the one way this feature
+could do harm.
+
+The pill grows a second line for this, from `capsuleHeight` to
+`expandedCapsuleHeight`, and it grows **downwards**: `pillTopInset` pins the top
+inside the panel, because the panel's transparent top margin deliberately
+overlaps the menu bar and a centred pill would climb into it. `EngineSwitchHUD`
+clears the expanded height for the same reason - a capsule reporting a microphone
+problem is exactly the one that must not be covered up.
+
+`CapsuleHUDRenderTests` draws all of it offscreen and reads it back, because the
+states worth looking at are the ones that need a broken microphone to produce.
 
 ## Why it is drawn the way it is
 

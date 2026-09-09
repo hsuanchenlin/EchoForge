@@ -111,8 +111,29 @@ final class CapsuleHUDWindowController {
                 availability: StyleRewriterFactory.availability(for: .rewriting)
             )
         }
-        viewModel.beginSession(mode: mode)
+        // The input is named here rather than read inside the view model, so the
+        // capsule keeps no opinion about which microphone is current - and so a
+        // device the user changes mid-dictation cannot rename the one this
+        // capture is actually running on.
+        viewModel.beginSession(
+            mode: mode, microphoneName: MicrophoneService.shared.currentMicrophone?.displayName)
         viewModel.onCancel = { IndicatorWindowManager.shared.cancelWorkInFlight() }
+        // The capsule never becomes key, so VoiceOver has no focus move to
+        // follow here - the same hole `EngineSwitchAccessibility` fills for the
+        // engine pill. `.high` because the fact is about the recording that is
+        // running now; a queued announcement arriving after it has ended
+        // describes nothing.
+        viewModel.onSignalDiagnostic = { signal in
+            guard let text = signal.announcement else { return }
+            NSAccessibility.post(
+                element: NSApp as Any,
+                notification: .announcementRequested,
+                userInfo: [
+                    .announcement: text,
+                    .priority: NSAccessibilityPriorityLevel.high.rawValue,
+                ]
+            )
+        }
 
         // Built now, while the caret position is still being resolved: the panel,
         // its backing store and the blur material cost tens of milliseconds that
@@ -312,7 +333,11 @@ final class CapsuleHUDWindowController {
     /// against a screen the test machine does not have.
     static func origin(visibleFrame visible: CGRect, screenFrame: CGRect, windowSize: CGSize) -> NSPoint {
         let pillTop = visible.maxY - topMargin
-        let pillTopInset = (windowSize.height - CapsuleHUDView.capsuleHeight) / 2
+        // The pill's own top, not the middle of the panel: the pill is pinned to
+        // this inset inside the window (`CapsuleHUDView.pillTopInset`) so that a
+        // capsule carrying a microphone diagnostic grows downwards. Derived from
+        // the panel's height it would move upwards over the menu bar instead.
+        let pillTopInset = CapsuleHUDView.pillTopInset
 
         var x = visible.midX - windowSize.width / 2
         // Not clamped from above: the panel's top margin is transparent and is

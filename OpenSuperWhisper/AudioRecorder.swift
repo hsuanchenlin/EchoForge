@@ -11,14 +11,19 @@ class AudioRecorder: NSObject, ObservableObject {
     @Published var canRecord = false
     @Published var isConnecting = false
 
-    /// How loud the microphone is right now, 0…1, while something on screen is
-    /// drawing it. Zero whenever nothing is being recorded.
+    /// How loud the microphone is right now, while something on screen is
+    /// drawing it. `MicrophoneLevel.silent` whenever nothing is being recorded.
     ///
     /// Published only after `setLevelMonitoring(enabled: true)`, because it is
     /// not free: it costs a 20 Hz timer plus a main-thread publish per tick for
     /// the whole recording, and nothing in the app draws a level meter unless the
     /// capsule HUD is switched on.
-    @Published private(set) var inputLevel: Float = 0
+    ///
+    /// One value carrying both the mean and the peak rather than two published
+    /// properties, so a tick still costs exactly one main-queue hop: the peak is
+    /// what `MicrophoneSignalMonitor` reads clipping off, and mean power cannot
+    /// answer that question. See `MicrophoneLevel`.
+    @Published private(set) var inputLevel: MicrophoneLevel = .silent
 
     /// A start that failed *after* `startRecording` had already handed its
     /// session back, or `nil` when nothing has.
@@ -567,7 +572,10 @@ class AudioRecorder: NSObject, ObservableObject {
         timer.setEventHandler { [weak self] in
             guard let self = self, let recorder = self.audioRecorder else { return }
             recorder.updateMeters()
-            let level = Self.normalizedLevel(decibels: recorder.averagePower(forChannel: 0))
+            let level = MicrophoneLevel(
+                averageDecibels: recorder.averagePower(forChannel: 0),
+                peakDecibels: recorder.peakPower(forChannel: 0)
+            )
             DispatchQueue.main.async {
                 self.inputLevel = level
             }
@@ -582,7 +590,7 @@ class AudioRecorder: NSObject, ObservableObject {
         // The meter must read empty rather than hold the last sample: the next
         // thing the user sees of it is the start of their next dictation.
         DispatchQueue.main.async {
-            self.inputLevel = 0
+            self.inputLevel = .silent
         }
     }
 }

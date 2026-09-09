@@ -177,6 +177,39 @@ final class CapsuleHUDViewModel: ObservableObject {
     /// directly.
     @Published private(set) var levels: [Float] = []
 
+    /// What the app is willing to say about the signal those levels came from.
+    ///
+    /// Separate from `levels` because it is a different claim: the bars say what
+    /// arrived, and this says whether what arrived is going to transcribe. It is
+    /// `.measuring` for the first `MicrophoneSignalMonitor.graceInterval` of every
+    /// capture and for every capture that is going fine, so the capsule stays the
+    /// plain meter it was unless there is something to report.
+    @Published private(set) var signal: MicrophoneSignal = .measuring
+
+    /// The input the capture is running on, named only while there is a reason to
+    /// name it: a diagnostic about "the microphone" is not actionable until the
+    /// user knows which one the app means.
+    ///
+    /// Set at `beginSession` from whoever owns the microphone, rather than read
+    /// from `MicrophoneService` here, so the view model stays free of singletons
+    /// and a test can say what is plugged in.
+    @Published private(set) var microphoneName: String?
+
+    /// Called the first time each diagnostic state is reached in a session.
+    ///
+    /// The capsule is a panel that never becomes key, so VoiceOver has no focus
+    /// move to follow and nothing to read - the same hole `EngineSwitchAccessibility`
+    /// exists to fill. It fires **on entry only**, never per sample: 20 readings a
+    /// second through an announcement channel would make the app unusable with a
+    /// screen reader on, which is the one way this feature could do harm.
+    var onSignalDiagnostic: ((MicrophoneSignal) -> Void)?
+
+    private var signalMonitor = MicrophoneSignalMonitor()
+
+    /// The diagnostics already announced in this session, so a signal that
+    /// flickers between low and good is spoken once rather than on every dip.
+    private var announcedSignals: Set<MicrophoneSignal> = []
+
     /// Whether the first Esc press is being visibly acknowledged.
     ///
     /// The session's own state machine (`IndicatorViewModel.isConfirmingCancel`)
@@ -231,11 +264,15 @@ final class CapsuleHUDViewModel: ObservableObject {
     /// The mode is taken once, here, rather than read while the capsule is on
     /// screen: what the chip promises must be what the pipeline is about to do
     /// with these words, and Settings can be changed mid-dictation.
-    func beginSession(mode: CapsuleHUDMode) {
+    func beginSession(mode: CapsuleHUDMode, microphoneName: String? = nil) {
         generation += 1
         self.mode = mode
+        self.microphoneName = microphoneName
         recordingStartedAt = nil
         levels = []
+        signal = .measuring
+        signalMonitor.reset()
+        announcedSignals = []
         isConfirmingCancel = false
         state = .connecting
     }
@@ -365,6 +402,9 @@ final class CapsuleHUDViewModel: ObservableObject {
         state = .idle
         recordingStartedAt = nil
         levels = []
+        signal = .measuring
+        signalMonitor.reset()
+        microphoneName = nil
         isConfirmingCancel = false
         onHide?()
     }
@@ -479,13 +519,44 @@ final class CapsuleHUDViewModel: ObservableObject {
 
     // MARK: - Level meter
 
-    /// Adds one microphone sample, dropping the oldest once the window is full.
-    func pushLevel(_ level: Float) {
+    /// Adds one microphone reading, dropping the oldest bar once the window is
+    /// full, and re-reads what the signal says.
+    ///
+    /// Both halves are gated on `.recording` for the same reason: a sample that
+    /// arrives while the capsule is decoding belongs to no capture, and feeding
+    /// the monitor after the microphone has been given back would let the tail of
+    /// one dictation raise "No signal" over the next one's badge.
+    func pushLevel(_ level: MicrophoneLevel) {
         guard case .recording = state else { return }
-        levels.append(min(1, max(0, level)))
+        levels.append(min(1, max(0, level.normalizedAverage)))
         if levels.count > Self.waveformSampleCount {
             levels.removeFirst(levels.count - Self.waveformSampleCount)
         }
+
+        let sampledAt = now()
+        signalMonitor.record(level, at: sampledAt)
+        updateSignal(at: sampledAt)
+    }
+
+    /// Re-reads the monitor without a new sample.
+    ///
+    /// Its own entry point because two of the states are time-dependent rather
+    /// than sample-dependent - `.measuring` becomes a verdict once the grace
+    /// period is up, and `.clipping` expires - so a capture that goes completely
+    /// silent still has to be able to reach `.noSignal`. In production the 20 Hz
+    /// stream keeps this called; a test drives it directly.
+    func refreshSignal(at date: Date? = nil) {
+        guard case .recording = state else { return }
+        updateSignal(at: date ?? now())
+    }
+
+    private func updateSignal(at date: Date) {
+        let updated = signalMonitor.signal(at: date)
+        guard updated != signal else { return }
+        signal = updated
+        // On entry only, and once per state per session - see `onSignalDiagnostic`.
+        guard updated.isDiagnostic, announcedSignals.insert(updated).inserted else { return }
+        onSignalDiagnostic?(updated)
     }
 
     // MARK: - Duration
