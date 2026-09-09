@@ -44,6 +44,15 @@ class ContentViewModel: ObservableObject {
     /// to the loaded page, so it reaches rows paging has not fetched yet.
     @Published var provenanceFilter: HistoryProvenanceFilter = .all
 
+    /// How many file transcriptions are still to be done.
+    ///
+    /// Counted in SQL rather than from `recordings`, for the reason the filter
+    /// is applied there: the list is paged, and a queue of thirty files dropped
+    /// this morning would be counted as however many of them are in the first
+    /// page. It is what the import row turns into "3 files in the queue" and a
+    /// way to go and look at them.
+    @Published var queuedFileCount = 0
+
     /// Why this window's last press never opened the microphone, or nil.
     ///
     /// A banner rather than the two-second message the dictation card shows: a
@@ -149,6 +158,23 @@ class ContentViewModel: ObservableObject {
         canLoadMore = true
         recordings = []
         loadMore()
+        refreshQueuedFileCount()
+    }
+
+    func refreshQueuedFileCount() {
+        Task { [weak self] in
+            let count = await RecordingStore.shared.pendingFileTranscriptionCount()
+            await MainActor.run { self?.queuedFileCount = count }
+        }
+    }
+
+    /// The Files lens: show only file transcriptions, or go back to everything.
+    ///
+    /// A toggle rather than a one-way trip, because the row that offers it is
+    /// the row that says how many there are - and a user who has just found
+    /// their four files needs the way back from the same place.
+    func toggleFileLens() {
+        applyFilter(provenanceFilter == .fileTranscription ? .all : .fileTranscription)
     }
 
     /// Reloads from the top under a new filter.
@@ -747,31 +773,36 @@ struct ContentView: View {
                         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.isRecording)
                         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.state)
 
+                        // File transcription, said before a drag rather than
+                        // during one: the drop overlay only explains itself once
+                        // something is already being dragged, which is after the
+                        // moment somebody needed to know it was possible.
+                        FileImportRow(
+                            queuedFileCount: viewModel.queuedFileCount,
+                            isShowingFiles: viewModel.provenanceFilter == .fileTranscription,
+                            showFiles: { viewModel.toggleFileLens() },
+                            open: { urls in
+                                Task {
+                                    for url in urls {
+                                        await TranscriptionQueue.shared.addFileToQueue(url: url)
+                                    }
+                                    viewModel.refreshQueuedFileCount()
+                                }
+                            }
+                        )
+
                         // Нижняя панель с подсказкой и кнопками управления
                         HStack(alignment: .bottom) {
-                            VStack(alignment: .leading, spacing: 8) {
-                                // Подсказка о шорткате
-                                HStack(spacing: 6) {
-                                    Text(currentShortcutDescription)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                    Text("to show mini recorder")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                .padding(.leading, 4)
-
-                                // Подсказка о drag-n-drop
-                                HStack(spacing: 6) {
-                                    Image(systemName: "arrow.down.doc.fill")
-                                        .foregroundColor(.secondary)
-                                        .imageScale(.medium)
-                                    Text("Drop audio file here to transcribe")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                }
-                                .padding(.leading, 4)
+                            // Подсказка о шорткате
+                            HStack(spacing: 6) {
+                                Text(currentShortcutDescription)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                                Text("to show mini recorder")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
                             }
+                            .padding(.leading, 4)
 
                             Spacer()
 
@@ -862,6 +893,11 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: RecordingStore.recordingsDidUpdateNotification)) { _ in
             viewModel.loadInitialData()
+        }
+        .onChange(of: viewModel.transcriptionQueue.isProcessing) { _, _ in
+            // A file leaving the queue is not a row being added or removed, so
+            // it does not reach the reload above.
+            viewModel.refreshQueuedFileCount()
         }
         // A command's outcome lands a second or two after its words, so the row
         // the user is already looking at is relabelled in place rather than on

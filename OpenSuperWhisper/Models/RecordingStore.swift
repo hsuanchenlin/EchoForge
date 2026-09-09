@@ -500,6 +500,27 @@ class RecordingStore: ObservableObject {
         }
     }
 
+    /// How many file transcriptions are still to be done.
+    ///
+    /// Counted in SQL rather than over the loaded page, for the reason the
+    /// history filter is: the list is paged, so a queue of thirty files dropped
+    /// this morning would be counted as however many of them happen to be in the
+    /// first hundred rows. `HistoryProvenanceFilter.fileTranscription` is the
+    /// same predicate the Files lens applies, so the count and the list it sends
+    /// the user to cannot disagree.
+    nonisolated func pendingFileTranscriptionCount() async -> Int {
+        do {
+            return try await dbQueue.read { db in
+                try Self.query(matching: .fileTranscription)
+                    .filter(Self.pendingStatuses.contains(Recording.Columns.status))
+                    .fetchCount(db)
+            }
+        } catch {
+            print("Failed to count queued file transcriptions: \(error)")
+            return 0
+        }
+    }
+
     nonisolated static func recordingsDiskUsage() -> Int64 {
         let fileManager = FileManager.default
         guard let files = try? fileManager.contentsOfDirectory(
