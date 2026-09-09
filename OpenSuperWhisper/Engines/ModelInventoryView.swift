@@ -303,11 +303,42 @@ struct ModelInventoryView: View {
     }
 
     private func cancel(_ entry: ModelInventoryEntry) {
-        if service.modelPreparation?.engine == entry.engine {
+        let targets = ModelInventoryCancel.targets(
+            for: entry.engine,
+            servicePreparation: service.modelPreparation?.engine,
+            settingsDownload: settings.downloadingEngine)
+        if targets.servicePreparation {
             service.cancelDesiredEnginePreparation()
         }
-        settings.cancelDownload()
+        if targets.settingsDownload {
+            settings.cancelDownload()
+        }
         viewModel.refresh()
+    }
+}
+
+/// Which transfers a row's Cancel button stops.
+///
+/// Two rows can be preparing at once - the desired engine's background
+/// preparation and a Settings-driven download of a different engine - and a
+/// Cancel pressed on one row must leave the other's transfer running. A row
+/// owns a transfer only when that transfer's engine is the row's; the guards in
+/// `ModelInventoryView.cancel` are this function rather than two inline
+/// comparisons so the two-rows-preparing case is assertable without a service.
+enum ModelInventoryCancel {
+    struct Targets: Equatable {
+        let servicePreparation: Bool
+        let settingsDownload: Bool
+    }
+
+    static func targets(
+        for engine: EngineKind,
+        servicePreparation: EngineKind?,
+        settingsDownload: EngineKind?
+    ) -> Targets {
+        Targets(
+            servicePreparation: servicePreparation == engine,
+            settingsDownload: settingsDownload == engine)
     }
 }
 
