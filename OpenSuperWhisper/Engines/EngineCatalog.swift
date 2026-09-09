@@ -53,6 +53,24 @@ struct EngineCatalogEntry {
     /// One line, shown under the name in the picker row.
     let summary: String
 
+    /// What this engine is *for*, in a phrase - the outcome, not the model.
+    ///
+    /// The picker asks a user to choose an implementation before they have been
+    /// told an outcome: "Whisper", "Parakeet", "SenseVoice-Small" and
+    /// "Paraformer-large (zh)" are four honest names and none of them answers
+    /// "which one do I want". This is that answer, and it is what the model
+    /// inventory and Setup Health lead with. It never replaces `displayName` -
+    /// the model name is a licence obligation (`docs/speech-model-attribution.md`)
+    /// and both are always shown together.
+    let outcome: String
+
+    /// How this engine trades quality against speed, in one measured phrase.
+    ///
+    /// A measurement rather than an adjective, for the same reason `notes` are:
+    /// every figure here is reproduced by that engine's integration test against
+    /// the real weights.
+    let character: String
+
     /// Credit line for a model the app did not train. `nil` for engines whose
     /// individual model rows already carry their own attribution.
     let attributionCredit: String?
@@ -223,6 +241,8 @@ enum EngineCatalog {
     private static let cloud = EngineCatalogEntry(
         displayName: "Cloud (OpenAI-compatible)",
         summary: "Transcribes with a provider you choose, using your own API key. Off unless you turn it on.",
+        outcome: "Someone else's server, with your own key",
+        character: "As fast as the provider and your connection. Nothing runs on this Mac.",
         attributionCredit: nil,
         notes: [
             "Your recordings are uploaded to the provider you configure. Nothing else in Kongweh "
@@ -239,6 +259,8 @@ enum EngineCatalog {
     private static let whisper = EngineCatalogEntry(
         displayName: "Whisper",
         summary: "General purpose, and the widest language coverage. Pick a model below.",
+        outcome: "The widest language coverage",
+        character: "Accuracy over speed, and the model you pick decides how much of each.",
         attributionCredit: nil,
         notes: [],
         download: nil,
@@ -248,6 +270,8 @@ enum EngineCatalog {
     private static let parakeet = EngineCatalogEntry(
         displayName: "Parakeet",
         summary: "Fastest, for English and European languages. Pick a model below.",
+        outcome: "Fast English and European dictation",
+        character: "The fastest of the four, at the price of no Chinese at all.",
         attributionCredit: nil,
         notes: [],
         download: nil,
@@ -260,6 +284,9 @@ enum EngineCatalog {
         displayName: "SenseVoice-Small",
         summary: "The default for Chinese, and the one to use when you mix English into Mandarin. "
             + "Punctuates, and also handles Cantonese, Japanese and Korean.",
+        outcome: "English and Chinese in one sentence, and Chinese on its own",
+        character: "About 8x real time, punctuated. The only engine here that transcribes both "
+            + "languages at once.",
         attributionCredit: "SenseVoiceSmall by FunASR / FunAudioLLM",
         notes: [
             // The wording of this one matters. Punctuation and inverse text
@@ -307,6 +334,8 @@ enum EngineCatalog {
     private static let paraformer = EngineCatalogEntry(
         displayName: "Paraformer-large (zh)",
         summary: "More accurate on Mandarin characters, at the price of Mandarin only and no punctuation.",
+        outcome: "The most accurate Mandarin characters",
+        character: "About 65x real time, and no punctuation at all. Mandarin only.",
         attributionCredit: "Paraformer-large (zh) by FunASR / FunAudioLLM",
         notes: [
             "Produces no punctuation at all - its vocabulary contains none, and nothing here invents any.",

@@ -11,6 +11,10 @@ import SwiftUI
 /// fit. Add a tab or lengthen a title without widening the sheet and that test
 /// says so, instead of the app shipping "Mo...", "St...", "Cl...", "Ab...".
 enum SettingsTab: Hashable, CaseIterable {
+    /// First, and first for a reason: it is the only tab that answers a question
+    /// rather than exposing a subsystem, and the question is the one a user
+    /// arrives with. See `SetupHealth`.
+    case setup
     case shortcuts
     case model
     case transcription
@@ -22,6 +26,7 @@ enum SettingsTab: Hashable, CaseIterable {
 
     var title: String {
         switch self {
+        case .setup: return "Setup"
         case .shortcuts: return "Shortcuts"
         case .model: return "Model"
         case .transcription: return "Transcription"
@@ -44,18 +49,39 @@ enum SettingsTab: Hashable, CaseIterable {
     }
 }
 
+/// Which tab the next Settings sheet opens on, when something asked for one.
+///
+/// A one-shot handover rather than a notification, because the sheet's view does
+/// not exist when the request is made: the menu bar posts `.openSettings`, the
+/// window presents the sheet, and only then is `SettingsView` built. There is
+/// nothing subscribed at the moment the tab is chosen.
+///
+/// Consumed on read, so a sheet opened by any other route - the gear button, ⌘, -
+/// lands on the default tab rather than on wherever somebody was sent last week.
+@MainActor
+enum SettingsPresentation {
+    static var pendingTab: SettingsTab?
+
+    static func consumePendingTab() -> SettingsTab? {
+        defer { pendingTab = nil }
+        return pendingTab
+    }
+}
+
 /// How big the Settings sheet is, and why.
 enum SettingsSheetLayout {
     /// The size the sheet asks for when the screen allows it.
     ///
     /// The width is set by the tab bar, not by any pane: `SettingsTabBar` is one
-    /// row of titles, and eight of them plus their padding need about 640 pt.
-    /// `.padding()` costs 32 pt of the sheet, so the sheet needs about 672 pt
-    /// before the titles start truncating. 680 pt leaves a little slack.
+    /// row of titles, and nine of them plus their padding need about 700 pt.
+    /// `.padding()` costs 32 pt of the sheet, so the sheet needs about 732 pt
+    /// before the titles start truncating. 760 pt leaves a little slack.
     ///
     /// This started at 550 pt when the sheet had four tabs and was never
     /// revisited as tabs were added; by eight tabs it was 122 pt short and every
-    /// title truncated.
+    /// title truncated. It moved again when Setup Health became the ninth tab -
+    /// which is what `SettingsTabBarFitTests` is for: adding a tab says so at
+    /// test time rather than by shipping "Se...", "Di...", "Ab...".
     ///
     /// **What this width does not do.** It was once written down here as also
     /// fixing the tab bar's geometry - as making the keyboard focus ring and the
@@ -70,7 +96,7 @@ enum SettingsSheetLayout {
     /// frame and the hit target from one frame per tab, which is also why no
     /// pane can move a segment any more - the bar is a sibling of the pane with
     /// a width of its own, not a control sized from the whole hosted tree.
-    static let preferredSize = CGSize(width: 680, height: 500)
+    static let preferredSize = CGSize(width: 760, height: 500)
 
     /// The gap between the tab bar and the pane below it.
     ///

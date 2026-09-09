@@ -2,6 +2,49 @@ import Foundation
 import FluidAudio
 
 @MainActor
+final class EngineWeightUseCoordinator {
+    static let shared = EngineWeightUseCoordinator()
+
+    enum RemovalReservationResult: Equatable {
+        case reserved
+        case engineInUse
+        case alreadyReserved
+    }
+
+    private var activeUses: [EngineKind: Int] = [:]
+    private var removalReservations: Set<EngineKind> = []
+
+    func beginUse(of engine: EngineKind) -> Bool {
+        guard !removalReservations.contains(engine) else { return false }
+        activeUses[engine, default: 0] += 1
+        return true
+    }
+
+    func endUse(of engine: EngineKind) {
+        guard let count = activeUses[engine] else { return }
+        if count == 1 {
+            activeUses.removeValue(forKey: engine)
+        } else {
+            activeUses[engine] = count - 1
+        }
+    }
+
+    func reserveRemoval(of engine: EngineKind) -> RemovalReservationResult {
+        guard activeUses[engine] == nil else { return .engineInUse }
+        guard removalReservations.insert(engine).inserted else { return .alreadyReserved }
+        return .reserved
+    }
+
+    func releaseRemoval(of engine: EngineKind) {
+        removalReservations.remove(engine)
+    }
+
+    func isRemovalReserved(for engine: EngineKind) -> Bool {
+        removalReservations.contains(engine)
+    }
+}
+
+@MainActor
 class TranscriptionService: ObservableObject {
     static let shared = TranscriptionService()
 
@@ -110,6 +153,20 @@ class TranscriptionService: ObservableObject {
     /// sits behind a several-hundred-megabyte download otherwise. Production
     /// never sets it.
     var engineOverride: TranscriptionEngine?
+
+    func reserveEngineForRemoval(
+        _ engine: EngineKind
+    ) -> EngineWeightUseCoordinator.RemovalReservationResult {
+        EngineWeightUseCoordinator.shared.reserveRemoval(of: engine)
+    }
+
+    func releaseEngineRemovalReservation(_ engine: EngineKind) {
+        EngineWeightUseCoordinator.shared.releaseRemoval(of: engine)
+    }
+
+    func isEngineReservedForRemoval(_ engine: EngineKind) -> Bool {
+        EngineWeightUseCoordinator.shared.isRemovalReserved(for: engine)
+    }
 
     init() {
         selection = EngineSelection(
@@ -243,12 +300,11 @@ class TranscriptionService: ObservableObject {
         isLoading = true
 
         Task.detached(priority: .userInitiated) {
-            let engine = await active.makeEngine()
-
             do {
-                try await engine.initialize()
+                let engine = try await self.initializeEngineForUse(active)
 
                 await MainActor.run {
+                    defer { EngineWeightUseCoordinator.shared.endUse(of: active) }
                     guard self.loadGeneration == generation else { return }
                     self.currentEngine = engine
                     self.currentEngineKind = active
@@ -264,12 +320,35 @@ class TranscriptionService: ObservableObject {
                 await MainActor.run {
                     guard self.loadGeneration == generation else { return }
                     self.isLoading = false
+                    if EngineConfiguration.isNotConfigured(error) {
+                        self.currentEngine = nil
+                        self.currentEngineKind = nil
+                        self.isEngineConfigured = false
+                    }
                     print("Failed to load engine: \(error)")
                 }
             }
         }
 
         startPreparingDesiredEngineIfNeeded(allowModelDownload: allowModelDownload)
+    }
+
+    func initializeEngineForUse(_ engineKind: EngineKind) async throws -> TranscriptionEngine {
+        guard EngineWeightUseCoordinator.shared.beginUse(of: engineKind) else {
+            throw TranscriptionError.engineNotConfigured
+        }
+
+        do {
+            let engine = try await Task.detached(priority: .userInitiated) {
+                let engine = await engineKind.makeEngine()
+                try await engine.initialize()
+                return engine
+            }.value
+            return engine
+        } catch {
+            EngineWeightUseCoordinator.shared.endUse(of: engineKind)
+            throw error
+        }
     }
 
     /// Records the engine that actually loaded, which is what a later launch
@@ -332,6 +411,7 @@ class TranscriptionService: ObservableObject {
             return
         }
         guard EngineConfiguration.isPreparable(engine: desired) else { return }
+        guard !isEngineReservedForRemoval(desired) else { return }
         // Already fetching exactly this one; restarting would throw away progress.
         guard preparingEngine != desired else { return }
         // The same reason as in `loadEngine`: a test must not be able to start a
@@ -441,14 +521,17 @@ class TranscriptionService: ObservableObject {
         guard let active = selection.active else {
             throw TranscriptionError.engineNotConfigured
         }
+        guard !isEngineReservedForRemoval(active) else {
+            throw TranscriptionError.engineNotConfigured
+        }
         if currentEngineKind == active, let currentEngine { return currentEngine }
 
-        let engine = await active.makeEngine()
-        try await engine.initialize()
+        let engine = try await initializeEngineForUse(active)
         currentEngine = engine
         currentEngineKind = active
         rememberReadyEngine(active)
         NotificationCenter.default.post(name: .engineModelStateChanged, object: nil)
+        EngineWeightUseCoordinator.shared.endUse(of: active)
         return engine
     }
 

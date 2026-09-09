@@ -157,9 +157,48 @@ class SettingsViewModel: ObservableObject {
     
     @Published var downloadableModels: [SettingsDownloadableModel] = []
     @Published var downloadableFluidAudioModels: [SettingsFluidAudioModel] = []
-    @Published var isDownloading: Bool = false
+    /// Whether a Settings-driven model download is in flight.
+    ///
+    /// Clearing it clears `downloadingEngine` too, and that is an invariant
+    /// rather than tidiness: the two are read together by
+    /// `engineDownloadPreparation`, they are set in five places between the
+    /// three download paths, and "which engine is downloading" outliving "a
+    /// download is running" is how the model inventory would refuse a removal
+    /// for a transfer that finished. One `didSet` is cheaper to keep true than
+    /// five call sites.
+    @Published var isDownloading: Bool = false {
+        didSet {
+            guard !isDownloading else { return }
+            downloadingEngine = nil
+        }
+    }
     @Published var downloadProgress: Double = 0.0
     @Published var downloadingModelName: String?
+
+    /// The engine whose weights a download is fetching. `downloadingModelName`
+    /// answers "which model" for the model lists; this answers "which engine" for
+    /// the surfaces that think in engines - the model inventory, which must not
+    /// offer to delete a cache directory a download is writing into.
+    ///
+    /// Every download path sets it, including the two multi-model ones: Whisper
+    /// and Parakeet have the largest models here, so leaving them unnamed
+    /// offered Remove during exactly the longest transfers.
+    @Published fileprivate(set) var downloadingEngine: EngineKind?
+
+    /// The in-flight engine download as a preparation value, for surfaces that
+    /// already know how to render one. The fraction comes off FluidAudio's scale
+    /// the way `ModelPreparationStage.from` reads it: bytes fill the first half,
+    /// the compile the second.
+    var engineDownloadPreparation: ModelPreparation? {
+        guard isDownloading, let downloadingEngine else { return nil }
+        let stage: ModelPreparationStage =
+            isCompilingModel
+            ? .preparing
+            : .downloading(
+                fraction: min(max(downloadProgress / downloadShareOfOverallProgress, 0), 1))
+        return ModelPreparation(engine: downloadingEngine, stage: stage)
+    }
+
     private var downloadTask: Task<Void, Error>?
     
     @Published var selectedLanguage: String {
@@ -421,6 +460,12 @@ class SettingsViewModel: ObservableObject {
         try DiskSpaceUtil.ensureEnoughFreeSpaceForModelDownload()
         
         isDownloading = true
+        // Named here as well as in `downloadEngineModel`, because the model
+        // inventory refuses a removal while *this* engine's weights are moving
+        // and `engineDownloadPreparation` is nil without it. Whisper and
+        // Parakeet are exactly the two engines whose downloads are the largest,
+        // so leaving them unnamed offered Remove during the longest transfers.
+        downloadingEngine = .whisper
         downloadingModelName = model.name
         downloadProgress = 0.0
         
@@ -513,6 +558,7 @@ class SettingsViewModel: ObservableObject {
         }
         isDownloading = false
         isCompilingModel = false
+        downloadingEngine = nil
         downloadingModelName = nil
         downloadProgress = 0.0
     }
@@ -523,6 +569,9 @@ class SettingsViewModel: ObservableObject {
         try DiskSpaceUtil.ensureEnoughFreeSpaceForModelDownload()
         
         isDownloading = true
+        // The same reason as `downloadModel` above: the inventory's removal
+        // guard reads this.
+        downloadingEngine = .fluidaudio
         downloadingModelName = model.name
         downloadProgress = 0.0
         
@@ -664,6 +713,7 @@ class SettingsViewModel: ObservableObject {
         isDownloading = true
         isCompilingModel = false
         downloadingModelName = download.modelName
+        downloadingEngine = kind
         downloadProgress = 0.0
 
         downloadTask = Task {
@@ -671,6 +721,7 @@ class SettingsViewModel: ObservableObject {
                 Task { @MainActor in
                     self.isDownloading = false
                     self.isCompilingModel = false
+                    self.downloadingEngine = nil
                     self.downloadingModelName = nil
                     self.downloadProgress = 0.0
                     self.refreshDownloadedEngineModels()
@@ -989,10 +1040,10 @@ struct Settings {
 
 struct SettingsView: View {
     @StateObject private var viewModel = SettingsViewModel()
-    @StateObject private var permissionsManager = PermissionsManager()
+    @ObservedObject private var permissionsManager = PermissionsManager.shared
     @Environment(\.dismiss) var dismiss
     @State private var isRecordingNewShortcut = false
-    @State private var selectedTab: SettingsTab = .shortcuts
+    @State private var selectedTab: SettingsTab = .setup
     @State private var previousModelURL: URL?
 
     /// The tab titles and the sheet's size are one decision, and it is made in
@@ -1068,6 +1119,12 @@ struct SettingsView: View {
             .background(Color(.windowBackgroundColor))
         }
         .onAppear {
+            // Something may have asked for a particular tab on its way here -
+            // the menu bar's About and Settings items do. Consumed once, so a
+            // sheet opened any other way lands on Setup.
+            if let requested = SettingsPresentation.consumePendingTab() {
+                selectedTab = requested
+            }
             previousModelURL = viewModel.selectedModelURL
             if viewModel.selectedEngine == .fluidaudio {
                 viewModel.initializeFluidAudioModels()
@@ -1111,6 +1168,11 @@ struct SettingsView: View {
     /// this list and the bar cannot drift apart without the compiler saying so.
     @ViewBuilder private func pane(for tab: SettingsTab) -> some View {
         switch tab {
+        case .setup:
+            // The only pane that answers a question rather than exposing a
+            // subsystem, and the only one that can move the selection: every
+            // finding it shows links to the tab that owns the fix.
+            SetupHealthView(selectedTab: $selectedTab, permissions: permissionsManager)
         case .shortcuts:
             shortcutSettings
         case .model:
@@ -1300,6 +1362,17 @@ struct SettingsView: View {
                         .padding(.top, 8)
                     }
                 }
+
+                Divider()
+                    .padding(.vertical, 4)
+
+                // The storage-level view of every engine, not only the selected
+                // one: what is on the disk, what it cost, and what is safe to
+                // remove. It is below the picker rather than in a tab of its own
+                // because it is the same decision seen from the other side -
+                // the picker asks which engine, this answers what each one is
+                // for and what keeping it costs.
+                ModelInventoryView(settings: viewModel)
             }
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)

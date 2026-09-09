@@ -208,6 +208,28 @@ final class EngineWeightsPreparationTests: XCTestCase {
         )
     }
 
+    func testPreparationCannotStartAfterRemovalIsConfirmed() async throws {
+        let reserved = await MainActor.run {
+            EngineWeightUseCoordinator.shared.reserveRemoval(of: .sensevoice)
+        }
+        XCTAssertEqual(reserved, .reserved)
+
+        do {
+            try await preparation(
+                packs: [],
+                installer: { _ in FailingInstaller() },
+                log: Log()
+            ).prepare(.sensevoice, progressHandler: { _ in })
+            XCTFail("Preparation must not write weights reserved for removal")
+        } catch {
+            XCTAssertEqual(error as? TranscriptionError, .engineNotConfigured)
+        }
+
+        await MainActor.run {
+            EngineWeightUseCoordinator.shared.releaseRemoval(of: .sensevoice)
+        }
+    }
+
     /// Nothing published: the engine fetches its own weights exactly as before,
     /// and no installer is even constructed.
     func testWithoutAPackOnlyTheEnginesOwnDownloadRuns() async throws {
@@ -437,6 +459,45 @@ final class EngineWeightsPreparationTests: XCTestCase {
             )
         }
         XCTAssertGreaterThan(scanned, 20, "the scan found almost no sources, so it proved almost nothing")
+    }
+
+    func testProductionEngineConstructionCannotBypassTheGuardedLoadPath() throws {
+        let sources = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("OpenSuperWhisper")
+        guard let files = FileManager.default.enumerator(atPath: sources.path)?.allObjects as? [String] else {
+            throw XCTSkip("Sources are not beside the tests: \(sources.path)")
+        }
+
+        let servicePath = "TranscriptionService.swift"
+        let construction = try NSRegularExpression(
+            pattern: #"await\s+[A-Za-z_][A-Za-z0-9_]*\.makeEngine\(\)"#)
+        var scanned = 0
+        for file in files where file.hasSuffix(".swift") && file != servicePath {
+            let text = try String(contentsOf: sources.appendingPathComponent(file), encoding: .utf8)
+            scanned += 1
+            let range = NSRange(text.startIndex..., in: text)
+            XCTAssertNil(
+                construction.firstMatch(in: text, range: range),
+                "\(file) constructs a transcription engine outside the guarded load path")
+            XCTAssertFalse(
+                text.contains(".initialize()"),
+                "\(file) initializes a transcription engine outside the guarded load path")
+        }
+
+        let service = try String(
+            contentsOf: sources.appendingPathComponent(servicePath), encoding: .utf8)
+        let start = try XCTUnwrap(service.range(of: "func initializeEngineForUse"))
+        let rest = service[start.lowerBound...]
+        let end = rest.range(of: "\n    ///")?.lowerBound ?? rest.endIndex
+        let guardedLoad = String(rest[..<end])
+        XCTAssertTrue(guardedLoad.contains("EngineWeightUseCoordinator.shared.beginUse"))
+        XCTAssertNotNil(
+            construction.firstMatch(
+                in: guardedLoad,
+                range: NSRange(guardedLoad.startIndex..., in: guardedLoad)))
+        XCTAssertTrue(guardedLoad.contains(".initialize()"))
+        XCTAssertGreaterThan(scanned, 20)
     }
 
     // MARK: - On real weights

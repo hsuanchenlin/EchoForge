@@ -41,6 +41,21 @@ struct SystemPermissionStatusReader: PermissionStatusReading {
 }
 
 class PermissionsManager: ObservableObject {
+
+    /// The app's one permission reader.
+    ///
+    /// There used to be one per surface - the main window, the Settings sheet -
+    /// and each carried its own one-second timer and its own 40-100 ms TCC
+    /// round trips. They all read the same three system answers, so the extra
+    /// copies bought nothing and cost a multiple of the polling. The menu bar
+    /// needing the same answers is what made that worth collapsing rather than
+    /// adding a third.
+    ///
+    /// Tests still construct their own with injected readers -
+    /// `PermissionsManagerRefreshTests` does - because the point of the seam is
+    /// that the refresh logic can be driven without a real grant.
+    @MainActor static let shared = PermissionsManager()
+
     @Published var isMicrophonePermissionGranted = false
     @Published var isAccessibilityPermissionGranted = false
     @Published var isInputMonitoringPermissionGranted = false

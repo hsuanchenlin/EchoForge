@@ -200,29 +200,38 @@ struct EngineWeightsPreparation {
 
     /// Fetches whatever the engine is missing and leaves it ready to load.
     func prepare(_ engine: EngineKind, progressHandler: @escaping DownloadUtils.ProgressHandler) async throws {
-        if case .install(let pack, let cache) = ModelPackSelection.of(engine, in: packs, cache: cacheFor(engine)) {
-            do {
-                let outcome = try await makeInstaller(cache).install(
-                    pack,
-                    progress: { progressHandler(Self.engineProgress(from: $0)) }
-                )
-                if case .alreadyInstalled = outcome {
-                    // The user already has these weights, by pack or by
-                    // download, and they are never replaced.
-                    print("Model pack \(pack.id): the cache already holds it.")
-                }
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch let error as URLError where error.code == .cancelled {
-                throw CancellationError()
-            } catch {
-                print("Model pack \(pack.id) could not be installed (\(error.localizedDescription)); "
-                    + "falling back to \(engine.rawValue)'s own download.")
-            }
+        let admitted = await MainActor.run {
+            EngineWeightUseCoordinator.shared.beginUse(of: engine)
         }
+        guard admitted else { throw TranscriptionError.engineNotConfigured }
 
-        try Task.checkCancellation()
-        try await download(engine, progressHandler)
+        do {
+            if case .install(let pack, let cache) = ModelPackSelection.of(engine, in: packs, cache: cacheFor(engine)) {
+                do {
+                    let outcome = try await makeInstaller(cache).install(
+                        pack,
+                        progress: { progressHandler(Self.engineProgress(from: $0)) }
+                    )
+                    if case .alreadyInstalled = outcome {
+                        print("Model pack \(pack.id): the cache already holds it.")
+                    }
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch let error as URLError where error.code == .cancelled {
+                    throw CancellationError()
+                } catch {
+                    print("Model pack \(pack.id) could not be installed (\(error.localizedDescription)); "
+                        + "falling back to \(engine.rawValue)'s own download.")
+                }
+            }
+
+            try Task.checkCancellation()
+            try await download(engine, progressHandler)
+            await MainActor.run { EngineWeightUseCoordinator.shared.endUse(of: engine) }
+        } catch {
+            await MainActor.run { EngineWeightUseCoordinator.shared.endUse(of: engine) }
+            throw error
+        }
     }
 
     /// A pack's byte counts, on the scale the rest of the app already reads.

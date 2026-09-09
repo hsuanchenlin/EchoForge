@@ -17,7 +17,26 @@ struct CapsuleHUDView: View {
     /// margin when it places the window, so it is the pill that lands where it
     /// was asked to.
     static let capsuleHeight: CGFloat = 40
-    static let windowSize = CGSize(width: 380, height: 96)
+
+    /// The pill's height while it is saying something about the microphone.
+    ///
+    /// The diagnostic gets a line of its own rather than a place on the meter's
+    /// row: it names an input device, and a device name is long enough to push
+    /// the duration counter off a single-row pill. The pill grows **downwards**
+    /// only - see `pillTopInset` - so the thing the user has learned the position
+    /// of does not move when a warning appears.
+    static let expandedCapsuleHeight: CGFloat = 64
+
+    /// Where the top of the pill sits inside the panel.
+    ///
+    /// A constant rather than "centred in the window", because the pill has two
+    /// heights and a centred one would drift upwards as it grew - into the menu
+    /// bar, which is the strip the panel's transparent top margin is deliberately
+    /// allowed to overlap. `CapsuleHUDWindowController.origin` places the window
+    /// from this same number, so the two cannot disagree.
+    static let pillTopInset: CGFloat = 28
+
+    static let windowSize = CGSize(width: 440, height: 128)
 
     @ObservedObject var viewModel: CapsuleHUDViewModel
     @Environment(\.colorScheme) private var colorScheme
@@ -36,12 +55,27 @@ struct CapsuleHUDView: View {
         // The root view must fill the panel: `NSHostingView` with default sizing
         // would shrink the window to the pill, and the window bounds would then
         // clip the shadow.
-        .frame(width: Self.windowSize.width, height: Self.windowSize.height)
+        //
+        // Top-aligned with a fixed inset rather than centred, so a pill that
+        // grows to carry a microphone diagnostic grows downwards into the panel's
+        // spare room instead of upwards over the menu bar.
+        .padding(.top, Self.pillTopInset)
+        .frame(
+            width: Self.windowSize.width, height: Self.windowSize.height, alignment: .top)
+    }
+
+    /// Whether the pill is carrying a line about the microphone.
+    ///
+    /// Only during the recording itself: a diagnostic is about a capture that is
+    /// running, and one left on screen over "Transcribing…" would be describing
+    /// audio nobody can do anything about any more.
+    private var showsSignalDiagnostic: Bool {
+        viewModel.state == .recording && viewModel.signal.isDiagnostic
     }
 
     private var pill: some View {
         content
-            .frame(height: Self.capsuleHeight)
+            .frame(height: showsSignalDiagnostic ? Self.expandedCapsuleHeight : Self.capsuleHeight)
             .background {
                 Capsule(style: .continuous)
                     .fill(Material.ultraThinMaterial)
@@ -87,19 +121,26 @@ struct CapsuleHUDView: View {
             }
 
         case .recording:
-            row {
-                modeChip
-                if viewModel.isConfirmingCancel {
-                    label("Press Esc to cancel", color: .orange)
-                } else {
-                    CapsuleHUDWaveform(
-                        levels: viewModel.levels,
-                        sampleCount: CapsuleHUDViewModel.waveformSampleCount
-                    )
-                    durationCounter
+            VStack(alignment: .leading, spacing: 4) {
+                row {
+                    modeChip
+                    if viewModel.isConfirmingCancel {
+                        label("Press Esc to cancel", color: .orange)
+                    } else {
+                        CapsuleHUDWaveform(
+                            levels: viewModel.levels,
+                            sampleCount: CapsuleHUDViewModel.waveformSampleCount,
+                            tint: CapsuleHUDWaveform.tint(for: viewModel.signal)
+                        )
+                        durationCounter
+                    }
+                }
+                if showsSignalDiagnostic, !viewModel.isConfirmingCancel {
+                    signalDiagnosticRow
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: viewModel.isConfirmingCancel)
+            .animation(.easeInOut(duration: 0.2), value: showsSignalDiagnostic)
 
         case .polishing(let work):
             row {
@@ -149,6 +190,51 @@ struct CapsuleHUDView: View {
     private func row<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         HStack(spacing: 10, content: content)
             .padding(.horizontal, 14)
+    }
+
+    /// The second line: what the signal is doing, and which input it came from.
+    ///
+    /// The device is named because the advice depends on it - "no signal" from
+    /// the built-in microphone and "no signal" from a headset that never
+    /// connected are different problems - and because the user cannot otherwise
+    /// tell which input this app is on without leaving the app they are dictating
+    /// into. It is truncated rather than allowed to widen the pill: a USB
+    /// interface can name itself in forty characters.
+    ///
+    /// Nothing here is clickable. The panel refuses mouse events for the whole
+    /// recording on purpose (`CapsuleHUDWindowController.acceptsMouseEvents`),
+    /// because a HUD that swallowed clicks would take the top strip of the screen
+    /// away from the app the user is dictating into. Acting on this lives in
+    /// Settings → Setup Health, which has the microphone test beside it.
+    @ViewBuilder private var signalDiagnosticRow: some View {
+        if let text = CapsuleHUDView.signalDiagnosticText(
+            viewModel.signal, microphoneName: viewModel.microphoneName) {
+            HStack(spacing: 6) {
+                Image(systemName: viewModel.signal.symbolName ?? "mic")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(CapsuleHUDWaveform.tint(for: viewModel.signal))
+                Text(text)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(CapsuleHUDWaveform.tint(for: viewModel.signal))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: 300, alignment: .leading)
+            }
+            .padding(.horizontal, 14)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(viewModel.signal.announcement ?? text)
+        }
+    }
+
+    /// "No signal · MacBook Pro Microphone", or just the state when the input has
+    /// no name to give. A pure function so the wording can be asserted without a
+    /// window server.
+    static func signalDiagnosticText(
+        _ signal: MicrophoneSignal, microphoneName: String?
+    ) -> String? {
+        guard let label = signal.shortLabel else { return nil }
+        guard let microphoneName, !microphoneName.isEmpty else { return label }
+        return "\(label) · \(microphoneName)"
     }
 
     private func label(_ text: String, color: Color) -> some View {
@@ -214,6 +300,13 @@ struct CapsuleHUDWaveform: View {
     let levels: [Float]
     let sampleCount: Int
 
+    /// The bar colour, which carries the signal state as well as the accent.
+    ///
+    /// Colour never carries it *alone*: the second line beside the meter says the
+    /// same thing in words, so a reader who cannot tell orange from the accent
+    /// loses nothing. Defaulted so every other caller keeps the meter it had.
+    var tint: Color = .accentColor
+
     static let barWidth: CGFloat = 2
     static let barSpacing: CGFloat = 2
     static let minimumBarHeight: CGFloat = 3
@@ -233,7 +326,7 @@ struct CapsuleHUDWaveform: View {
         HStack(alignment: .center, spacing: Self.barSpacing) {
             ForEach(Array(padded.enumerated()), id: \.offset) { index, level in
                 Capsule(style: .continuous)
-                    .fill(Color.accentColor.opacity(opacity(forIndex: index)))
+                    .fill(tint.opacity(opacity(forIndex: index)))
                     .frame(width: Self.barWidth, height: height(for: level))
             }
         }
@@ -242,6 +335,19 @@ struct CapsuleHUDWaveform: View {
             height: Self.maximumBarHeight
         )
         .accessibilityHidden(true)
+    }
+
+    /// What colour the meter draws in for one signal state.
+    ///
+    /// Orange for the two states that are damaging or wasting the recording, the
+    /// ordinary accent otherwise. `low` is deliberately *not* orange: a quiet
+    /// recording still transcribes, and painting every quiet dictation with a
+    /// warning colour is how a warning stops being read.
+    static func tint(for signal: MicrophoneSignal) -> Color {
+        switch signal {
+        case .measuring, .good, .low: return .accentColor
+        case .noSignal, .clipping: return .orange
+        }
     }
 
     private func height(for level: Float) -> CGFloat {
@@ -280,6 +386,7 @@ struct PulsingLabel: View {
 
 #Preview("Capsule states") {
     let recording = CapsuleHUDViewModel()
+    let quiet = CapsuleHUDViewModel()
     let polishing = CapsuleHUDViewModel()
     let complete = CapsuleHUDViewModel()
     let failed = CapsuleHUDViewModel()
@@ -287,8 +394,14 @@ struct PulsingLabel: View {
     recording.beginSession(mode: CapsuleHUDMode(label: "Polish"))
     recording.beginRecording()
     for index in 0 ..< CapsuleHUDViewModel.waveformSampleCount {
-        recording.pushLevel(Float(index % 9) / 8)
+        recording.pushLevel(.normalized(average: Float(index % 9) / 8))
     }
+    quiet.beginSession(mode: .dictate, microphoneName: "MacBook Pro Microphone")
+    quiet.beginRecording()
+    for _ in 0 ..< CapsuleHUDViewModel.waveformSampleCount {
+        quiet.pushLevel(.silent)
+    }
+    quiet.refreshSignal(at: Date().addingTimeInterval(MicrophoneSignalMonitor.graceInterval + 1))
     polishing.beginSession(mode: .dictate)
     polishing.beginRecording()
     polishing.beginPolishing(.transcribing)
@@ -302,6 +415,7 @@ struct PulsingLabel: View {
 
     return VStack(spacing: 0) {
         CapsuleHUDView(viewModel: recording)
+        CapsuleHUDView(viewModel: quiet)
         CapsuleHUDView(viewModel: polishing)
         CapsuleHUDView(viewModel: complete)
         CapsuleHUDView(viewModel: failed)

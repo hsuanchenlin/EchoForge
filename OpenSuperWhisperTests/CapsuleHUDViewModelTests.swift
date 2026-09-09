@@ -293,7 +293,7 @@ final class CapsuleHUDViewModelTests: XCTestCase {
 
         viewModel.beginSession(mode: CapsuleHUDMode(label: "Polish"))
         viewModel.beginRecording()
-        viewModel.pushLevel(0.8)
+        viewModel.pushLevel(.normalized(average: 0.8))
         viewModel.dismiss()
 
         clock = clock.addingTimeInterval(30)
@@ -597,32 +597,33 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         let viewModel = makeViewModel()
 
         viewModel.beginSession(mode: .dictate)
-        viewModel.pushLevel(0.5)
+        viewModel.pushLevel(.normalized(average: 0.5))
         XCTAssertEqual(viewModel.levels, [], "Nothing is being captured while the microphone is being reached")
 
         viewModel.beginRecording()
-        viewModel.pushLevel(0.5)
+        viewModel.pushLevel(.normalized(average: 0.5))
         XCTAssertEqual(viewModel.levels, [0.5])
 
         viewModel.beginPolishing(.transcribing)
-        viewModel.pushLevel(0.9)
+        viewModel.pushLevel(.normalized(average: 0.9))
         XCTAssertEqual(viewModel.levels, [0.5], "A late meter sample must not extend a finished waveform")
     }
 
-    func testTheWaveformKeepsOnlyItsMostRecentSamples() {
+    func testTheWaveformKeepsOnlyItsMostRecentSamples() throws {
         let viewModel = makeViewModel()
         viewModel.beginSession(mode: .dictate)
         viewModel.beginRecording()
 
         let total = CapsuleHUDViewModel.waveformSampleCount + 5
         for index in 0 ..< total {
-            viewModel.pushLevel(Float(index) / Float(total))
+            viewModel.pushLevel(.normalized(average: Float(index) / Float(total)))
         }
 
         XCTAssertEqual(viewModel.levels.count, CapsuleHUDViewModel.waveformSampleCount)
         XCTAssertEqual(
-            viewModel.levels.last,
+            try XCTUnwrap(viewModel.levels.last),
             Float(total - 1) / Float(total),
+            accuracy: 0.001,
             "The newest sample is the last one, which is the edge the waveform grows from"
         )
     }
@@ -632,8 +633,10 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         viewModel.beginSession(mode: .dictate)
         viewModel.beginRecording()
 
-        viewModel.pushLevel(-2)
-        viewModel.pushLevel(4)
+        // Below the meter's floor and above its ceiling, in the dBFS the
+        // hardware actually reports.
+        viewModel.pushLevel(MicrophoneLevel(averageDecibels: -300, peakDecibels: -300))
+        viewModel.pushLevel(MicrophoneLevel(averageDecibels: 12, peakDecibels: 12))
 
         XCTAssertEqual(viewModel.levels, [0, 1])
     }
@@ -648,6 +651,139 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         // like something is happening.
         XCTAssertGreaterThan(AudioRecorder.normalizedLevel(decibels: -20), 0.4)
         XCTAssertEqual(AudioRecorder.normalizedLevel(decibels: -.infinity), 0)
+    }
+
+    // MARK: - What the meter is allowed to say
+
+    /// The diagnostic follows the same rule the bars do: it belongs to a capture
+    /// that is running. A sample arriving after the microphone was given back
+    /// would otherwise let one dictation's tail raise a warning over the next.
+    func testTheSignalIsOnlyJudgedWhileRecording() {
+        let viewModel = makeViewModel()
+
+        viewModel.beginSession(mode: .dictate)
+        clock = clock.addingTimeInterval(MicrophoneSignalMonitor.graceInterval + 1)
+        viewModel.pushLevel(.silent)
+        XCTAssertEqual(viewModel.signal, .measuring, "nothing is being captured yet")
+
+        viewModel.beginRecording()
+        viewModel.pushLevel(.silent)
+        clock = clock.addingTimeInterval(MicrophoneSignalMonitor.graceInterval + 1)
+        viewModel.pushLevel(.silent)
+        XCTAssertEqual(viewModel.signal, .noSignal)
+
+        viewModel.beginPolishing(.transcribing)
+        viewModel.pushLevel(.normalized(average: 0.9, peak: 1))
+        XCTAssertEqual(
+            viewModel.signal, .noSignal,
+            "a late sample must not revise the verdict on a capture that is over")
+    }
+
+    func testASilentCaptureReportsNoSignalWithoutABarEverMoving() {
+        let viewModel = makeViewModel()
+        viewModel.beginSession(mode: .dictate, microphoneName: "MacBook Pro Microphone")
+        viewModel.beginRecording()
+
+        for _ in 0 ..< 40 {
+            viewModel.pushLevel(.silent)
+            clock = clock.addingTimeInterval(AudioRecorder.levelSampleInterval)
+        }
+
+        XCTAssertEqual(viewModel.signal, .noSignal)
+        XCTAssertEqual(viewModel.levels.allSatisfy { $0 == 0 }, true, "no fake activity is drawn")
+        XCTAssertEqual(viewModel.microphoneName, "MacBook Pro Microphone")
+    }
+
+    func testOrdinarySpeechNeverRaisesADiagnostic() {
+        let viewModel = makeViewModel()
+        viewModel.beginSession(mode: .dictate)
+        viewModel.beginRecording()
+
+        for _ in 0 ..< 80 {
+            viewModel.pushLevel(MicrophoneLevel(averageDecibels: -20, peakDecibels: -11))
+            clock = clock.addingTimeInterval(AudioRecorder.levelSampleInterval)
+        }
+
+        XCTAssertEqual(viewModel.signal, .good)
+    }
+
+    /// The one channel VoiceOver has here fires on entry, never per sample: the
+    /// meter publishes twenty readings a second, and twenty announcements a
+    /// second is the one way this feature could do harm.
+    func testEachDiagnosticIsAnnouncedOnceAndOnlyOnEntry() {
+        let viewModel = makeViewModel()
+        var announced: [MicrophoneSignal] = []
+        viewModel.onSignalDiagnostic = { announced.append($0) }
+
+        viewModel.beginSession(mode: .dictate)
+        viewModel.beginRecording()
+        for _ in 0 ..< 80 {
+            viewModel.pushLevel(.silent)
+            clock = clock.addingTimeInterval(AudioRecorder.levelSampleInterval)
+        }
+
+        XCTAssertEqual(announced, [.noSignal])
+
+        // A clipped buffer is a different state and is worth saying; going back
+        // to silence afterwards is not.
+        viewModel.pushLevel(MicrophoneLevel(averageDecibels: -4, peakDecibels: 0))
+        clock = clock.addingTimeInterval(MicrophoneSignalMonitor.clippingHoldInterval + 0.1)
+        for _ in 0 ..< 10 {
+            viewModel.pushLevel(.silent)
+            clock = clock.addingTimeInterval(AudioRecorder.levelSampleInterval)
+        }
+
+        XCTAssertEqual(announced, [.noSignal, .clipping])
+    }
+
+    func testANewSessionStartsFromNoOpinionAgain() {
+        let viewModel = makeViewModel()
+        var announced: [MicrophoneSignal] = []
+        viewModel.onSignalDiagnostic = { announced.append($0) }
+
+        viewModel.beginSession(mode: .dictate, microphoneName: "Amiron wireless")
+        viewModel.beginRecording()
+        for _ in 0 ..< 80 {
+            viewModel.pushLevel(.silent)
+            clock = clock.addingTimeInterval(AudioRecorder.levelSampleInterval)
+        }
+        XCTAssertEqual(viewModel.signal, .noSignal)
+
+        viewModel.beginSession(mode: .dictate, microphoneName: "MacBook Pro Microphone")
+        XCTAssertEqual(viewModel.signal, .measuring)
+        XCTAssertEqual(viewModel.microphoneName, "MacBook Pro Microphone")
+
+        viewModel.beginRecording()
+        for _ in 0 ..< 80 {
+            viewModel.pushLevel(.silent)
+            clock = clock.addingTimeInterval(AudioRecorder.levelSampleInterval)
+        }
+        XCTAssertEqual(
+            announced, [.noSignal, .noSignal],
+            "the second capture is a second chance to tell the user")
+    }
+
+    func testTheDiagnosticLineNamesTheInputWhenThereIsOneToName() {
+        XCTAssertEqual(
+            CapsuleHUDView.signalDiagnosticText(.noSignal, microphoneName: "Amiron wireless"),
+            "No signal · Amiron wireless")
+        XCTAssertEqual(
+            CapsuleHUDView.signalDiagnosticText(.low, microphoneName: nil), "Low signal")
+        XCTAssertEqual(
+            CapsuleHUDView.signalDiagnosticText(.low, microphoneName: ""), "Low signal")
+        XCTAssertNil(CapsuleHUDView.signalDiagnosticText(.good, microphoneName: "Anything"))
+        XCTAssertNil(CapsuleHUDView.signalDiagnosticText(.measuring, microphoneName: "Anything"))
+    }
+
+    /// Colour never carries a diagnostic on its own - the second line says the
+    /// same thing in words - and a merely quiet recording is not painted as a
+    /// warning, because a warning colour on every quiet dictation stops being read.
+    func testOnlyTheTwoDamagingStatesChangeTheMetersColour() {
+        XCTAssertEqual(CapsuleHUDWaveform.tint(for: .noSignal), .orange)
+        XCTAssertEqual(CapsuleHUDWaveform.tint(for: .clipping), .orange)
+        XCTAssertEqual(CapsuleHUDWaveform.tint(for: .low), .accentColor)
+        XCTAssertEqual(CapsuleHUDWaveform.tint(for: .good), .accentColor)
+        XCTAssertEqual(CapsuleHUDWaveform.tint(for: .measuring), .accentColor)
     }
 
     // MARK: - The duration
@@ -699,8 +835,7 @@ final class CapsuleHUDViewModelTests: XCTestCase {
 
     /// Where the pill itself ends up, given where the panel was put.
     private func pillTop(forOrigin origin: NSPoint, windowSize: CGSize) -> CGFloat {
-        let pillTopInset = (windowSize.height - CapsuleHUDView.capsuleHeight) / 2
-        return origin.y + windowSize.height - pillTopInset
+        origin.y + windowSize.height - CapsuleHUDView.pillTopInset
     }
 
     func testThePillHangsBelowTheMenuBarAndIsCentred() {
@@ -740,6 +875,36 @@ final class CapsuleHUDViewModelTests: XCTestCase {
 
         XCTAssertEqual(origin.x, tiny.minX, "Clamped to the left edge rather than centred off it")
         XCTAssertGreaterThanOrEqual(origin.y, tiny.minY)
+    }
+
+    /// The pill has two heights, and the taller one must grow **downwards**: the
+    /// panel's top margin is transparent and deliberately overlaps the menu bar,
+    /// so a pill centred in the panel would climb into it as it grew.
+    func testAnExpandedPillGrowsDownwardsRatherThanIntoTheMenuBar() {
+        XCTAssertGreaterThan(
+            CapsuleHUDView.expandedCapsuleHeight, CapsuleHUDView.capsuleHeight)
+        XCTAssertLessThanOrEqual(
+            CapsuleHUDView.pillTopInset + CapsuleHUDView.expandedCapsuleHeight,
+            CapsuleHUDView.windowSize.height,
+            "the expanded pill has to fit inside the panel, shadow margin and all")
+
+        let size = CapsuleHUDView.windowSize
+        let origin = CapsuleHUDWindowController.origin(
+            visibleFrame: Self.display.visible, screenFrame: Self.display.frame, windowSize: size
+        )
+        XCTAssertEqual(
+            pillTop(forOrigin: origin, windowSize: size),
+            Self.display.visible.maxY - CapsuleHUDWindowController.topMargin,
+            accuracy: 0.001,
+            "the pill's top is the same whichever height it is drawn at")
+    }
+
+    /// The engine-switch pill sits below the capsule's slot, and the slot it has
+    /// to clear is the tallest the capsule can be: a capsule reporting a
+    /// microphone problem is exactly the one that must not be covered up.
+    func testTheEngineSwitchPillClearsTheExpandedCapsule() {
+        XCTAssertGreaterThanOrEqual(
+            EngineSwitchHUD.capsuleClearance, CapsuleHUDView.expandedCapsuleHeight)
     }
 
     func testTheSecondScreenGetsItsOwnCoordinates() {

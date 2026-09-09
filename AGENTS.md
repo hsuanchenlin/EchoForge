@@ -49,8 +49,8 @@ it has no microphone, and its palette is ink, white and cyan with nothing warm i
 replaced a bronze-and-ember "Forge Ribbon" direction that was dropped along with the EchoForge
 name. `AppIconArtworkTests` asserts that at the pixel level.
 
-The menu-bar `tray_icon.pdf` is a leftover upstream bear silhouette and matches neither the old
-icon nor the new one. It is a separate asset and a separate decision; nothing above touches it.
+The menu-bar icons use the same mark and are generated from
+`Scripts/GenerateTrayIcon.swift`; `docs/menu-bar.md` owns the artwork and state contracts.
 
 ## Build
 
@@ -364,6 +364,9 @@ Settings and onboarding both read it; neither may write a second copy of the cop
 `OpenSuperWhisperTests/EngineCatalogTests.swift` pins the licence obligations (the model name
 must survive in the UI, the credit and three links must exist) and the caveats, so shortening
 that text fails a test instead of quietly dropping an obligation.
+
+`docs/model-inventory.md` owns the storage, removal, and recommendation contracts for the model
+inventory shown at the bottom of Settings → Model.
 
 `OpenSuperWhisper/Onboarding/OnboardingModelCatalog.swift` is the first-run model list: which
 rows are offered, in what order, and to whom. A row that exists for one language is shown only
@@ -823,6 +826,9 @@ nothing either way, so nothing before the capsule needed to tell a silent record
 one - and carries the sentence for a rewrite that kept the original, which the capsule shows as the
 badge the checkmark would otherwise paper over.
 
+The capsule also diagnoses microphone signal quality. `docs/capsule-hud.md` owns its thresholds,
+presentation, accessibility, and layout contracts.
+
 A HUD panel must not take focus: dictation ends by pasting into whatever app the user was typing in.
 Hence `.nonactivatingPanel` plus `canBecomeKey`/`canBecomeMain` false, `ignoresMouseEvents` except
 while a cancel button is up, and `constrainFrameRect` returning its argument - AppKit otherwise pulls
@@ -919,6 +925,13 @@ confirmation dialog does. The one presentation outside the guard's reach is
 `AppStyleMappingSettingsView`'s `NSOpenPanel.runModal()`, which runs its own event loop - transient,
 and the user is at the machine while it is up. The guard wins a race rather than proving a rule:
 taking a sheet down costs ~270 ms and loginwindow quits apps one at a time, which is seconds.
+
+## Setup Health, menu bar, and file import
+
+`docs/setup-health.md`, `docs/menu-bar.md`, and `docs/file-transcription.md` own the contracts for
+these three user surfaces. Setup is the first Settings tab; the status item is implemented under
+`OpenSuperWhisper/MenuBar/`; and `FileImportRow` makes the existing file-transcription queue
+discoverable from the main window.
 
 ## Permissions
 

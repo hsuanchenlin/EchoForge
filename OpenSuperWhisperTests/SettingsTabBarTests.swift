@@ -105,7 +105,7 @@ final class SettingsTabBarTests: XCTestCase {
     /// and the thing the fit test measures - and nothing shortens it for the
     /// bar's benefit.
     func testEveryTabHasAFullTitleOfItsOwn() {
-        XCTAssertEqual(SettingsTab.allCases.count, 8, "a tab was added or removed")
+        XCTAssertEqual(SettingsTab.allCases.count, 9, "a tab was added or removed")
         for tab in tabs {
             XCTAssertFalse(tab.title.isEmpty, "a tab with no title cannot be read out")
             XCTAssertFalse(
