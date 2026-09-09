@@ -508,3 +508,19 @@ final class MicrophoneTestVerdictTests: XCTestCase {
             MicrophoneTestCard.verdictText(for: .noSignal).contains("Nothing is reaching"))
     }
 }
+
+final class SetupHealthPermissionRefreshTests: XCTestCase {
+    func testBecomingActiveRechecksConditionalScreenRecordingPermission() throws {
+        let source = try String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("OpenSuperWhisper/SetupHealth/SetupHealthView.swift"),
+            encoding: .utf8)
+        let activation = try XCTUnwrap(
+            source.range(of: "NSApplication.didBecomeActiveNotification"))
+        let handler = source[activation.lowerBound...]
+
+        XCTAssertTrue(handler.contains("permissions.checkScreenRecordingPermission()"))
+        XCTAssertTrue(handler.contains("refresh()"))
+    }
+}

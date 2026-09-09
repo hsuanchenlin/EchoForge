@@ -55,6 +55,10 @@ struct SetupHealthView: View {
         .onReceive(NotificationCenter.default.publisher(for: .selectedEngineChanged)) { _ in
             refresh()
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            _ = permissions.checkScreenRecordingPermission()
+            refresh()
+        }
     }
 
     private var worst: SetupHealthStatus { SetupHealth.worstStatus(in: checks) }

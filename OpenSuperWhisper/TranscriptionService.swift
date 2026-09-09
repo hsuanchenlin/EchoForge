@@ -89,6 +89,7 @@ class TranscriptionService: ObservableObject {
     /// completion arriving after the user changed their mind can tell that it is
     /// stale rather than overwriting whatever replaced it.
     private var preparingEngine: EngineKind?
+    private var enginesReservedForRemoval: Set<EngineKind> = []
     private var languageObserver: NSObjectProtocol?
 
     /// What is downloaded, when a test needs to say rather than have it read off
@@ -110,6 +111,18 @@ class TranscriptionService: ObservableObject {
     /// sits behind a several-hundred-megabyte download otherwise. Production
     /// never sets it.
     var engineOverride: TranscriptionEngine?
+
+    func reserveEngineForRemoval(_ engine: EngineKind) -> Bool {
+        enginesReservedForRemoval.insert(engine).inserted
+    }
+
+    func releaseEngineRemovalReservation(_ engine: EngineKind) {
+        enginesReservedForRemoval.remove(engine)
+    }
+
+    func isEngineReservedForRemoval(_ engine: EngineKind) -> Bool {
+        enginesReservedForRemoval.contains(engine)
+    }
 
     init() {
         selection = EngineSelection(
@@ -332,6 +345,7 @@ class TranscriptionService: ObservableObject {
             return
         }
         guard EngineConfiguration.isPreparable(engine: desired) else { return }
+        guard !isEngineReservedForRemoval(desired) else { return }
         // Already fetching exactly this one; restarting would throw away progress.
         guard preparingEngine != desired else { return }
         // The same reason as in `loadEngine`: a test must not be able to start a
@@ -439,6 +453,9 @@ class TranscriptionService: ObservableObject {
         // nothing at all still fails visibly and leaves the choice as made.
         refreshSelection()
         guard let active = selection.active else {
+            throw TranscriptionError.engineNotConfigured
+        }
+        guard !isEngineReservedForRemoval(active) else {
             throw TranscriptionError.engineNotConfigured
         }
         if currentEngineKind == active, let currentEngine { return currentEngine }

@@ -29,19 +29,21 @@ final class ModelInventoryViewModel: ObservableObject {
     /// by the next action.
     @Published var failure: String?
 
-    /// The removal the user is being asked about, or `nil`. Held rather than
-    /// recomputed at confirmation time: the state it was decided against can
-    /// change while the dialog is up, and the sentence the user agreed to is the
-    /// one that has to be carried out.
+    /// The removal the user is being asked about, or `nil`.
     @Published private(set) var pendingRemoval: PendingRemoval?
 
     struct PendingRemoval: Equatable {
         let engine: EngineKind
+        let installedBytes: Int64
         let consequence: ModelRemoval.Consequence
         var message: String { consequence.message(for: engine) }
     }
 
     private let service: TranscriptionService
+    private let measure: @Sendable (
+        EngineAvailability, [ModelPreparation]
+    ) -> ([ModelInventoryEntry], Int64)
+    private var refreshRequestedWhileMeasuring = false
 
     /// A Settings-driven engine download, which `service.modelPreparation` knows
     /// nothing about: that tracks only the desired engine's background
@@ -49,8 +51,19 @@ final class ModelInventoryViewModel: ObservableObject {
     /// different engine's weights. The view keeps this current.
     var settingsPreparation: ModelPreparation?
 
-    init(service: TranscriptionService = .shared) {
+    init(
+        service: TranscriptionService = .shared,
+        measure: @escaping @Sendable (
+            EngineAvailability, [ModelPreparation]
+        ) -> ([ModelInventoryEntry], Int64) = { availability, preparations in
+            (
+                ModelInventory.measure(availability: availability, preparing: preparations),
+                RecordingStore.recordingsDiskUsage()
+            )
+        }
+    ) {
         self.service = service
+        self.measure = measure
     }
 
     /// Re-measures the disk.
@@ -60,22 +73,28 @@ final class ModelInventoryViewModel: ObservableObject {
     /// pane that looks broken. `EngineAvailability.current()` is read on the way
     /// in - it is 0.10 ms and reads no bytes.
     func refresh() {
-        guard !isMeasuring else { return }
+        guard !isMeasuring else {
+            refreshRequestedWhileMeasuring = true
+            return
+        }
         isMeasuring = true
 
         let availability = EngineAvailability.current(
             fluidAudioModelVersion: AppPreferences.shared.fluidAudioModelVersion)
         let preparations = [service.modelPreparation, settingsPreparation].compactMap { $0 }
+        let measure = measure
 
         Task.detached(priority: .utility) {
-            let measured = ModelInventory.measure(
-                availability: availability, preparing: preparations)
-            let recordings = RecordingStore.recordingsDiskUsage()
+            let (measured, recordings) = measure(availability, preparations)
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 self.entries = measured
                 self.recordingsBytes = recordings
                 self.isMeasuring = false
+                if self.refreshRequestedWhileMeasuring {
+                    self.refreshRequestedWhileMeasuring = false
+                    self.refresh()
+                }
             }
         }
     }
@@ -99,23 +118,14 @@ final class ModelInventoryViewModel: ObservableObject {
     /// to the user or the reason there is nothing to ask.
     func requestRemoval(of entry: ModelInventoryEntry) {
         failure = nil
-        let preferences = AppPreferences.shared
-        let decision = ModelRemoval.decide(
-            engine: entry.engine,
-            installedBytes: entry.installedBytes,
-            availability: EngineAvailability.current(
-                fluidAudioModelVersion: preferences.fluidAudioModelVersion),
-            activeEngine: service.selection.active,
-            isTranscribing: service.isTranscribing,
-            preparing: [service.modelPreparation?.engine, settingsPreparation?.engine]
-                .compactMap { $0 },
-            language: preferences.whisperLanguage,
-            fluidAudioModelVersion: preferences.fluidAudioModelVersion
-        )
+        let decision = removalDecision(engine: entry.engine, installedBytes: entry.installedBytes)
 
         switch decision {
         case .success(let consequence):
-            pendingRemoval = PendingRemoval(engine: entry.engine, consequence: consequence)
+            pendingRemoval = PendingRemoval(
+                engine: entry.engine,
+                installedBytes: entry.installedBytes,
+                consequence: consequence)
         case .failure(let refusal):
             failure = refusal.message
         }
@@ -134,9 +144,34 @@ final class ModelInventoryViewModel: ObservableObject {
     /// weights, and the status row goes on naming it.
     func confirmRemoval() {
         guard let pending = pendingRemoval else { return }
+        failure = nil
+
+        let decision = removalDecision(
+            engine: pending.engine, installedBytes: pending.installedBytes)
+        switch decision {
+        case .failure(let refusal):
+            pendingRemoval = nil
+            failure = refusal.message
+            return
+        case .success(let consequence) where consequence != pending.consequence:
+            pendingRemoval = PendingRemoval(
+                engine: pending.engine,
+                installedBytes: pending.installedBytes,
+                consequence: consequence)
+            return
+        case .success:
+            break
+        }
+
+        guard service.reserveEngineForRemoval(pending.engine) else {
+            pendingRemoval = nil
+            failure = "This model is already being removed."
+            return
+        }
         pendingRemoval = nil
 
         let directories = ModelInventory.cacheDirectories(for: pending.engine)
+        let service = service
         Task.detached(priority: .userInitiated) {
             var failures: [String] = []
             for directory in directories {
@@ -147,14 +182,33 @@ final class ModelInventoryViewModel: ObservableObject {
                     failures.append(error.localizedDescription)
                 }
             }
-            await MainActor.run { [weak self] in
-                guard let self else { return }
-                self.failure = failures.first
-                self.service.reloadEngine(allowModelDownload: false)
+            await MainActor.run { [weak self, service] in
+                defer { service.releaseEngineRemovalReservation(pending.engine) }
+                self?.failure = failures.first
+                service.reloadEngine(allowModelDownload: false)
                 NotificationCenter.default.post(name: .engineModelStateChanged, object: nil)
-                self.refresh()
+                self?.refresh()
             }
         }
+    }
+
+    private func removalDecision(
+        engine: EngineKind,
+        installedBytes: Int64
+    ) -> Result<ModelRemoval.Consequence, ModelRemoval.Refusal> {
+        let preferences = AppPreferences.shared
+        return ModelRemoval.decide(
+            engine: engine,
+            installedBytes: installedBytes,
+            availability: EngineAvailability.current(
+                fluidAudioModelVersion: preferences.fluidAudioModelVersion),
+            activeEngine: service.selection.active,
+            isTranscribing: service.isTranscribing,
+            preparing: [service.modelPreparation?.engine, settingsPreparation?.engine]
+                .compactMap { $0 },
+            language: preferences.whisperLanguage,
+            fluidAudioModelVersion: preferences.fluidAudioModelVersion
+        )
     }
 }
 
