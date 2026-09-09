@@ -6,6 +6,15 @@ import Foundation
 import KeyboardShortcuts
 import SwiftUI
 
+extension Notification.Name {
+    /// KeyboardShortcuts' own broadcast when a binding is recorded or cleared.
+    /// The Settings Recorders re-register the shortcut directly, and the
+    /// library has no disabled state for them to respect, so a pause has to be
+    /// re-asserted off this signal. The name is internal to the package, which
+    /// is why the raw string is repeated here.
+    static let shortcutBindingDidChange = Notification.Name("KeyboardShortcuts_shortcutByNameDidChange")
+}
+
 extension KeyboardShortcuts.Name {
     static let toggleRecord = Self("toggleRecord", default: .init(.backtick, modifiers: .option))
     static let escape = Self("escape", default: .init(.escape))
@@ -117,6 +126,17 @@ class ShortcutManager {
             name: .hotkeySettingsChanged,
             object: nil
         )
+
+        // A Settings Recorder registers its new binding itself, so it reaches
+        // none of this app's own change signals. Routed through the same gate
+        // as the trigger-mode pickers so no UI can unpause behind the paused
+        // indicator.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(shortcutBindingDidChange),
+            name: .shortcutBindingDidChange,
+            object: nil
+        )
         
         NotificationCenter.default.addObserver(
             self,
@@ -132,9 +152,26 @@ class ShortcutManager {
     }
     
     @objc private func hotkeySettingsChanged() {
+        reconfigureTriggersRespectingPause()
+    }
+
+    @objc private func shortcutBindingDidChange() {
+        reconfigureTriggersRespectingPause()
+    }
+
+    /// The one answer to "a shortcut binding changed": while the pause is up
+    /// the pause is re-asserted (a Recorder's rebind registers its shortcut
+    /// unconditionally, and the library has no disabled state to consult),
+    /// otherwise the triggers are rebuilt for the new settings. Every caller
+    /// converges here so the paused state cannot be undone piecemeal.
+    private func reconfigureTriggersRespectingPause() {
         Task { @MainActor [weak self] in
-            guard let self, !ShortcutPause.shared.isPaused else { return }
-            self.setupRecordingTrigger()
+            guard let self else { return }
+            if ShortcutPause.shared.isPaused {
+                self.applyPause(true)
+            } else {
+                self.setupRecordingTrigger()
+            }
         }
     }
     

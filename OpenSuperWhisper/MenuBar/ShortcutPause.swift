@@ -16,6 +16,13 @@ import Foundation
 /// would leave the app swallowing keystrokes it had promised to stop listening
 /// to, which is a different and worse thing to promise.
 ///
+/// **Paused means the keys stay off, no matter who re-registers one.** The
+/// KeyboardShortcuts package has no disabled state, so a Settings Recorder
+/// re-registering a rebound shortcut would silently undo the pause while the
+/// icon still showed it. `ShortcutManager` therefore routes every binding
+/// change - the trigger-mode pickers, the Recorders, anything future - through
+/// one gate that re-asserts the pause instead of rebuilding the triggers.
+///
 /// **It is not persisted, deliberately.** A paused install that came back paused
 /// after a relaunch is an app that looks broken, and the only clue would be one
 /// menu-bar icon a user has no reason to look at. Quitting is therefore also the
