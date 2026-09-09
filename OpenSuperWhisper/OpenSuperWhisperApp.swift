@@ -127,7 +127,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     /// The permission state the menu bar reflects. Owned here rather than by the
     /// controller because it is the app's, not the menu's - and because a second
     /// `PermissionsManager` would be a second poller.
-    private let permissionsManager = PermissionsManager()
+    private var permissionsManager: PermissionsManager { .shared }
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard !OpenSuperWhisperApp.isRunningTests else { return }

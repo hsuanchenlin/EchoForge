@@ -989,7 +989,7 @@ struct Settings {
 
 struct SettingsView: View {
     @StateObject private var viewModel = SettingsViewModel()
-    @StateObject private var permissionsManager = PermissionsManager()
+    @ObservedObject private var permissionsManager = PermissionsManager.shared
     @Environment(\.dismiss) var dismiss
     @State private var isRecordingNewShortcut = false
     @State private var selectedTab: SettingsTab = .setup
