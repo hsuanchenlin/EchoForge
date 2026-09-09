@@ -1,8 +1,8 @@
 import AppKit
 import Foundation
 
-/// The two things this tool asks AppKit for: which copies of an app are running,
-/// and open one.
+/// The three things this tool asks AppKit for: which copies of an app are
+/// running, open one, and hand it files.
 ///
 /// Kept in one small file so `CLISeamTests` can hold a simple rule - `AppKit`
 /// appears here and nowhere else in `EchoForgeCLI/`. A command that reached
@@ -56,5 +56,49 @@ enum WorkspaceBridge {
             throw CLIError("macOS refused to open \(url.path). \(failure.localizedDescription)")
         }
         return started
+    }
+
+    /// Hands files to an application the way the Finder's "Open With" does.
+    ///
+    /// `NSWorkspace.open(_:withApplicationAt:configuration:)` starts the app if
+    /// it is not running and delivers the URLs to a copy that already is, which
+    /// is exactly the behaviour `transcribe` wants: one Kongweh, one engine, one
+    /// database. `activates` is **false** - a script that transcribes a folder
+    /// should not pull the app in front of whatever the user is doing - and
+    /// `createsNewApplicationInstance` is left alone for the reason `open(_:)`
+    /// leaves it alone.
+    @discardableResult
+    static func open(
+        files: [URL], withApplicationAt application: URL, timeout: TimeInterval = 30
+    ) throws -> RunningCopy? {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+
+        let semaphore = DispatchSemaphore(value: 0)
+        var failure: Error?
+        var opened: RunningCopy?
+        NSWorkspace.shared.open(
+            files, withApplicationAt: application, configuration: configuration
+        ) { runningApplication, error in
+            failure = error
+            opened = runningApplication.map {
+                RunningCopy(
+                    processIdentifier: $0.processIdentifier,
+                    bundleURL: $0.bundleURL,
+                    launchDate: $0.launchDate)
+            }
+            semaphore.signal()
+        }
+        guard semaphore.wait(timeout: .now() + timeout) == .success else {
+            throw CLIError(
+                "macOS did not answer within \(Int(timeout))s when asked to open "
+                    + "\(files.count) file(s) with \(application.path).")
+        }
+        if let failure {
+            throw CLIError(
+                "macOS refused to open the file with \(application.path). "
+                    + failure.localizedDescription)
+        }
+        return opened
     }
 }

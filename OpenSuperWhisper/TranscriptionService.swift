@@ -51,6 +51,28 @@ class TranscriptionService: ObservableObject {
     @Published private(set) var isTranscribing = false
     @Published private(set) var transcribedText = ""
     @Published private(set) var currentSegment = ""
+
+    /// What the running engine has decoded so far, or nil when it has decoded
+    /// nothing yet or cannot say.
+    ///
+    /// Nil is two different facts deliberately collapsed into one, because a
+    /// surface can only do the same thing about both: this engine does not
+    /// report partial output (`PartialTranscriptEmitting`), or it does and has
+    /// not committed a segment yet. Either way there is nothing to show and
+    /// progress is what the user gets, which is what every overlay did before
+    /// this existed.
+    ///
+    /// Deliberately **not** merged into `progress`: they answer different
+    /// questions and overlap routinely, the same separation transcription and
+    /// model-preparation progress keep.
+    @Published private(set) var partialTranscript: PartialTranscript?
+
+    /// Whether the engine that would run now can report text before it finishes.
+    ///
+    /// Read once by a surface deciding what to draw, so "no partial output" is
+    /// a property of the engine rather than a nil that might become non-nil at
+    /// any moment.
+    var supportsPartialTranscripts: Bool { currentEngine is PartialTranscriptEmitting }
     @Published private(set) var isLoading = false
     @Published private(set) var progress: Float = 0.0
     @Published private(set) var isConverting = false
@@ -218,6 +240,7 @@ class TranscriptionService: ObservableObject {
     /// ever clear its own.
     func cancelTranscription() {
         currentSegment = ""
+        partialTranscript = nil
         progress = 0.0
 
         // `isTranscribing` spans the whole of `transcribeAudio`, including the
@@ -549,6 +572,29 @@ class TranscriptionService: ObservableObject {
         }
     }
 
+    /// Subscribes to the committed segments of an engine that has them, and
+    /// unsubscribes from one that does not.
+    ///
+    /// The generation is checked on arrival for the reason every publish in this
+    /// file checks it: whisper's callback fires on its own worker thread, so a
+    /// segment can land a main-queue hop after a *different* transcription has
+    /// taken the object over.
+    private func observePartialTranscripts(
+        of engine: TranscriptionEngine, generation: Int
+    ) {
+        guard let emitter = engine as? PartialTranscriptEmitting else { return }
+        emitter.onPartialTranscript = { [weak self] partial in
+            Task { @MainActor in
+                guard let self,
+                      self.transcriptionGeneration == generation,
+                      !self.isCancelled(generation)
+                else { return }
+                self.partialTranscript = partial
+                self.currentSegment = partial.segment
+            }
+        }
+    }
+
     func reloadModel(with path: String) {
         if AppPreferences.shared.selectedEngine == .whisper {
             AppPreferences.shared.selectedWhisperModelPath = path
@@ -586,6 +632,10 @@ class TranscriptionService: ObservableObject {
         isTranscribing = true
         transcribedText = ""
         currentSegment = ""
+        // Cleared per transcription rather than left to replay: `@Published`
+        // hands a fresh subscriber the previous dictation's last segment, which
+        // is somebody else's words on this one's overlay.
+        partialTranscript = nil
 
         defer {
             Task { @MainActor in
@@ -595,6 +645,7 @@ class TranscriptionService: ObservableObject {
                 self.isTranscribing = false
                 self.isConverting = false
                 self.currentSegment = ""
+                self.partialTranscript = nil
                 if !self.isCancelled(generation) {
                     self.progress = 1.0
                 }
@@ -605,6 +656,7 @@ class TranscriptionService: ObservableObject {
         let engine = try await engineForTranscription()
 
         observeProgress(of: engine)
+        observePartialTranscripts(of: engine, generation: generation)
 
         // Resolved once, outside the task: reading a captured `weak var` from
         // inside concurrently-executing code is an error under the Swift 6

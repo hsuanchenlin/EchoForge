@@ -63,7 +63,7 @@ work the capsule is currently reporting on.
 | `.connecting` | mode chip, spinner, "Connecting…" | when capture starts |
 | `.recording` | mode chip, level meter, `m:ss` | when the audio stops |
 | `.recording` + confirmation | mode chip, "Press Esc to cancel", countdown bar | when the window lapses |
-| `.polishing(.transcribing)` | mode chip, spinner, "Transcribing…", cancel | when the text arrives |
+| `.polishing(.transcribing)` | mode chip, spinner, "Transcribing…", cancel; a second line with the words decoded so far, on the engines that can say | when the text arrives |
 | `.polishing(.rewriting)` | mode chip, spinner, "Polishing…", cancel | when the text arrives |
 | `.awaitingChannelChoice` | mode chip, list icon, "Choose a channel" | when the channel picker resolves |
 | `.complete` | green checkmark, "Inserted" | after 1.5 s |
@@ -80,7 +80,7 @@ the dictation and the clock are all outside it, which is what makes the badge
 durations and the transitions testable without a window server, a microphone or a
 real 1.5 second wait. `CapsuleHUDViewModelTests` is that test.
 
-Four rules in it are load-bearing:
+Five rules in it are load-bearing:
 
 - **`complete()` is ignored unless a session is in flight.** A cancelled
   dictation, or one already showing why it stopped, must not end on a checkmark.
@@ -95,6 +95,33 @@ Four rules in it are load-bearing:
   drop, open-with, history regenerate) raise it too, and a `@Published` replays
   one already in flight at subscription time - so `beginPolishing(.rewriting)`
   is refused unless the capsule is already showing `.polishing(.transcribing)`.
+- **So may decoded words**, and for exactly the same reason:
+  `TranscriptionService.partialTranscript` is global too, so
+  `showPartialTranscript` is refused unless the capsule is showing its own
+  decode, and cleared when the rewrite starts - the pill then says what it is
+  doing with the text rather than keeping a line of transcript beside a different
+  promise.
+
+### The decoded-so-far line
+
+`PartialTranscript` carries what the engine has **committed**, and the word that
+matters is committed: whisper.cpp emits a segment once it has decided what that
+segment says and never revises one, so the line only ever grows. It is not a
+partial hypothesis and it does not flicker, which is the whole reason this app is
+willing to show it at all - a cross-engine *streaming* contract, with unstable
+text and revisions, is a much larger promise and is not this.
+
+Three of the four local engines return one final string and have nothing to
+report along the way, so `PartialTranscriptEmitting` is a **separate** protocol
+that only Whisper conforms to, and the capsule simply shows the spinner and the
+label alone for the others - exactly as it did before this existed.
+
+The line shows the **tail** of the transcript, truncated at the front and capped
+at the same width the microphone diagnostic uses, because a decode that has been
+running for thirty seconds has already said the beginning and what a user wants
+to know is where it has got to. It is announced to VoiceOver as "Transcribed so
+far", so a screen reader does not read a growing transcript as though the
+dictation had finished.
 
 The Esc cancel-confirmation is the session's, not the capsule's:
 `IndicatorViewModel` runs the same state machine for both overlays and the

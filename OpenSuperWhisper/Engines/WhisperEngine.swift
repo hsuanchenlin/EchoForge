@@ -38,7 +38,49 @@ private final class ProgressContext: @unchecked Sendable {
     }
 }
 
-class WhisperEngine: TranscriptionEngine {
+/// Carries the partial-transcript handler and the segments seen so far across
+/// the whisper C new-segment callback, which fires on whisper's own worker
+/// thread once per committed segment.
+///
+/// The same shape and the same annotation as `ProgressContext` above, for the
+/// same reason: every stored property is guarded by `lock`.
+private final class SegmentContext: @unchecked Sendable {
+    private var _onPartial: ((PartialTranscript) -> Void)?
+    private var _accumulator = PartialTranscriptAccumulator()
+    private let lock = NSLock()
+
+    var onPartial: ((PartialTranscript) -> Void)? {
+        get {
+            lock.lock()
+            defer { lock.unlock() }
+            return _onPartial
+        }
+        set {
+            lock.lock()
+            defer { lock.unlock() }
+            _onPartial = newValue
+        }
+    }
+
+    /// How many segments have already been reported, so a callback that says
+    /// "two are new" reads exactly the two it has not seen.
+    var reportedCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return _accumulator.segmentCount
+    }
+
+    func append(_ segment: String) {
+        lock.lock()
+        let partial = _accumulator.append(segment)
+        let handler = _onPartial
+        lock.unlock()
+        guard let partial, let handler else { return }
+        handler(partial)
+    }
+}
+
+class WhisperEngine: TranscriptionEngine, PartialTranscriptEmitting {
     var engineName: String { "Whisper" }
     
     private var context: MyWhisperContext?
@@ -47,8 +89,14 @@ class WhisperEngine: TranscriptionEngine {
     private let segmenter = SpeechSegmenter()
     private let abortFlag = AbortFlag()
     private var progressContext: ProgressContext?
+    private var segmentContext: SegmentContext?
     
     var onProgressUpdate: ((Float) -> Void)?
+
+    /// Whisper is the one engine in this app that can report text before it has
+    /// finished: it commits a segment at a time and never revises one. See
+    /// `PartialTranscript`.
+    var onPartialTranscript: ((PartialTranscript) -> Void)?
     
     var isModelLoaded: Bool {
         context != nil
@@ -81,9 +129,13 @@ class WhisperEngine: TranscriptionEngine {
         // Setup progress context for callback
         progressContext = ProgressContext()
         progressContext?.onProgress = onProgressUpdate
-        
+
+        segmentContext = SegmentContext()
+        segmentContext?.onPartial = onPartialTranscript
+
         defer {
             progressContext = nil
+            segmentContext = nil
         }
         
         // Notify conversion start (0-10% is conversion phase)
@@ -132,13 +184,16 @@ class WhisperEngine: TranscriptionEngine {
         params.detectLanguage = false // means that it only detects the language and does not process the transcription
         params.temperature = Float(settings.temperature)
         params.noSpeechThold = Float(settings.noSpeechThreshold)
-        // The user's typed prompt followed by their personal terms, so a name
-        // in the dictionary is one the decoder is biased to write rather than
-        // one the terms stage has to rescue afterwards. Measured with this
-        // model's tokenizer so the cap is the decoder's, not a guess.
+        // The user's typed prompt, then their personal terms, then whatever the
+        // app they are dictating into contributes - so a name in the dictionary
+        // is one the decoder is biased to write rather than one the terms stage
+        // has to rescue afterwards, and an identifier is one it has seen the
+        // shape of. Measured with this model's tokenizer so the cap is the
+        // decoder's, not a guess.
         params.initialPrompt = WhisperInitialPrompt.compose(
             userPrompt: settings.initialPrompt,
             terms: settings.personalTerms,
+            appVocabulary: settings.appVocabulary,
             tokenCount: { context.tokenCount(text: $0) }
         )
         // With noContext = false the initial prompt conditions only the first
@@ -172,6 +227,40 @@ class WhisperEngine: TranscriptionEngine {
         let progressContextPtr = Unmanaged.passUnretained(progressContext!).toOpaque()
         params.progressCallback = progressCallback
         params.progressCallbackUserData = progressContextPtr
+
+        // Committed segments, as they land. whisper.cpp calls this once a
+        // segment is decided and never revises one, so what it produces is text
+        // rather than a hypothesis - which is the whole reason this app is
+        // willing to show it. The text is read out of the same decoding state
+        // `full` is writing, from inside that call, which is where whisper.cpp
+        // documents this callback as being safe to read it.
+        typealias WhisperSegmentCallback = @convention(c) (
+            OpaquePointer?, OpaquePointer?, Int32, UnsafeMutableRawPointer?
+        ) -> Void
+        let segmentCallback: WhisperSegmentCallback = { _, _, _, userData in
+            guard let userData else { return }
+            let box = Unmanaged<SegmentCallbackBox>.fromOpaque(userData).takeUnretainedValue()
+            let total = box.context.fullNSegments
+            // `n_new` counts what this call added, but the reliable index is the
+            // one this app has already reported: a callback that arrives while
+            // another is still being served would otherwise read the same
+            // segment twice or skip one.
+            var next = box.segments.reportedCount
+            while next < total {
+                guard let text = box.context.fullGetSegmentText(iSegment: next) else { break }
+                box.segments.append(text)
+                next += 1
+            }
+        }
+
+        let segmentBox = SegmentCallbackBox(context: context, segments: segmentContext!)
+        let segmentBoxPtr = Unmanaged.passUnretained(segmentBox).toOpaque()
+        // Only wired when somebody is listening: the callback costs a string
+        // copy per segment and a decode nobody is watching should not pay it.
+        if onPartialTranscript != nil {
+            params.newSegmentCallback = segmentCallback
+            params.newSegmentCallbackUserData = segmentBoxPtr
+        }
         
         if settings.useBeamSearch {
             params.beamSearchBeamSize = Int32(settings.beamSize)
@@ -192,7 +281,11 @@ class WhisperEngine: TranscriptionEngine {
             context.freeState()
         }
         
-        guard context.full(samples: samples, params: &cParams) else {
+        let didDecode = context.full(samples: samples, params: &cParams)
+        // Keeps the unretained box alive for the whole of `full`, which is the
+        // only time the callback can fire.
+        withExtendedLifetime(segmentBox) {}
+        guard didDecode else {
             throw TranscriptionError.processingFailed
         }
         
@@ -230,5 +323,21 @@ class WhisperEngine: TranscriptionEngine {
     
     func getSupportedLanguages() -> [String] {
         return LanguageUtil.availableLanguages
+    }
+}
+
+
+/// What the whisper new-segment callback is handed: the context to read the
+/// committed segments out of, and the accumulator to report them through.
+///
+/// A class because the callback receives a raw pointer, and one type rather than
+/// two pointers because a C callback gets exactly one `user_data`.
+private final class SegmentCallbackBox: @unchecked Sendable {
+    let context: MyWhisperContext
+    let segments: SegmentContext
+
+    init(context: MyWhisperContext, segments: SegmentContext) {
+        self.context = context
+        self.segments = segments
     }
 }

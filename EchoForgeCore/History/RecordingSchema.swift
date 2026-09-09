@@ -176,6 +176,35 @@ enum RecordingSchema {
         return filtered.filter(matches)
     }
 
+    /// Every row the app wrote for one source file, newest first.
+    ///
+    /// This is the one place `sourceFileURL` is queried, and the asymmetry with
+    /// the search above is deliberate rather than an oversight. A *search* must
+    /// never touch that column, because the user's phrase would then match the
+    /// directories of files they were handed - a path is not something the card
+    /// has ever shown them. Asking for the exact path a caller has just handed
+    /// to the app is a different question: `echoforge transcribe` gave the app
+    /// this file a moment ago and is asking what became of it.
+    ///
+    /// The comparison is against the four spellings one file can reach the app
+    /// under, and no others. What is stored is whatever `path` LaunchServices
+    /// delivered, and `/tmp/a.wav` arrives as `/private/tmp/a.wav` while
+    /// `~/x/../a.wav` arrives standardized - so the exact string can differ from
+    /// the one the caller typed for a file that is unambiguously the same one.
+    /// Every candidate is still an **exact** match: nothing here matches by
+    /// filename, prefix or similarity.
+    static func query(forSourceFile url: URL) -> QueryInterfaceRequest<Recording> {
+        let candidates = Array(Set([
+            url.path,
+            url.standardizedFileURL.path,
+            url.resolvingSymlinksInPath().path,
+            url.standardizedFileURL.resolvingSymlinksInPath().path,
+        ]))
+        return Recording
+            .filter(candidates.contains(Recording.Columns.sourceFileURL))
+            .order(Recording.Columns.timestamp.desc)
+    }
+
     /// The escape character the search patterns are built with.
     ///
     /// LIKE has wildcards of its own, and a search field does not: without this

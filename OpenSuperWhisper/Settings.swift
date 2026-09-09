@@ -901,6 +901,30 @@ struct Settings {
     /// dictionary. One toggle governs both: with safe correction off the
     /// dictionary is inert everywhere, not just after the engine.
     var personalTerms: [PersonalTerm]
+    /// Whether this transcription is read for spoken corrections - "scratch
+    /// that", "replace Friday with Monday" - and how much of the stage runs.
+    ///
+    /// Two conditions, exactly as `routesSpokenIntents` has two: the user
+    /// switched the feature on, **and** the caller is a path where a correction
+    /// is a correction. Only live dictation is. A dropped file is somebody's
+    /// recording rather than this user's utterance, a queued recording and a
+    /// regenerate from history are the same recording again, and a voice-edit
+    /// instruction ("replace Friday with Monday", spoken at ⌥E) is the
+    /// instruction itself - eating it here would leave the edit with nothing to
+    /// do. See `SpokenCorrector` and `docs/spoken-corrections.md`.
+    var spokenCorrections: SpokenCorrectionOptions
+
+    /// The vocabulary the app being dictated into contributes to the recognizer
+    /// before it decodes, or nil when no app has anything to add.
+    ///
+    /// Resolved here beside `personalTerms` because they are shown to the
+    /// decoder together and the composition has to see both at once
+    /// (`WhisperInitialPrompt`). Nil on every path with no app to resolve - a
+    /// dropped file, a queued recording, a regenerate from history - and on
+    /// every engine that takes no prompt this value is simply never read. See
+    /// `AppVocabularyStore`.
+    var appVocabulary: AppVocabularyProfile?
+
     /// The style rewriting stage, which runs after the deterministic ones and
     /// may decline to change anything at all. See `StyleRewriteService`.
     var styleRewrite: StyleRewriteConfiguration
@@ -980,6 +1004,9 @@ struct Settings {
     ///     use.
     ///   - routesSpokenIntents: whether this path reads the transcript for a
     ///     spoken command. Only live dictation passes `true`; see the property.
+    ///   - correctsSpokenEdits: whether this path reads the transcript for a
+    ///     spoken correction. Only live dictation passes `true`, and for the
+    ///     same reason; see the property.
     ///   - purpose: what the session was captured for. `.dictation` - the
     ///     default - is every path in the app but two: the YouTube command
     ///     hotkey, which is the only caller that passes `.youTubeCommand`,
@@ -988,10 +1015,19 @@ struct Settings {
     init(
         purpose: DictationPurpose = .dictation,
         dictationTarget: DictationTargetApp? = nil,
-        routesSpokenIntents: Bool = false
+        routesSpokenIntents: Bool = false,
+        correctsSpokenEdits: Bool = false
     ) {
         let prefs = AppPreferences.shared
         self.purpose = purpose
+        // A command capture and a voice-edit instruction are not dictation, so
+        // neither is read for a retraction: the words are a channel name and an
+        // instruction, and both have to survive exactly as spoken.
+        self.spokenCorrections =
+            (purpose == .dictation && correctsSpokenEdits && prefs.spokenCorrectionsEnabled)
+            ? SpokenCorrectionOptions(
+                isEnabled: true, removesFillerWords: prefs.fillerWordRemovalEnabled)
+            : .disabled
         // A command capture is never dictation and never routes one: it cannot
         // ask, translate or expand a snippet, because none of those end anywhere
         // but the user's document and this utterance is not going there.
@@ -1035,6 +1071,10 @@ struct Settings {
         // prompt through untouched. See `AppStyleMappingStore`.
         self.styleRewrite = AppStyleMappingStore.load(from: prefs)
             .configuration(chosen, for: dictationTarget)
+        // And it may add words the recognizer is biased towards, never remove
+        // any: the user's own dictionary is composed first and is never crowded
+        // out by this. See `AppVocabularyStore`.
+        self.appVocabulary = AppVocabularyStore.load(from: prefs).profile(for: dictationTarget)
     }
 }
 

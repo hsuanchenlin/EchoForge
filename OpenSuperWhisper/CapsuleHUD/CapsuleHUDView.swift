@@ -143,19 +143,26 @@ struct CapsuleHUDView: View {
             .animation(.easeInOut(duration: 0.2), value: showsSignalDiagnostic)
 
         case .polishing(let work):
-            row {
-                // The chip stays up through the wait, unlike the meter and the
-                // timer: this is when a spoken command is recognised, so it is
-                // the moment the chip changes from "Dictate" to "Ask" or
-                // "Translate …" and the one moment the user needs to see it.
-                modeChip
-                ProgressView()
-                    .controlSize(.small)
-                    .scaleEffect(0.7)
-                    .frame(width: 14)
-                PulsingLabel(text: work.label)
-                cancelButton
+            VStack(alignment: .leading, spacing: 4) {
+                row {
+                    // The chip stays up through the wait, unlike the meter and
+                    // the timer: this is when a spoken command is recognised, so
+                    // it is the moment the chip changes from "Dictate" to "Ask"
+                    // or "Translate …" and the one moment the user needs to see
+                    // it.
+                    modeChip
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.7)
+                        .frame(width: 14)
+                    PulsingLabel(text: work.label)
+                    cancelButton
+                }
+                if work == .transcribing, let partial = viewModel.partialText {
+                    partialTranscriptRow(partial)
+                }
             }
+            .animation(.easeInOut(duration: 0.2), value: viewModel.partialText)
 
         case .awaitingChannelChoice:
             row {
@@ -224,6 +231,39 @@ struct CapsuleHUDView: View {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(viewModel.signal.announcement ?? text)
         }
+    }
+
+    /// The words the engine has committed so far, on the same second line the
+    /// signal diagnostic uses while recording.
+    ///
+    /// The **tail** of the transcript rather than its head, because a decode
+    /// that has been running for thirty seconds has already said the beginning
+    /// and what a user wants to know is where it has got to. One line, truncated
+    /// at the front and capped at the same width the diagnostic uses, so a long
+    /// dictation cannot widen the pill.
+    ///
+    /// It is deliberately not an editable or selectable surface: the panel
+    /// refuses mouse events for the whole session
+    /// (`CapsuleHUDWindowController.acceptsMouseEvents`), because a HUD that
+    /// swallowed clicks would take the top strip of the screen away from the app
+    /// the user is dictating into.
+    private func partialTranscriptRow(_ text: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "text.quote")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+            Text(text)
+                .font(.system(size: 11, weight: .regular))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.head)
+                .frame(maxWidth: 300, alignment: .trailing)
+        }
+        .padding(.horizontal, 14)
+        .accessibilityElement(children: .ignore)
+        // Announced as what it is, so a screen reader does not read a growing
+        // transcript as though the dictation were finished.
+        .accessibilityLabel("Transcribed so far: \(text)")
     }
 
     /// "No signal · MacBook Pro Microphone", or just the state when the input has

@@ -22,6 +22,11 @@ struct CLIEnvironment {
     /// `logs --follow` - sees time pass.
     var now: () -> Date
 
+    /// Waits. A seam for the same reason the clock is one: `transcribe` polls
+    /// the recordings database while the app works, and a test that actually
+    /// slept would spend the timeout it is asserting.
+    var sleep: (TimeInterval) async throws -> Void
+
     /// Where the tool looks for the app when `--app` is not given, in order.
     var defaultApplicationLocations: [URL]
 
@@ -76,6 +81,17 @@ protocol ApplicationLaunching {
     /// activates an already-running copy of the same bundle identifier rather
     /// than starting a second one.
     func launch(at url: URL) throws -> RunningCopy?
+
+    /// Hands files to the app the way the Finder's "Open With" does, starting it
+    /// first if it is not running.
+    ///
+    /// This is the whole of how `transcribe` works, and it is a decision rather
+    /// than a shortcut. The app is the single owner of the engine, the model
+    /// cache and the recordings database (`AGENTS.md`); a tool that loaded a
+    /// model of its own would be a second process holding the same weights, and
+    /// a tool that wrote its own rows would be a second writer. Handing the file
+    /// over is the one way to transcribe that adds neither.
+    func open(files: [URL], withApplicationAt url: URL) throws -> RunningCopy?
 }
 
 /// Whether a preference reader can provide values, and what it contains.
@@ -151,6 +167,10 @@ struct AppDefaults: PreferencesReading {
 struct SystemApplicationLauncher: ApplicationLaunching {
     func launch(at url: URL) throws -> RunningCopy? {
         try WorkspaceBridge.open(url)
+    }
+
+    func open(files: [URL], withApplicationAt url: URL) throws -> RunningCopy? {
+        try WorkspaceBridge.open(files: files, withApplicationAt: url)
     }
 }
 

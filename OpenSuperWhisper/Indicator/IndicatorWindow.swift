@@ -469,7 +469,12 @@ class IndicatorViewModel: ObservableObject {
                         // command means anything - see `Settings`. A
                         // `.youTubeCommand` capture is not one, and
                         // `Settings` refuses it there whatever is passed.
-                        routesSpokenIntents: true
+                        routesSpokenIntents: true,
+                        // Live dictation is also the one path where "scratch
+                        // that" is a retraction rather than words: a dropped
+                        // file is somebody's recording and a ⌥E instruction is
+                        // the instruction. `Settings` refuses both.
+                        correctsSpokenEdits: true
                     )
                     let styled = try await transcriptionService.transcribeAudio(
                         url: tempURL, settings: settings)

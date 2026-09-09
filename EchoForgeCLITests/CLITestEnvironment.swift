@@ -26,6 +26,9 @@ enum CLITestEnvironment {
             log: FakeLog(),
             updates: FakeUpdates(),
             now: { now },
+            // A no-op rather than a real wait: `transcribe` polls, and a suite
+            // that actually slept would spend the timeout it is asserting.
+            sleep: { _ in },
             defaultApplicationLocations: [URL(fileURLWithPath: "/Applications/EchoForge.app")],
             confirm: { _ in nil },
             toolIdentity: AppBuildIdentity(
@@ -104,15 +107,28 @@ final class FakeRunningApplications: RunningApplicationsReading {
 
 final class FakeLauncher: ApplicationLaunching {
     private(set) var launched: [URL] = []
+    private(set) var opened: [(files: [URL], application: URL)] = []
     var result: RunningCopy? = RunningCopy(
         processIdentifier: 4242,
         bundleURL: URL(fileURLWithPath: "/Applications/EchoForge.app"),
         launchDate: nil)
     var failure: Error?
 
+    /// Called after `open(files:withApplicationAt:)`, so a test can arrange the
+    /// row the app "wrote" in response - which is what the real app does and
+    /// what `transcribe` is waiting for.
+    var onOpen: (() -> Void)?
+
     func launch(at url: URL) throws -> RunningCopy? {
         launched.append(url)
         if let failure { throw failure }
+        return result
+    }
+
+    func open(files: [URL], withApplicationAt url: URL) throws -> RunningCopy? {
+        opened.append((files, url))
+        if let failure { throw failure }
+        onOpen?()
         return result
     }
 }
@@ -122,10 +138,27 @@ final class FakeHistory: HistoryReading {
     var failure: Error?
     private(set) var requests: [HistoryRequest] = []
 
+    /// Rows keyed by source path, newest first, as the real reader returns them.
+    var recordingsBySourceFile: [String: [Recording]] = [:]
+    private(set) var sourceFileLookups: [URL] = []
+
+    /// Answers a different set of rows on each successive lookup, so a test can
+    /// state "nothing yet, then in flight, then done" without a clock.
+    var sourceFileSequence: [[Recording]] = []
+
     func read(_ request: HistoryRequest, now: Date) throws -> HistoryPage {
         requests.append(request)
         if let failure { throw failure }
         return page
+    }
+
+    func recordings(forSourceFile url: URL) throws -> [Recording] {
+        sourceFileLookups.append(url)
+        if let failure { throw failure }
+        if !sourceFileSequence.isEmpty {
+            return sourceFileSequence.removeFirst()
+        }
+        return recordingsBySourceFile[url.standardizedFileURL.path] ?? []
     }
 }
 

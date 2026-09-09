@@ -49,6 +49,15 @@ struct HistoryPage: Equatable {
 
 protocol HistoryReading {
     func read(_ request: HistoryRequest, now: Date) throws -> HistoryPage
+
+    /// Every row the app wrote for one source file, newest first.
+    ///
+    /// Its own method rather than a `HistoryRequest` option, because it is a
+    /// different kind of question: `read` runs the History pane's search, which
+    /// deliberately cannot see `sourceFileURL`, and this asks about the exact
+    /// path the caller has just handed to the app. `transcribe` is the only
+    /// caller. See `RecordingSchema.query(forSourceFile:)`.
+    func recordings(forSourceFile url: URL) throws -> [Recording]
 }
 
 /// Reads the app's recordings database without being able to change it.
@@ -72,28 +81,7 @@ struct ReadOnlyHistoryReader: HistoryReading {
     }
 
     func read(_ request: HistoryRequest, now: Date) throws -> HistoryPage {
-        guard fileSystem.fileExists(at: databaseURL) else {
-            throw CLIError(
-                "No history database at \(databaseURL.path). Kongweh writes it the first time it "
-                    + "runs, so this usually means the app has not been started on this Mac yet.",
-                exitCode: .sourceUnavailable)
-        }
-
-        var configuration = Configuration()
-        configuration.readonly = true
-        configuration.busyMode = .timeout(2)
-        let queue: DatabaseQueue
-        do {
-            queue = try DatabaseQueue(path: databaseURL.path, configuration: configuration)
-        } catch let error as DatabaseError where error.resultCode == .SQLITE_BUSY {
-            throw CLIError(
-                "The history database is busy because Kongweh is updating it. Try again shortly.",
-                exitCode: .sourceUnavailable)
-        } catch {
-            throw CLIError(
-                "The history database could not be opened. \(error.localizedDescription)",
-                exitCode: .sourceUnavailable)
-        }
+        let queue = try openReadOnly()
 
         // Resolved here rather than in the query, because the phrase's meaning
         // depends on a clock and this tool takes its clock from the environment.
@@ -120,6 +108,59 @@ struct ReadOnlyHistoryReader: HistoryReading {
             throw CLIError(
                 "The history database could not be read. It may have been written by a newer "
                     + "Kongweh than this tool was built from. \(error.localizedDescription)",
+                exitCode: .sourceUnavailable)
+        }
+    }
+
+    func recordings(forSourceFile url: URL) throws -> [Recording] {
+        let queue = try openReadOnly()
+        do {
+            return try queue.read { database in
+                try RecordingSchema.query(forSourceFile: url)
+                    .limit(Self.sourceFileRowLimit)
+                    .fetchAll(database)
+            }
+        } catch let error as DatabaseError where error.resultCode == .SQLITE_BUSY {
+            throw CLIError(
+                "The history database is busy because Kongweh is updating it. Try again shortly.",
+                exitCode: .sourceUnavailable)
+        } catch {
+            throw CLIError(
+                "The history database could not be read. \(error.localizedDescription)",
+                exitCode: .sourceUnavailable)
+        }
+    }
+
+    /// How many rows one file may have produced before this stops looking.
+    ///
+    /// Bounded because a file transcribed and regenerated repeatedly has a row
+    /// each time, and only the newest is ever the answer.
+    private static let sourceFileRowLimit = 20
+
+    /// The read-only connection, opened the same way for both reads.
+    ///
+    /// One place, so "the migrator never runs here" and "the connection is
+    /// read-only" are single facts rather than two copies that could drift.
+    private func openReadOnly() throws -> DatabaseQueue {
+        guard fileSystem.fileExists(at: databaseURL) else {
+            throw CLIError(
+                "No history database at \(databaseURL.path). Kongweh writes it the first time it "
+                    + "runs, so this usually means the app has not been started on this Mac yet.",
+                exitCode: .sourceUnavailable)
+        }
+
+        var configuration = Configuration()
+        configuration.readonly = true
+        configuration.busyMode = .timeout(2)
+        do {
+            return try DatabaseQueue(path: databaseURL.path, configuration: configuration)
+        } catch let error as DatabaseError where error.resultCode == .SQLITE_BUSY {
+            throw CLIError(
+                "The history database is busy because Kongweh is updating it. Try again shortly.",
+                exitCode: .sourceUnavailable)
+        } catch {
+            throw CLIError(
+                "The history database could not be opened. \(error.localizedDescription)",
                 exitCode: .sourceUnavailable)
         }
     }
