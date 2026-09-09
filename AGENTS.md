@@ -49,8 +49,15 @@ it has no microphone, and its palette is ink, white and cyan with nothing warm i
 replaced a bronze-and-ember "Forge Ribbon" direction that was dropped along with the EchoForge
 name. `AppIconArtworkTests` asserts that at the pixel level.
 
-The menu-bar `tray_icon.pdf` is a leftover upstream bear silhouette and matches neither the old
-icon nor the new one. It is a separate asset and a separate decision; nothing above touches it.
+The menu-bar icons are the same mark, generated the same way: `Scripts/GenerateTrayIcon.swift`
+is the vector source and `Scripts/generate_tray_icon.sh` renders the three committed PDFs
+(`tray_icon`, `tray_icon_recording`, `tray_icon_paused`), which replaced the leftover upstream
+bear silhouette. `TrayIconArtworkTests` reads the committed files for the same reason
+`AppIconArtworkTests` does. Two things there are easy to get wrong: a **PDF context cannot
+erase** - `.clear` paints the shape opaque instead, which shipped a solid block where two pause
+bars should have been - so a badge has to sit in geometry that is already empty, which is the
+gap the open arcs leave under the core; and the three differ **only** in that badge, because
+they are one icon changing state. `docs/menu-bar.md` is the whole story.
 
 ## Build
 
@@ -364,6 +371,21 @@ Settings and onboarding both read it; neither may write a second copy of the cop
 `OpenSuperWhisperTests/EngineCatalogTests.swift` pins the licence obligations (the model name
 must survive in the UI, the credit and three links must exist) and the caveats, so shortening
 that text fails a test instead of quietly dropping an obligation.
+
+`ModelInventory`, `ModelRemoval` and `EngineRecommendation` (`Engines/`) are the storage-level
+view of the same engines, shown at the bottom of Settings → Model, and `docs/model-inventory.md`
+is their story. All three are pure functions of a snapshot, so a half-installed cache, a cache
+deleted behind the app's back and "this is the last engine that can transcribe" are asserted
+without downloading anything. Three rules are absolute. Sizes are **measured**, not advertised -
+`ModelReadiness.incomplete` is the state a downloaded badge could never show, and it is what a
+model that re-downloads itself every launch actually looks like. Removal is **refused** while
+the engine is loaded or being prepared, and otherwise names its consequence, resolving the
+fallback against what would be *left* and never onto the cloud engine. And a recommendation is
+a sentence: it never downloads, deletes, writes `selectedEngine`, or proposes the cloud, and
+memory only ever adds a note beside the Whisper models rather than changing which engine is
+recommended. `EngineCatalogEntry.outcome` and `.character` exist for this - the picker has
+always asked users to choose an implementation before anything told them what the
+implementations do.
 
 `OpenSuperWhisper/Onboarding/OnboardingModelCatalog.swift` is the first-run model list: which
 rows are offered, in what order, and to whom. A row that exists for one language is shown only
@@ -823,6 +845,19 @@ nothing either way, so nothing before the capsule needed to tell a silent record
 one - and carries the sentence for a rewrite that kept the original, which the capsule shows as the
 badge the checkmark would otherwise paper over.
 
+The capsule also says what the *signal* is doing, which a level meter alone cannot:
+`MicrophoneSignal` and `MicrophoneSignalMonitor` (`MicrophoneSignal.swift`) turn the meter into
+No signal, Low signal and Clipping, and the pill grows a second line naming the state and the
+input device - downwards, so the pill's top never moves (`CapsuleHUDView.pillTopInset`, which
+`EngineSwitchHUD.capsuleClearance` also reads). `AudioRecorder.inputLevel` carries the mean
+**and** the peak in one published value, because only the peak answers "is this clipping" and a
+voice peaking at 0 dBFS averages out around -18. Four rules keep it from becoming noise: nothing
+is claimed inside a grace period except clipping; the verdict is about the whole capture, so a
+pause after speech is never "No signal"; only the two damaging states change the meter's colour,
+and colour never carries a diagnostic alone; and nothing is ever refused. VoiceOver gets an
+announcement **on entry only, once per state per session** - the meter publishes twenty readings
+a second. `docs/capsule-hud.md` is the whole story.
+
 A HUD panel must not take focus: dictation ends by pasting into whatever app the user was typing in.
 Hence `.nonactivatingPanel` plus `canBecomeKey`/`canBecomeMain` false, `ignoresMouseEvents` except
 while a cancel button is up, and `constrainFrameRect` returning its argument - AppKit otherwise pulls
@@ -919,6 +954,53 @@ confirmation dialog does. The one presentation outside the guard's reach is
 `AppStyleMappingSettingsView`'s `NSOpenPanel.runModal()`, which runs its own event loop - transient,
 and the user is at the machine while it is up. The guard wins a race rather than proving a rule:
 taking a sheet down costs ~270 ms and loginwindow quits apps one at a time, which is seconds.
+
+## Setup Health, and the menu bar
+
+Settings' first tab is **Setup** and it is the only pane that answers a question rather than
+exposing a subsystem: is Kongweh ready, and if not, where is the thing to change.
+`SetupHealth.checks(SetupHealthInputs)` is a pure function of a snapshot - every combination is
+asserted without a microphone, a model, a TCC grant or a network - and three rules carry it. **It
+reads**: nothing on that path writes a preference, downloads, selects an engine or grants a
+permission; each row links to the tab that owns the fix. **It duplicates no facts**: engine names
+from `EngineCatalog`, readiness from `ModelInventory`, the desired-versus-active split from
+`EngineSelection`, the trigger from `DictationTrigger`, the cloud position from `CloudAccess`.
+And **rows never reorder** - the topics are a fixed list a user learns the shape of, and the
+one-line summary carries the urgency instead. `docs/setup-health.md` is the whole story,
+including the five-second microphone test, which takes the single `RecordingSession` claim, is
+refused while a dictation is in flight, watches `$failedStart` for its own session, and always
+ends with `cancelRecording` so no audio survives it.
+
+`DictationTrigger` (`SetupHealth/`) resolves the three exclusive trigger modes in the same order
+`ShortcutManager.setupRecordingTrigger` does, so the main window's hint, Setup Health and the
+menu bar cannot name a key the app is not listening on. `ShortcutConflicts` reports collisions
+**between this app's own bindings only**: macOS exposes no supported way to enumerate another
+application's global hotkeys, so a check claiming conflicts in general would claim what it
+cannot know.
+
+`OpenSuperWhisper/MenuBar/` is the status item, and `docs/menu-bar.md` is its story. It decides
+nothing - `MenuBarState` resolves the status, `MenuBarTranscript` decides which rows may be shown
+and cuts them to one line, `EngineCycle` decides which engines a pick may land on, and
+`EngineSelectionCommand` carries it out. The menu is rebuilt on open; only the icon follows live.
+Three things there are absolute. **Pause means the shortcuts, never the microphone** - it
+unregisters the six global hotkeys and stops the two monitors, so a paused app stops swallowing
+the keystroke too, and it is deliberately **not persisted** because an app that came back paused
+after a relaunch looks broken. A transcript row is offered only when it **finished with words**
+and is text the user wanted, so a spoken command's channel name and a question whose answer
+lives elsewhere are both excluded; Copy carries the whole transcript, not the cut preview. And
+an engine pick is disabled mid-dictation, for the reason ⌥M defers rather than switching.
+
+Adding a Settings tab is a width decision as well as a list one: the bar is one row of titles, so
+`SettingsTabBarFitTests` fails at test time rather than the app shipping truncated ones - the
+ninth tab took the sheet from 680 pt to 760 pt. `SettingsPresentation.pendingTab` is how
+something outside the sheet asks it to open on a particular tab; it is consumed on read, so a
+sheet opened any other way lands on Setup.
+
+The main window's `FileImportRow` is the same idea for file transcription, which worked and was
+unfindable: a dashed drop well that is there **before** a drag, an Open Files… button, and - once
+anything is queued - a count and a Show button applying the file-transcription filter. The count
+is answered in SQL for the reason the filter is (history is paged).
+`docs/file-transcription.md` is the story; nothing about the queue itself changed.
 
 ## Permissions
 

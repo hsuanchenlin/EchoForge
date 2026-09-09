@@ -33,6 +33,64 @@ Scripts/build_release.sh --sign-identity "Developer ID Application: AAAA BBBB (X
 This fork has neither, so its releases are ad-hoc signed and unnotarized;
 [install.md](install.md) is what tells users how to get past Gatekeeper.
 
+### What is still missing, exactly
+
+Unsigned distribution is the single largest product problem this app has: every
+install and every update puts a macOS warning in front of the user, the
+workarounds in [install.md](install.md) exist only because of it, and a
+replacement bundle with a different signature can cost the user their TCC grants.
+Nothing in the code can fix it. What is missing is **one credential**, and the
+steps that follow from having it are already written above and already
+implemented in `Scripts/build_release.sh`.
+
+**The credential.** An Apple Developer Program membership (individual or
+organization), from which two things are derived:
+
+1. A **Developer ID Application** certificate, created in Xcode
+   (Settings → Accounts → Manage Certificates → +) or on the developer portal,
+   and present in the login keychain of whatever machine runs the release build.
+   `security find-identity -v -p codesigning` is how to confirm it is there; the
+   string it prints, `Developer ID Application: NAME (TEAMID)`, is what
+   `--sign-identity` takes.
+2. A **`notarytool` keychain profile**, stored once with
+   `xcrun notarytool store-credentials <profile> --apple-id <id> --team-id <TEAMID>
+   --password <app-specific-password>`. The password is an app-specific password
+   from appleid.apple.com, not the account password. `<profile>` is what
+   `--notarize-profile` takes.
+
+**Then the release is the command already documented above**, and three things
+follow from it automatically because they are already implemented:
+
+- Hardened runtime turns **on**, because the signing mode decides it - see the
+  table below. Nothing about that switch may be set by hand.
+- `Scripts/verify_release_package.sh` still runs, and still refuses to hand back
+  a package that fails. It checks that every nested Mach-O carries the app's own
+  Team ID and that hardened runtime and ad-hoc signing are never combined - which
+  is exactly the pair that shipped an unopenable v0.3.0 - and it **starts the
+  app** (`ECHOFORGE_LAUNCH_CHECK=1`). None of that weakens for a signed build; it
+  gets stricter, because a Developer ID build has a Team ID to check against.
+- `notarize_app.sh` staples the ticket, so the DMG works on a Mac that is offline
+  the first time it is opened.
+
+**What has to be checked by hand on the first signed release**, because no test
+can reach it:
+
+- A **clean Mac** - or a fresh user account - installs and opens the DMG with no
+  Gatekeeper dialog at all.
+- `spctl -a -vvv -t install EchoForge.dmg` and `spctl -a -vvv /Applications/EchoForge.app`
+  both accept, and `xcrun stapler validate` passes on both.
+- The **in-app updater** replaces a signed build with a signed build:
+  `DownloadedBuildRequirements` and the `codesign --verify --deep --strict` check
+  in `UpdateInstaller` are unchanged by signing, but the swap has never been run
+  against a notarized bundle.
+- **TCC grants survive the update.** This is the reason to do it at all: microphone
+  and Accessibility are keyed on code identity, so the first signed release will
+  itself re-prompt every existing ad-hoc user once, and every release after it
+  must not.
+
+Until that credential exists, [install.md](install.md) stays the single home for
+the Gatekeeper workarounds and the README must not grow a second copy of them.
+
 ### Signing mode decides hardened runtime
 
 They are not independent settings, and getting this wrong is what shipped an unopenable
