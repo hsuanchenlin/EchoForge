@@ -12,7 +12,24 @@ second copy of the recordings database - and no second copy of a speech model.
 
 ---
 
-## Build and install
+## Install
+
+```sh
+brew install hsuanchenlin/tap/echoforge
+```
+
+The formula is in `hsuanchenlin/homebrew-tap` and installs the binary published
+as a release asset beside `EchoForge.dmg`. It is a **separate** asset: the disk
+image contains the app and nothing else, because adding a second product to it
+would change what `Scripts/verify_release_package.sh` verifies.
+
+The formula is updated by hand after a release is published, so it can trail the
+newest app by a few minutes. `echoforge --version` prints both numbers, and the
+app's and the tool's are routinely different anyway.
+
+---
+
+## Build it yourself
 
 The tool is a target in the app's own Xcode project, so it needs the same
 submodules and toolchain the app does:
@@ -41,10 +58,8 @@ sudo cp build/Build/Products/Release/echoforge /usr/local/bin/echoforge
 echoforge --version
 ```
 
-The tool is **not** shipped inside `EchoForge.dmg`. The release artifact is the
-app and nothing else (`Scripts/build_release.sh`), and adding a second product
-to it would change what `Scripts/verify_release_package.sh` verifies. Build it
-from the repository.
+Building it yourself is also how you get a tool newer than the last release, and
+the only way to get one on a machine the tap does not cover.
 
 ---
 
