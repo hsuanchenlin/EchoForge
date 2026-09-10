@@ -33,6 +33,7 @@ enum CommandRouter {
         Descriptor(VersionCommand.self),
         Descriptor(StatusCommand.self),
         Descriptor(StartCommand.self),
+        Descriptor(TranscribeCommand.self),
         Descriptor(HistoryCommand.self),
         Descriptor(LogsCommand.self),
         Descriptor(SettingsCommand.self),
@@ -139,7 +140,7 @@ enum CommandRouter {
         lines += [
             "",
             "Every command accepts --json and --help.",
-            "Only `update install` changes anything; everything else reads.",
+            "Only `update install` and `transcribe` change anything; everything else reads.",
             "Nothing here reaches the network except the update check and install.",
         ]
         return lines.joined(separator: "\n")
@@ -162,6 +163,9 @@ extension CLIEnvironment {
             log: SystemLogReader(fileSystem: fileSystem),
             updates: SharedUpdateService(),
             now: Date.init,
+            sleep: { seconds in
+                try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            },
             defaultApplicationLocations: ApplicationLocator.defaultLocations(
                 homeDirectory: FileManager.default.homeDirectoryForCurrentUser),
             confirm: StandardStreams.confirm,

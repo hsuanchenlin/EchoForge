@@ -4,11 +4,11 @@ A local control and inspection surface for Kongweh: start it, see what it is
 doing, read your own history and settings, and update it, from a terminal or a
 script.
 
-It is **local-first, like the app**. Five of the seven commands only read;
-`start` launches the app, and `update install` can replace it. Nothing reaches
-the network except the update check and install, which use the app's own
-updater. There is no server, no daemon, no telemetry, and no second copy of the
-recordings database.
+It is **local-first, like the app**. Five of the eight commands only read;
+`start` launches the app, `transcribe` hands it a file, and `update install` can
+replace it. Nothing reaches the network except the update check and install,
+which use the app's own updater. There is no server, no daemon, no telemetry, no
+second copy of the recordings database - and no second copy of a speech model.
 
 ---
 
@@ -146,6 +146,55 @@ it.
 `activity` is that durable half: the recordings the app has stored, and how many
 of them are still `pending`, `converting` or `transcribing`. A row sitting in
 `transcribing` while the app is not running is worth seeing.
+
+### `echoforge transcribe`
+
+```
+$ echoforge transcribe ~/Recordings/interview.m4a
+So the first thing we should talk about is the migration…
+
+$ echoforge transcribe meeting.wav --json | jq -r .transcript
+$ for f in *.m4a; do echoforge transcribe "$f" > "${f%.m4a}.txt"; done
+```
+
+**The tool does not load a model.** It hands the file to Kongweh exactly as the
+Finder's "Open With" does - starting it if it is not running - and then watches
+the recordings database, read-only as always, until the row the app wrote for
+that file settles. So everything the app does to a dropped file happens here
+too: the engine you selected, your personal terms, your Chinese output script,
+your rewriting style, and a row in History like any other file you drop.
+
+That is a design decision, and not one about binary size. The app is the single
+owner of the microphone, the model cache and the recordings database
+(`AGENTS.md`). A tool that loaded its own model would be a second process holding
+the same 200 MB of weights, competing for the Neural Engine with the app that is
+dictating; a tool that wrote its own rows would be a second writer to a database
+exactly one thing is allowed to migrate. Handing the file over adds neither - and
+it is the only design in which `echoforge transcribe` and a file dragged onto the
+window cannot produce different text.
+
+The consequences are worth being plain about:
+
+- **Kongweh has to be installed**, and it is started if it is not running. Exit
+  `3` when there is no app to hand the file to.
+- **There is no `--engine` and no `--language`.** The app owns those preferences
+  and this tool never writes one. Change them in Settings, or with
+  `echoforge settings` to see what they currently are.
+- **The file is checked before anything is started**: it has to exist and to
+  carry an audio extension, so a text file cannot leave a row in your History for
+  something that was never a recording. Exit `4` for a missing file, `2` for one
+  that is not audio.
+- **One file at a time.** Loop in the shell; the app's queue handles the rest.
+- `--timeout` defaults to 600 s and may not exceed 7200 s. A first transcription
+  can include a model download and a Neural Engine compile, so the default is
+  generous. Timing out exits `1` and says the app is **still working** - the
+  transcript still lands in History, because nothing was cancelled.
+- A transcription the app failed exits `1` and prints the app's own sentence.
+
+`--json` carries the transcript, the engine's own words when post-processing
+changed them (`originalTranscript`, null when it did not - the same rule
+`history --json` follows), the status, the duration, the row id and the
+provenance kind.
 
 ### `echoforge history`
 
@@ -287,7 +336,7 @@ and no amount of retrying will help, which a dropped connection is not.
 | 1 | Ran and could not finish |
 | 2 | Bad arguments; nothing was read or done |
 | 3 | No Kongweh app at the expected path or at `--app` |
-| 4 | A local source could not be read (history or log) |
+| 4 | A local source could not be read (history, log, or a file to transcribe) |
 | 5 | A download failed verification |
 | 6 | Cancelled, or the user said no |
 

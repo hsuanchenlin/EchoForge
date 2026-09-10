@@ -210,6 +210,20 @@ final class CapsuleHUDViewModel: ObservableObject {
     /// flickers between low and good is spoken once rather than on every dip.
     private var announcedSignals: Set<MicrophoneSignal> = []
 
+    /// The words the engine has committed so far, or nil when there are none to
+    /// show.
+    ///
+    /// Only ever set while this capsule is showing **its own** decode, the same
+    /// scoping `setMode` applies and for the same reason: the service's
+    /// published value is global, so a queue transcription (file drop,
+    /// open-with, history regenerate) must not write its words onto a recording
+    /// that is still in progress.
+    ///
+    /// Nil for three of this app's four local engines, which decode to one final
+    /// string and have nothing to report along the way. The capsule shows the
+    /// spinner and the label alone in that case, exactly as it always has.
+    @Published private(set) var partialText: String?
+
     /// Whether the first Esc press is being visibly acknowledged.
     ///
     /// The session's own state machine (`IndicatorViewModel.isConfirmingCancel`)
@@ -274,6 +288,7 @@ final class CapsuleHUDViewModel: ObservableObject {
         signalMonitor.reset()
         announcedSignals = []
         isConfirmingCancel = false
+        partialText = nil
         state = .connecting
     }
 
@@ -290,6 +305,19 @@ final class CapsuleHUDViewModel: ObservableObject {
     func setMode(_ mode: CapsuleHUDMode) {
         guard state == .polishing(.transcribing) else { return }
         self.mode = mode
+    }
+
+    /// Shows what the engine has decoded so far.
+    ///
+    /// Refused unless this capsule is showing its own decode, for the reason
+    /// `setMode` is refused: the source is a global publisher. Refused for an
+    /// empty value too, so a decode that has produced only silence leaves the
+    /// pill the size it was rather than growing a blank second line.
+    func showPartialTranscript(_ text: String?) {
+        guard state == .polishing(.transcribing) else { return }
+        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else { return }
+        partialText = trimmed
     }
 
     func beginConnecting() {
@@ -322,6 +350,10 @@ final class CapsuleHUDViewModel: ObservableObject {
         // regenerate - would otherwise hijack a capsule that is still recording.
         guard !(work == .rewriting && state != .polishing(.transcribing)) else { return }
         generation += 1
+        // The decoded words belong to the decode. Once the model has the text
+        // the pill says what it is doing with it, rather than keeping a line of
+        // transcript on screen next to a different promise.
+        if work != .transcribing { partialText = nil }
         state = .polishing(work)
     }
 
@@ -406,6 +438,7 @@ final class CapsuleHUDViewModel: ObservableObject {
         signalMonitor.reset()
         microphoneName = nil
         isConfirmingCancel = false
+        partialText = nil
         onHide?()
     }
 

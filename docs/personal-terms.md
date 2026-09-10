@@ -59,6 +59,12 @@ composes that prompt through `WhisperInitialPrompt` (`Engines/`), pinned by
   *last* tokens of an over-long prompt, so if the user's own text already fills
   the budget it goes through untouched and nothing is appended that could push
   its start out of what the decoder sees.
+- **The dictionary is never crowded out by anything else.** One other thing can
+  reach this prompt - the vocabulary the app being dictated into contributes,
+  when the user has switched that on (`docs/app-vocabulary.md`) - and it is
+  composed **after** the dictionary, into the same budget. So a prompt that runs
+  out of room drops the app's words and never one of the user's;
+  `AppVocabularyPromptTests` pins the inequality.
 
 This is additive bias, not a replacement: the terms stage still runs on the
 decoder's output exactly as before, and a name the decoder still missed is

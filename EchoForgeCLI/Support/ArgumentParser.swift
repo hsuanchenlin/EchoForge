@@ -27,6 +27,15 @@ struct CommandSpec: Equatable {
     /// them. Empty for a command that takes none.
     let subcommands: [String]
 
+    /// What a bare argument to this command is, for the one command that takes
+    /// one: `transcribe <file>`.
+    ///
+    /// `nil` - the default - means the command takes none, and the parser
+    /// refuses one by name rather than ignoring it. That refusal is the reason
+    /// this is opt-in: `echoforge history recent` silently listing everything
+    /// would be worse than being told `recent` means nothing here.
+    let positional: String?
+
     /// Lines appended under the usage line by `--help`.
     let help: [String]
 
@@ -37,6 +46,7 @@ struct CommandSpec: Equatable {
         valueOptions: Set<String> = [],
         switches: Set<String> = [],
         subcommands: [String] = [],
+        positional: String? = nil,
         help: [String] = []
     ) {
         self.name = name
@@ -47,6 +57,7 @@ struct CommandSpec: Equatable {
         self.valueOptions = valueOptions
         self.switches = switches.union(ArgumentParser.universalSwitches)
         self.subcommands = subcommands
+        self.positional = positional
         self.help = help
     }
 
@@ -176,7 +187,7 @@ enum ArgumentParser {
                     + spec.subcommands.joined(separator: ", ") + ".",
                 exitCode: .usage)
         }
-        if !parsed.positionals.isEmpty, spec.subcommands.isEmpty {
+        if !parsed.positionals.isEmpty, spec.subcommands.isEmpty, spec.positional == nil {
             throw CLIError(
                 "\(spec.name) takes no arguments, but got \"\(parsed.positionals[0])\".",
                 exitCode: .usage)

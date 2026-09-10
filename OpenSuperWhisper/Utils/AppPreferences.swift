@@ -187,6 +187,30 @@ final class AppPreferences {
     @UserDefault(key: PreferenceKeys.spokenIntentsEnabled, defaultValue: false)
     var spokenIntentsEnabled: Bool
 
+    /// Whether a dictation is read for a spoken *correction* - "scratch that",
+    /// "replace Friday with Monday", 「刪掉上一句」 - before the words are inserted.
+    ///
+    /// Off by default, and this is the setting in the app with the sharpest
+    /// asymmetry behind that default: the failure mode is not a command that
+    /// does nothing, it is words the user meant being deleted from a document
+    /// they are not looking at. `SpokenCorrector` is written to fail towards
+    /// dictation for the same reason, and this switch is the outer half of it.
+    ///
+    /// Independent of `spokenIntentsEnabled`: a correction changes what is
+    /// pasted, never where it goes. See `docs/spoken-corrections.md`.
+    @UserDefault(key: PreferenceKeys.spokenCorrectionsEnabled, defaultValue: false)
+    var spokenCorrectionsEnabled: Bool
+
+    /// Whether hesitation sounds - "um", "uh", "erm" - are pruned from a
+    /// dictation.
+    ///
+    /// A child of `spokenCorrectionsEnabled`, the way `voiceSnippetsEnabled` is
+    /// a child of `spokenIntentsEnabled`: it is the smaller half of the same
+    /// stage and switching the stage off switches this off with it. Off by
+    /// default so the stage does exactly one thing when a user first turns it on.
+    @UserDefault(key: PreferenceKeys.fillerWordRemovalEnabled, defaultValue: false)
+    var fillerWordRemovalEnabled: Bool
+
     /// Whether a spoken snippet trigger - "insert email signoff", "插入會議記錄" -
     /// expands into the template the user stored for it.
     ///
@@ -403,6 +427,31 @@ final class AppPreferences {
     /// encoding. Absent entries take `AppStyleMappingStore.builtInCategoryStyles`.
     @UserDefault(key: PreferenceKeys.appStyleCategoryStyles, defaultValue: [:])
     var appStyleCategoryStyles: [String: String]
+
+    /// Whether the app being dictated into contributes vocabulary to the
+    /// recognizer before it decodes.
+    ///
+    /// Off by default, for the reason `appAwareStyleEnabled` is: it changes what
+    /// the decoder is shown on every dictation, and a user who has tuned their
+    /// personal terms should be the one to decide that a second list joins them.
+    /// It changes nothing on the engines that take no prompt. See
+    /// `AppVocabularyStore` and `docs/app-vocabulary.md`.
+    @UserDefault(key: PreferenceKeys.appVocabularyEnabled, defaultValue: false)
+    var appVocabularyEnabled: Bool
+
+    /// Per-category switches: `AppCategory` raw value -> whether its profile is
+    /// used. An absent entry means on, so a category added by a later build is
+    /// on for everyone rather than off for whoever had visited this pane.
+    @UserDefault(key: PreferenceKeys.appVocabularyCategories, defaultValue: [:])
+    var appVocabularyCategories: [String: Bool]
+
+    /// Apps the user excluded, as normalized bundle identifiers.
+    ///
+    /// Bundle identifiers and nothing else - no window titles, document names or
+    /// addresses are read, so none can be stored here. `AppVocabularyTests`
+    /// asserts that about what actually lands in the domain.
+    @UserDefault(key: PreferenceKeys.appVocabularyExcludedApps, defaultValue: [])
+    var appVocabularyExcludedApps: [String]
 
     @OptionalUserDefault(key: PreferenceKeys.selectedMicrophoneData)
     var selectedMicrophoneData: Data?

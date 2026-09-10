@@ -82,7 +82,18 @@ struct PersonalTermsSettingsView: View {
         ScrollView {
             VStack(spacing: 20) {
                 safeCorrectionCard
+                // The other deterministic thing that happens to a transcript
+                // before anything with a model sees it, and the only one that
+                // can remove words - so it sits beside Safe Correction rather
+                // than with the spoken commands, which change where a dictation
+                // goes rather than what it says.
+                SpokenCorrectionsSettingsView()
                 termsCard
+                // The second list of words the recognizer is shown before it
+                // decodes. It sits under the dictionary because that is the
+                // order they are composed in, and because the dictionary is the
+                // one a user tunes and this one is the one they switch on.
+                AppVocabularySettingsView()
                 // The other thing a user's own words do to a transcription:
                 // the dictionary corrects what they said, snippets replace it
                 // with what they stored. Same pane, separate stages.

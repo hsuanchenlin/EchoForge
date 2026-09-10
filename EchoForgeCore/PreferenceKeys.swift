@@ -34,6 +34,8 @@ enum PreferenceKeys {
     static let playSoundOnRecordStart = "playSoundOnRecordStart"
     static let capsuleHUDEnabled = "capsuleHUDEnabled"
     static let spokenIntentsEnabled = "spokenIntentsEnabled"
+    static let spokenCorrectionsEnabled = "spokenCorrectionsEnabled"
+    static let fillerWordRemovalEnabled = "fillerWordRemovalEnabled"
     static let voiceSnippetsEnabled = "voiceSnippetsEnabled"
     static let youTubeLatestVideoEnabled = "youTubeLatestVideoEnabled"
     static let youTubeChannelModelMatchEnabled = "youTubeChannelModelMatchEnabled"
@@ -59,6 +61,9 @@ enum PreferenceKeys {
     static let appAwareStyleEnabled = "appAwareStyleEnabled"
     static let appStyleMappings = "appStyleMappings"
     static let appStyleCategoryStyles = "appStyleCategoryStyles"
+    static let appVocabularyEnabled = "appVocabularyEnabled"
+    static let appVocabularyCategories = "appVocabularyCategories"
+    static let appVocabularyExcludedApps = "appVocabularyExcludedApps"
 
     // Input and behaviour
     static let selectedMicrophoneData = "selectedMicrophoneData"
@@ -88,12 +93,14 @@ enum PreferenceKeys {
         whisperLanguage, suppressBlankAudio, showTimestamps, temperature, noSpeechThreshold,
         initialPrompt, useBeamSearch, beamSize, debugMode,
         playSoundOnRecordStart, capsuleHUDEnabled, spokenIntentsEnabled, voiceSnippetsEnabled,
+        spokenCorrectionsEnabled, fillerWordRemovalEnabled,
         youTubeLatestVideoEnabled, youTubeChannelModelMatchEnabled, youTubeChannelPickerEnabled,
         cloudTranslationEnabled, cloudBaseURL, cloudTranscriptionModel, cloudTranslationModel,
         cloudConsentedFeatures, cloudPreviousLocalEngine,
         hasCompletedOnboarding, useAsianAutocorrect, chineseOutputScript, safeCorrectionEnabled,
         styleRewriteEnabled, styleRewriteStyleID, styleRewriteCustomPrompt, appAwareStyleEnabled,
         appStyleMappings, appStyleCategoryStyles,
+        appVocabularyEnabled, appVocabularyCategories, appVocabularyExcludedApps,
         selectedMicrophoneData, modifierOnlyHotkey, lastModifierOnlyHotkey, mouseButtonHotkey,
         holdToRecord, doublePressToTrigger, addSpaceAfterSentence, autoCopyToClipboard,
         autoPasteTranscription, escCancelWithoutConfirmation, startHiddenInMenuBar,

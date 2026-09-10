@@ -479,11 +479,18 @@ build.
 ## Text post-processing
 
 Everything between the engine and the user is three stages, described in
-`docs/text-post-processing.md`: the deterministic transcript stage
-(`TextPostProcessor.process` - Chinese output script, personal terms, then CJK
-spacing), the style rewriting stage (`StyleRewriteService.apply`), and the
-live-dictation insertion stage. The first and third are synchronous and cannot
-fail; keep them that way.
+`docs/text-post-processing.md`: the deterministic transcript stage (`TextPostProcessor.process`), the style rewriting stage (`StyleRewriteService.apply`), and the live-dictation insertion stage. The first
+and third are synchronous and cannot fail; keep them that way.
+
+**Spoken corrections** (`Utils/SpokenCorrection.swift`, off by default) are the
+transcript stage's second pass. `docs/spoken-corrections.md` is its whole story,
+including the clause-boundary rule that makes it safe and the gates that keep it
+out of history regeneration.
+
+The app being dictated into can also add words to what the recognizer is shown,
+off by default: `Context/AppVocabularyProfile.swift` and
+`Context/AppVocabularyStore.swift`. `docs/app-vocabulary.md` is its whole story,
+including the absolute privacy rule that only reads the frontmost bundle identifier.
 
 The personal terms dictionary also reaches **one** engine before it decodes: `WhisperEngine`
 shows it to whisper.cpp as the initial prompt, composed by `WhisperInitialPrompt` (`Engines/`)
@@ -774,10 +781,10 @@ EchoForge rename did exactly that once, on purpose (it is what lets an upstream 
 ## The command-line tool
 
 `EchoForgeCLI/` is `echoforge`, a local control and inspection surface: start the app, report
-its version and state, read history, settings and the system's log about it, and check for or
-install an update. `docs/cli.md` is its whole story - build, PATH, app resolution, every
-command and every exit code. It is built by the `OpenSuperWhisper` scheme and is **not** in
-the DMG; the release artifact is still the app and nothing else.
+its version and state, transcribe a file, read history, settings and the system's log about
+it, and check for or install an update. `docs/cli.md` is its whole story - build, PATH, app
+resolution, every command and every exit code. It is built by the `OpenSuperWhisper` scheme
+and is **not** in the DMG; the release artifact is still the app and nothing else.
 
 `EchoForgeCore/` exists because of it: the source both products compile, so there is one
 updater, one recordings schema and one set of preference keys rather than two.
@@ -815,7 +822,7 @@ or the other, never both, because they are two presentations of the same session
 per session into `sessionUsesCapsule`; a preference flipped mid-recording would otherwise leave a
 session with two overlays or none. Nothing in `CapsuleHUD/` starts, stops or alters a dictation.
 
-`docs/capsule-hud.md` is the capsule's whole story. Three things there are easy to get wrong and are
+`docs/capsule-hud.md` is the capsule's whole story, including how partial transcripts are shown. Its load-bearing rules are
 pinned by `CapsuleHUDViewModelTests`: an auto-hide belongs to the state that scheduled it (1.5 s is
 long enough for the next dictation to start, and a stale hide would close it); `complete()` is
 ignored unless a session is in flight, so a cancelled or already-failed dictation cannot end on a

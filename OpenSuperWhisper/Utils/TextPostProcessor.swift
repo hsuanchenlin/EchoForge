@@ -21,10 +21,26 @@ struct ProcessedText: Equatable {
     /// output could be accepted. See `TermsCorrection.mustSurviveTokens`.
     let mustSurviveTokens: [String]
 
-    init(raw: String, final: String, mustSurviveTokens: [String] = []) {
+    /// What the spoken-correction stage did, if it ran.
+    ///
+    /// Carried rather than dropped because the edits are *typed* - a retraction
+    /// with a scope, a replacement with both of its sides - and a caller that
+    /// wanted to explain the difference between `raw` and `final` to a user
+    /// cannot reconstruct them from the two strings. `raw` remains what the
+    /// engine heard, so the uncorrected transcript is never the thing that gets
+    /// lost. See `SpokenCorrector`.
+    let corrections: SpokenCorrectionResult?
+
+    init(
+        raw: String,
+        final: String,
+        mustSurviveTokens: [String] = [],
+        corrections: SpokenCorrectionResult? = nil
+    ) {
         self.raw = raw
         self.final = final
         self.mustSurviveTokens = mustSurviveTokens
+        self.corrections = corrections
     }
 
     /// True when post-processing changed the engine's output.
@@ -64,13 +80,19 @@ enum TextPostProcessor {
     /// silently ship without it. Engines now return their text unformatted and
     /// this runs once for all of them.
     ///
-    /// The order of the three deterministic passes is load-bearing.
+    /// The order of the four deterministic passes is load-bearing.
     ///
-    /// Chinese script normalization runs **before either of the others**, and
+    /// Chinese script normalization runs **before any of the others**, and
     /// the rule it follows is: *convert the recognizer's words, never the
     /// user's*. Everything the user wrote themselves - a dictionary entry, a
     /// voice snippet template - is spliced in after it and is inserted in the
     /// script they stored it in. See `ChineseScriptNormalizer`.
+    ///
+    /// The spoken-correction stage runs **second**, between normalization and
+    /// the dictionary. It reads normalized text so its trigger tables need only
+    /// the user's own script, and it runs before the dictionary because the
+    /// dictionary produces character ranges an edit would invalidate and splices
+    /// in text the user typed rather than said. See `SpokenCorrector`.
     ///
     /// The personal terms dictionary then runs **before CJK spacing**, so
     /// entries match what the user actually said rather than a respaced version
@@ -100,12 +122,25 @@ enum TextPostProcessor {
             languageCode: settings.selectedLanguage
         )
 
+        // What the speaker took back. Deterministic, offline, and pure string
+        // work, like everything else in this stage.
+        //
+        // It runs **after** normalization, so the trigger tables need only the
+        // user's own script - the same reason `SpokenIntentRouter` reads
+        // normalized text - and **before** the dictionary, for two reasons that
+        // both point the same way. The dictionary hands back character ranges it
+        // has marked never-correct, and an edit made after that would move the
+        // text under them; and the dictionary splices in words the *user* typed,
+        // which a retraction has no business reading as one of its triggers.
+        let corrections = SpokenCorrector.apply(
+            to: normalized, options: settings.spokenCorrections)
+
         // Deterministic safe correction: no model, no network, no macOS 26.
         // Independent of any later style-rewriting setting.
         let activeTerms = settings.safeCorrectionEnabled
             ? (terms ?? settings.personalTerms)
             : []
-        let corrected = PersonalTermsCorrector.apply(activeTerms, to: normalized)
+        let corrected = PersonalTermsCorrector.apply(activeTerms, to: corrections.text)
 
         var result = corrected.text
 
@@ -116,7 +151,10 @@ enum TextPostProcessor {
         }
 
         return ProcessedText(
-            raw: text, final: result, mustSurviveTokens: corrected.mustSurviveTokens
+            raw: text,
+            final: result,
+            mustSurviveTokens: corrected.mustSurviveTokens,
+            corrections: settings.spokenCorrections.isEnabled ? corrections : nil
         )
     }
 

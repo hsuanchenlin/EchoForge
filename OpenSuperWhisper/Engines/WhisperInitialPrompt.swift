@@ -1,7 +1,14 @@
 import Foundation
 
 /// The text Whisper is shown before it decodes: the user's own initial prompt,
-/// followed by the words from their personal terms dictionary.
+/// then the words from their personal terms dictionary, then whatever the app
+/// they are dictating into contributes (`AppVocabularyProfile`).
+///
+/// The order is the priority. Everything is charged against one token budget and
+/// composition stops at the first entry that does not fit, so what is composed
+/// last is what a full budget drops: the user's typed prompt is never trimmed,
+/// their dictionary is never crowded out by an app profile, and an app profile
+/// takes only the room that is left.
 ///
 /// The dictionary used to reach a transcript only *after* the engine, as the
 /// terms stage of `TextPostProcessor` - which cannot save a name the recognizer
@@ -54,20 +61,35 @@ enum WhisperInitialPrompt {
     ///   - userPrompt: the Initial Prompt setting, exactly as typed.
     ///   - terms: the dictionary this transcription runs with - already gated on
     ///     `safeCorrectionEnabled`, so an empty array is "nothing to add".
+    ///   - appVocabulary: what the app being dictated into contributes, or nil
+    ///     when no app has anything to add - already gated on
+    ///     `appVocabularyEnabled` by `Settings`. It is composed **last**, which
+    ///     is the whole of its priority: a prompt that overran the budget would
+    ///     drop this before it dropped a single word of the user's own
+    ///     dictionary. See `AppVocabularyStore` and `docs/app-vocabulary.md`.
     ///   - tokenBudget: the ceiling on the composed prompt, in tokens.
     ///   - tokenCount: the model's tokenizer.
     static func compose(
         userPrompt: String,
         terms: [PersonalTerm],
+        appVocabulary: AppVocabularyProfile? = nil,
         tokenBudget: Int = tokenBudget,
         tokenCount: (String) -> Int
     ) -> String? {
         let trimmedUserPrompt = userPrompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let words = vocabulary(from: terms).filter { !trimmedUserPrompt.contains($0) }
+        // A profile's own contribution, in the order it is composed: the sample
+        // passage first, because what it biases is the punctuation and the
+        // casing of the sentence that follows it, and then the words.
+        let appWords = appVocabulary.map { profile in
+            ([profile.hint] + profile.terms)
+                .filter { !$0.isEmpty && !trimmedUserPrompt.contains($0) }
+        } ?? []
 
-        // An empty dictionary must not change what the decoder was shown before
-        // it existed: the setting goes through untouched, whitespace and all.
-        guard !words.isEmpty else {
+        // Nothing to add must not change what the decoder was shown before any
+        // of this existed: the setting goes through untouched, whitespace and
+        // all.
+        guard !words.isEmpty || !appWords.isEmpty else {
             return userPrompt.isEmpty ? nil : userPrompt
         }
 
@@ -76,18 +98,44 @@ enum WhisperInitialPrompt {
             // The user's text is theirs. If it already fills the budget, adding
             // to it would only push its start out of what whisper.cpp keeps.
             guard tokenCount(composed) < tokenBudget else { return userPrompt }
-            composed += sentenceJoiner(after: composed)
         }
 
         var appended = 0
+
+        /// Appends one entry, or answers false when it would not fit.
+        ///
+        /// `startsSection` is what puts a full stop between the user's prompt,
+        /// their dictionary and the app's list, so the decoder reads three
+        /// pieces of conditioning rather than one run-on sentence.
+        func append(_ entry: String, startsSection: Bool) -> Bool {
+            let separator: String
+            if composed.isEmpty {
+                separator = ""
+            } else if startsSection {
+                separator = sentenceJoiner(after: composed)
+            } else {
+                separator = wordSeparator
+            }
+            let candidate = composed + separator + entry
+            guard tokenCount(candidate) <= tokenBudget else { return false }
+            composed = candidate
+            appended += 1
+            return true
+        }
+
+        var startsSection = true
         for word in words {
-            let candidate = composed + (appended == 0 ? "" : wordSeparator) + word
             // Stop at the first word that does not fit rather than skipping it:
             // the list is in priority order, and a shorter, lower-priority word
             // squeezing in ahead of a name would invert that.
-            guard tokenCount(candidate) <= tokenBudget else { break }
-            composed = candidate
-            appended += 1
+            guard append(word, startsSection: startsSection) else { break }
+            startsSection = false
+        }
+
+        startsSection = true
+        for word in appWords {
+            guard append(word, startsSection: startsSection) else { break }
+            startsSection = false
         }
 
         // Nothing fit after the user's own prompt: hand that through as typed.
