@@ -113,7 +113,7 @@ release, fail at test time rather than at publish time.
 Publishing is the last step and it happens **on `master`**, not on the release branch. Every
 tag points at the squashed release commit the release PR produced, so the GitHub release -
 name `EchoForge X.Y.Z`, body the notes file verbatim, assets `EchoForge.dmg` and
-`EchoForge.dmg.sha256` and nothing else - is created only after that PR is merged. The tag
+`EchoForge.dmg.sha256` - is created only after that PR is merged. The tag
 carried a `v` through `v0.8.5` and has been **bare `X.Y.Z`** since: 0.9.1 dropped it off
 convention, and 0.9.2, 0.9.3 and 0.9.4 kept it dropped, so bare is now the convention rather
 than the accident it started as. The updater reads either, because `AppVersion` tolerates a
@@ -124,6 +124,15 @@ between hashing and upload, for the reason `docs/release_build.md` measures; tha
 them in the **repository root**, not in `build/`, which is the derived-data directory it
 deletes on every invocation. Older releases and tags are never edited, replaced or
 force-updated.
+
+Since 0.9.5 a release also carries **one more asset**, `echoforge-X.Y.Z-darwin-arm64.tar.gz`,
+which is the command-line tool and is what the Homebrew formula at
+`hsuanchenlin/homebrew-tap` (`brew install hsuanchenlin/tap/echoforge`) downloads. It is not
+produced by `Scripts/build_release.sh` and there is no script for it yet, so it is built and
+uploaded by hand - and the formula's `version`, `url` and `sha256` live in that other
+repository and have to be moved there, or `brew install` goes on installing the previous
+release. It changes nothing about the DMG: the disk image still contains the app and nothing
+else, which is what `Scripts/verify_release_package.sh` verifies.
 
 ## Updates
 
@@ -784,7 +793,8 @@ EchoForge rename did exactly that once, on purpose (it is what lets an upstream 
 its version and state, transcribe a file, read history, settings and the system's log about
 it, and check for or install an update. `docs/cli.md` is its whole story - build, PATH, app
 resolution, every command and every exit code. It is built by the `OpenSuperWhisper` scheme
-and is **not** in the DMG; the release artifact is still the app and nothing else.
+and is **not** in the DMG; the disk image still holds the app and nothing else, and the tool
+reaches users as its own release asset through the Homebrew tap (see "Release").
 
 `EchoForgeCore/` exists because of it: the source both products compile, so there is one
 updater, one recordings schema and one set of preference keys rather than two.
