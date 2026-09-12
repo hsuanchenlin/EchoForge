@@ -213,23 +213,21 @@ final class SenseVoiceEngine: TranscriptionEngine {
         // Per chunk, because that is the only honest progress available:
         // SenseVoiceManager exposes no progress stream, and one call is atomic
         // from here - which at ~8x real time is several seconds of silence.
-        var pieces: [String] = []
-        pieces.reserveCapacity(chunks.count)
+        // The pieces are joined by `CommittedTranscript`, which owns the seam
+        // rule (Han-Han without a space, Latin-Latin with one) and drops a
+        // chunk that decoded to nothing. Shared transcript post-processing
+        // runs once afterwards, in TextPostProcessor via TranscriptionService.
+        var transcript = CommittedTranscript()
         for (index, chunk) in chunks.enumerated() {
             try checkCancellation()
-            let text = try await transcriber.transcribe(audio: chunk.samples)
-            pieces.append(text.trimmingCharacters(in: .whitespacesAndNewlines))
+            transcript.append(try await transcriber.transcribe(audio: chunk.samples))
             onProgressUpdate?(0.05 + 0.90 * Float(index + 1) / Float(chunks.count))
         }
 
         try checkCancellation()
 
-        // Shared transcript post-processing runs once afterwards, in
-        // TextPostProcessor via TranscriptionService.
-        let text = Self.joined(pieces.filter { !$0.isEmpty })
-
         onProgressUpdate?(1.0)
-        return text
+        return transcript.text
     }
 
     func cancelTranscription() {
@@ -257,47 +255,6 @@ final class SenseVoiceEngine: TranscriptionEngine {
     }
 
     // MARK: - Private
-
-    /// Joins chunk transcripts back into one.
-    ///
-    /// A seam between two chunks is a pause in the speech, not a word boundary
-    /// the model saw, so the join has to reconstruct what the writing system
-    /// would have used. Chinese and Japanese do not separate words, and this
-    /// engine punctuates, so a chunk usually ends in `。` already - inserting a
-    /// space there is visible damage. English and Korean do separate words, and
-    /// gluing `gold.` to `The` is equally visible. Hence the script test rather
-    /// than one fixed separator: the engine transcribes all five languages, and
-    /// with `auto` it is not told which one it is hearing.
-    private static func joined(_ pieces: [String]) -> String {
-        pieces.reduce(into: "") { result, piece in
-            guard let previous = result.last, let next = piece.first else {
-                result += piece
-                return
-            }
-            if !isScriptWithoutWordSpaces(previous) && !isScriptWithoutWordSpaces(next) {
-                result += " "
-            }
-            result += piece
-        }
-    }
-
-    /// Han, kana and the CJK punctuation and fullwidth forms that surround them.
-    /// Hangul is deliberately absent: Korean is written with spaces between
-    /// words, so a Korean seam needs one.
-    private static let scriptsWithoutWordSpaces: [ClosedRange<UInt32>] = [
-        0x3000...0x303F,  // CJK symbols and punctuation, incl. 。、
-        0x3040...0x30FF,  // hiragana and katakana
-        0x3400...0x4DBF,  // CJK unified ideographs extension A
-        0x4E00...0x9FFF,  // CJK unified ideographs
-        0xF900...0xFAFF,  // CJK compatibility ideographs
-        0xFF00...0xFFEF,  // halfwidth and fullwidth forms, incl. ，！？
-    ]
-
-    private static func isScriptWithoutWordSpaces(_ character: Character) -> Bool {
-        character.unicodeScalars.contains { scalar in
-            scriptsWithoutWordSpaces.contains { $0.contains(scalar.value) }
-        }
-    }
 
     private func checkCancellation() throws {
         if abortFlag.isSet { throw CancellationError() }
