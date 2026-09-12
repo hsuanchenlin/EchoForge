@@ -395,6 +395,18 @@ An engine must not reach into another engine for any of it. Engines whose backen
 silently clamps long input take `AudioChunkSource` with an `AudioChunkBudget`; the budget type
 documents why each limit exists and `OpenSuperWhisperTests/AudioChunkerTests.swift` pins them.
 
+`OpenSuperWhisper/Live/` is the pure half of live dictation - decoding utterances while the
+microphone is still open - and nothing in it records, taps audio or reads a preference.
+`LiveCutPolicy` decides where the uncommitted audio is cut, from the VAD's segments and an engine's
+`LiveCutBudget` (`preset(for:)`, `nil` for the cloud engine): a pause ends an utterance once it
+holds the minimum speech, the cap forces a cut at the best silence, and **no decision ever lands
+inside speech** - unbroken speech at the cap is `.wait`, and bounding the buffer is the session's
+job, because a split word is a wrong paste where a fallback is only slow. `CommittedTranscript`
+joins the decoded pieces, and it is also where SenseVoice's chunk join rule lives (Han-Han no
+space, Latin-Latin one space, punctuation-only pieces dropped) so both paths use one
+implementation; a single kept utterance comes back byte for byte. `LiveCutPolicyTests` holds the
+matrix and a seeded property test over every preset; `CommittedTranscriptTests` the seam rule.
+
 Model weights are downloaded at runtime and never bundled into the `.app` - some are
 redistributed under licences that require attribution and forbid rebranding. Any engine whose
 model the app downloads needs an entry in `docs/speech-model-attribution.md`.

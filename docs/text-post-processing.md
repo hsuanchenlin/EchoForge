@@ -10,8 +10,9 @@ AudioRecorder / file drop
         ▼
 TranscriptionEngine.transcribeAudio()      WhisperEngine | FluidAudioEngine
         │                                  ParaformerEngine | SenseVoiceEngine
-        │                                  engine-specific cleanup only
-        │                                  (marker stripping, trimming, chunk joining)
+        │                                  engine-specific cleanup
+        │                                  (marker stripping, trimming)
+        │                                  and joining pieces (CommittedTranscript)
         │                                  Whisper alone is also shown the personal
         │                                  terms *before* decoding, as its initial
         │                                  prompt - see docs/personal-terms.md -
