@@ -15,12 +15,15 @@ final class SpeechSegmenter {
     static let vadModelPath = Bundle(for: SpeechSegmenter.self)
         .path(forResource: "ggml-silero-v5.1.2", ofType: "bin")
 
+    private let lock = NSLock()
     private var vadContext: MyWhisperVadContext?
 
     /// Speech segments in `samples`, in centiseconds of that audio. An empty
     /// result means "no speech": callers must return an empty transcript rather
     /// than hand the audio to an engine anyway.
     func segments(in samples: [Float]) throws -> [WhisperVadSegment] {
+        lock.lock()
+        defer { lock.unlock() }
         if vadContext == nil {
             guard let path = Self.vadModelPath,
                   let vad = MyWhisperVadContext(modelPath: path) else {

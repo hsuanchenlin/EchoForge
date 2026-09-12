@@ -22,8 +22,6 @@ enum LiveDictationFallbackReason: Equatable, CustomStringConvertible {
     /// The uncommitted audio outgrew the cap without the VAD finding a silence
     /// to cut in. Speech that long without a pause is rare; the WAV has it all.
     case bufferExceeded
-    /// The session outlived `LiveDictationSession.maximumDuration`.
-    case sessionTooLong
     /// `finish` or `cancel` named a session this one is not for.
     case notThisSession
     /// The session was cancelled before it was finished.
@@ -35,7 +33,6 @@ enum LiveDictationFallbackReason: Equatable, CustomStringConvertible {
         case .decodeFailed(let reason): return "an utterance did not decode (\(reason))"
         case .engineChanged: return "the engine changed during the recording"
         case .bufferExceeded: return "no pause was found before the buffer cap"
-        case .sessionTooLong: return "the recording outlived the live session's limit"
         case .notThisSession: return "the session named is not this one"
         case .cancelled: return "the session was cancelled"
         }
@@ -138,11 +135,11 @@ enum LiveDictationEligibility {
 /// and the guard compares whole texts.
 ///
 /// **Every failure is a fallback.** The recorder is still writing the WAV, so a
-/// tap that will not start, an utterance that throws, an engine that changes,
-/// a buffer that outgrows its cap or a session that runs too long all end the
-/// same way: the published line is cleared first, the buffer is released, and
-/// `finish` answers `.fallback` so the caller decodes the file whole. A live
-/// session can make a dictation faster; it is never allowed to make one fail.
+/// tap that will not start, an utterance that throws, an engine that changes or
+/// a buffer that outgrows its cap all end the same way: the published line is
+/// cleared first, the buffer is released, and `finish` answers `.fallback` so
+/// the caller decodes the file whole. A live session can make a dictation
+/// faster; it is never allowed to make one fail.
 ///
 /// **It is bound to its `RecordingSession`.** `finish` and `cancel` name the
 /// session they mean and are refused otherwise, the rule
@@ -156,12 +153,7 @@ final class LiveDictationSession: ObservableObject {
     /// How often the uncommitted buffer is read. Half a second is well inside
     /// the ~1.5 s a user expects between a pause and the words appearing, and
     /// coarse enough that the VAD is not the thing keeping the CPU warm.
-    static let pollInterval: TimeInterval = 0.5
-
-    /// After this the session gives up and the WAV is decoded whole. Nobody
-    /// dictates for half an hour into one paste; a recording that long is a
-    /// meeting, and it is not what this path is for.
-    static let maximumDuration: TimeInterval = 30 * 60
+    nonisolated static let pollInterval: TimeInterval = 0.5
 
     /// How much uncommitted audio, in units of the engine's cap, is allowed to
     /// pile up before the session gives up. The policy never cuts inside
@@ -191,14 +183,13 @@ final class LiveDictationSession: ObservableObject {
     private let tap: LiveAudioTapping
     private let decoder: LiveUtteranceDecoding
     private let segmenter: LiveSpeechSegmenting
-    private let now: () -> Date
     private let stopTail: TimeInterval
     private let pollInterval: TimeInterval?
     private let utteranceDirectory: URL
 
     private let buffer = LiveSampleBuffer()
     private var committed = CommittedTranscript()
-    private var startedAt: Date?
+    private var hasStarted = false
     private var pollTask: Task<Void, Never>?
     private var sleeper: Task<Void, Never>?
     private var isPolling = false
@@ -252,7 +243,6 @@ final class LiveDictationSession: ObservableObject {
         tap: LiveAudioTapping,
         decoder: LiveUtteranceDecoding,
         segmenter: LiveSpeechSegmenting,
-        now: @escaping () -> Date = Date.init,
         stopTail: TimeInterval = AudioRecorder.stopTailDuration,
         pollInterval: TimeInterval? = LiveDictationSession.pollInterval,
         utteranceDirectory: URL = LiveUtteranceFile.directory
@@ -264,7 +254,6 @@ final class LiveDictationSession: ObservableObject {
         self.tap = tap
         self.decoder = decoder
         self.segmenter = segmenter
-        self.now = now
         self.stopTail = stopTail
         self.pollInterval = pollInterval
         self.utteranceDirectory = utteranceDirectory
@@ -280,8 +269,8 @@ final class LiveDictationSession: ObservableObject {
     /// an `AVAudioEngine` cost CoreAudio round-trips, and this runs at the
     /// press, during the overlay's appear animation.
     func start() async {
-        guard state == .running, startedAt == nil else { return }
-        startedAt = now()
+        guard state == .running, !hasStarted else { return }
+        hasStarted = true
 
         let tap = self.tap
         let buffer = self.buffer
@@ -291,7 +280,7 @@ final class LiveDictationSession: ObservableObject {
         // Cancelled or failed while the tap was opening: the tap is stopped by
         // whichever transition did it, and a late success must not revive it.
         guard state == .running else {
-            if case .success = result { Task.detached { tap.stop() } }
+            if case .success = result { await Task.detached { tap.stop() }.value }
             return
         }
         if case .failure(let error) = result {
@@ -355,6 +344,11 @@ final class LiveDictationSession: ObservableObject {
         case .running, .unavailable, .finished: return .fallback(.notThisSession)
         }
 
+        guard decoder.activeEngine == engine else {
+            fail(.engineChanged)
+            return .fallback(.engineChanged)
+        }
+
         let tail = buffer.drain()
         if !tail.isEmpty {
             do {
@@ -397,10 +391,6 @@ final class LiveDictationSession: ObservableObject {
         isPolling = true
         defer { isPolling = false }
 
-        if let startedAt, now().timeIntervalSince(startedAt) > Self.maximumDuration {
-            fail(.sessionTooLong)
-            return
-        }
         guard decoder.activeEngine == engine else {
             fail(.engineChanged)
             return

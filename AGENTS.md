@@ -913,14 +913,16 @@ the same `AudioDeviceID`), cuts utterances with `LiveCutPolicy`, decodes each th
 tail. `docs/live-dictation.md` is the whole story. Four things there are absolute. Nothing is
 pasted early and nothing on screen is revised - the joined raw text goes through
 `finishTranscribed`, the third transcription frame, so the paste is one paste after every
-stage and the capsule's cancel still works. Every live-path failure is a **fallback** to the
-whole-file decode of the WAV the recorder still writes, with the capsule line cleared first;
-`LiveDictationSessionTests` holds each row of the table. Only `DictationPurpose.dictation` on a
-local engine gets a session (`LiveDictationEligibility`; `LiveCutBudget.preset(for: .cloud)`
-is nil, and `CloudPrivacyTests` scans `Live/`). And `IndicatorViewModel.startDecoding` checks
-the live path **before** its busy check: an utterance decode raises `isTranscribing` like a
-queue item does, and a dictation that decoded itself all along must not be queued as a file at
-the last moment.
+stage; the capsule's cancel there is a discard rather than an interrupt, since the frame in
+flight may be a queue item's, and `IndicatorViewModel.transcribe` refuses the finished result
+instead. Every live-path failure is a **fallback** to the whole-file decode of the WAV the
+recorder still writes, with the capsule line cleared first; `LiveDictationSessionTests` holds
+each row of the table. Only `DictationPurpose.dictation` on a local engine gets a session
+(`LiveDictationEligibility`; `LiveCutBudget.preset(for: .cloud)` is nil, and
+`CloudPrivacyTests` scans `Live/`). And `IndicatorViewModel.startDecoding` checks the live
+path **before** its busy check: an utterance decode raises `isTranscribing` like a queue item
+does, and a dictation that decoded itself all along must not be queued as a file at the last
+moment - a session whose tap never started is the one exception, and takes the queue path.
 
 `AudioRecorder.startRecording` hands back its session synchronously and then pays CoreAudio on
 its work queue, so a start can fail after the caller believes it is recording.

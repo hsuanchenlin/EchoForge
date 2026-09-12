@@ -473,8 +473,11 @@ class IndicatorViewModel: ObservableObject {
             return
         }
         recordingSession = nil
-        let liveSession = self.liveSession
+        var liveSession = self.liveSession
         self.liveSession = nil
+        if case .unavailable? = liveSession?.state {
+            liveSession = nil
+        }
         isDecodingLiveSession = (liveSession != nil)
 
         // The live path is checked **before** the busy check, and the busy
@@ -709,33 +712,33 @@ class IndicatorViewModel: ObservableObject {
     ///
     /// A fallback is a `print` and nothing else visible - the session has
     /// already taken its line off the capsule, and the whole-file decode puts
-    /// its own up - except when the user cancelled: a cancel during the tail
-    /// decode makes it throw, and the fallback that follows must not decode
-    /// the file they just asked not to have decoded.
+    /// its own up.
     ///
-    /// The live path is two transcription frames - the tail decode inside the
-    /// session, then `finishTranscribed` - where the whole-file path is one,
-    /// and a cancel that lands in the instant between them reaches no frame.
-    /// `didCancelWorkInFlight` is read on either side of the second frame for
-    /// that instant, so a cancelled live dictation pastes nothing whichever
-    /// frame, or gap, the press landed in.
+    /// A cancel on the live path is a discard, not an interrupt. The frame in
+    /// flight when the button is pressed may be a queue item's that this
+    /// dictation is waiting behind - the busy check was skipped for it - so
+    /// `cancelWorkInFlight` never reaches `cancelTranscription` for a live
+    /// session; the tail decode, the finish or the fallback's whole-file decode
+    /// runs to its end, and `didCancelWorkInFlight` is read on either side of
+    /// it so the result is refused whichever frame, or the gap between two, the
+    /// press landed in. The whole-file path is interrupted as it always was,
+    /// and throws before the second read.
     private func transcribe(
         _ tempURL: URL, liveOutcome: LiveDictationOutcome?, settings: Settings
     ) async throws -> StyledTranscript {
+        guard !didCancelWorkInFlight else { throw TranscriptionError.processingFailed }
+        let styled: StyledTranscript
         switch liveOutcome {
         case .committed(let raw):
-            guard !didCancelWorkInFlight else { throw TranscriptionError.processingFailed }
-            let styled = try await transcriptionService.finishTranscribed(raw: raw, settings: settings)
-            guard !didCancelWorkInFlight else { throw TranscriptionError.processingFailed }
-            return styled
+            styled = try await transcriptionService.finishTranscribed(raw: raw, settings: settings)
         case .fallback(let reason):
-            guard !didCancelWorkInFlight else { throw TranscriptionError.processingFailed }
             print("Live dictation fell back to the whole-file decode: \(reason)")
-            return try await transcriptionService.transcribeAudio(url: tempURL, settings: settings)
+            styled = try await transcriptionService.transcribeAudio(url: tempURL, settings: settings)
         case nil:
-            guard !didCancelWorkInFlight else { throw TranscriptionError.processingFailed }
-            return try await transcriptionService.transcribeAudio(url: tempURL, settings: settings)
+            styled = try await transcriptionService.transcribeAudio(url: tempURL, settings: settings)
         }
+        guard !didCancelWorkInFlight else { throw TranscriptionError.processingFailed }
+        return styled
     }
     
     /// Carries out an "open the latest YouTube video from …" and reports it.
@@ -898,7 +901,10 @@ class IndicatorViewModel: ObservableObject {
     /// that they did.
     ///
     /// The audio goes with it, which is what cancelling means here: the temporary
-    /// file is removed by the failure path the cancellation triggers.
+    /// file is removed by the failure path that follows - the interrupted decode's
+    /// own throw on the whole-file path, and `transcribe`'s refusal of the finished
+    /// work on the live one, where nothing on the engine is interrupted because
+    /// the frame in flight may not be this dictation's.
     func cancelWorkInFlight() {
         guard state == .decoding else { return }
         didCancelWorkInFlight = true

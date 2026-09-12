@@ -660,12 +660,12 @@ class TranscriptionService: ObservableObject {
     ///
     /// The frame is the point, not a convenience: `isTranscribing`, the
     /// generation and the serialisation span this call exactly as they span
-    /// the second half of `transcribeAudio`, so the cancel button on the
-    /// capsule still stops a rewrite of live-decoded text, a dictation pressed
-    /// during it still waits its turn, and every surface that asks "is the
-    /// engine free" gets the same answer it would for a whole-file dictation.
-    /// No engine is loaded or touched - the pieces were decoded already - which
-    /// is what makes this frame different from the other two.
+    /// the second half of `transcribeAudio`, so a dictation pressed during the
+    /// rewrite of live-decoded text still waits its turn, and every surface
+    /// that asks "is the engine free" gets the same answer it would for a
+    /// whole-file dictation. No engine is loaded or touched - the pieces were
+    /// decoded already - which is what makes this frame different from the
+    /// other two.
     func finishTranscribed(raw: String, settings: Settings) async throws -> StyledTranscript {
         try await runTranscription(publishing: { $0.final }, preparing: { _ in }) { _ in
             await Self.finish(raw: raw, settings: settings)

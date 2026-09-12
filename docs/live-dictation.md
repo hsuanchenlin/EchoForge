@@ -70,9 +70,10 @@ empty, the same answer a whole-file decode gives for silence - or `.fallback(rea
 **`TranscriptionService.finishTranscribed`** is the third frame beside `transcribeAudio` and
 `decodeRaw`: the post-processing pipeline over a raw transcript, with no engine touched, inside
 the same `isTranscribing`/generation/serialisation frame. It has to be a frame rather than a
-plain call to `finish` because the capsule's cancel button reaches
-`TranscriptionService.cancelTranscription`, which does nothing unless a frame is in flight -
-and a cancel pressed during the rewrite of live-decoded text must still paste nothing.
+plain call to `finish` because `isTranscribing` is what the busy check and the capsule read: a
+dictation pressed during the rewrite of live-decoded text must wait its turn exactly as one
+pressed during a whole-file dictation's rewrite does, and the capsule must show that rewrite
+as work in flight.
 
 **The capsule** follows the session through `IndicatorViewModel.liveTranscript`, republished
 from the session, and `CapsuleHUDViewModel.showLiveTranscript` accepts it while recording as
@@ -91,15 +92,15 @@ fail; it can only make one slower than it would have been.
 
 | Failure | Behaviour |
 | --- | --- |
-| The tap will not start (no input, format refused, engine refused) | `.unavailable`; the recording goes on; whole-file decode at stop; one `print` line |
+| The tap will not start (no input, format refused, engine refused) | `.unavailable`; the recording goes on; one `print` line; at stop the session counts as no session, so the busy check runs and the audio is queued as a file if the engine is in use, exactly as without the feature |
 | An utterance decode throws (not a cancel) | `.failed(.decodeFailed)`; everything committed is dropped - a transcript with a hole in it is worse than a late one; capsule line cleared **first**; whole-file decode at stop |
 | The tail decode throws | The same, even though everything before it decoded |
 | The engine that would decode now is not the one the session started on (a model finished preparing, ⌥M carried out) | `.failed(.engineChanged)`; two engines' words joined are not one transcript |
 | Uncommitted audio exceeds 2 × the engine's cap without a pause | `.failed(.bufferExceeded)`; the policy never cuts inside speech, and the WAV has it all |
-| The session outlives 30 min | `.failed(.sessionTooLong)` |
-| Esc / cancel | Buffer, committed text, tap and WAV all discarded; nothing pasted, no row |
-| `AudioRecorder.failedStart` for this session | The view model ends the live session with the capture that never started (`endLiveSession`) |
-| Cancel button during the tail decode | The decode throws, the session falls back, and `IndicatorViewModel.transcribe` refuses the fallback because `didCancelWorkInFlight` is set - the file the user asked not to have decoded is not decoded |
+| The engine changed between the last poll and the key going up | `.failed(.engineChanged)` from `finish`, before the tail is decoded - the same check the poll makes |
+| Esc / cancel while recording | Buffer, committed text, tap and WAV all discarded; nothing pasted, no row |
+| `AudioRecorder.failedStart` for this session | The view model ends the live session with the capture that never started (`endLiveSession`); a tap still opening when that lands is stopped the moment it comes up |
+| Cancel button after the key went up (tail decode, finish, or a fallback's whole-file decode) | Nothing on the engine is interrupted: the work runs to its end and `IndicatorViewModel.transcribe` refuses its result because `didCancelWorkInFlight` is set - nothing pasted, no row, WAV discarded (below) |
 | App quits mid-recording | As today: temp WAV survives 24 h, no row; an utterance file left behind is swept with it |
 
 In every fallback the session publishes `transcript = nil` before anything else
@@ -111,6 +112,17 @@ A decode already in flight when the session is cancelled is not cancelled on the
 finishes and its words are dropped. The engine is busy for that utterance's decode, and a
 dictation pressed inside it is refused as busy, honestly.
 
+The capsule's cancel button after the key has gone up is the same rule one step later. On the
+live path `IndicatorViewModel.cancelWorkInFlight` sets `didCancelWorkInFlight` and does **not**
+call `cancelTranscription`: the busy check was skipped for this dictation, so the frame in flight
+may be a dropped file's that the tail decode or the finish is waiting behind, and stopping that
+would cancel somebody else's work. The tail decode, the finish or a fallback's whole-file decode
+therefore runs to its end, `transcribe` reads `didCancelWorkInFlight` on either side of it and
+throws, and the failure path discards the WAV without reporting a failure the user caused. Cancel
+on the live path is a discard, not an interrupt; the engine stays busy until that work unwinds,
+and a dictation pressed meanwhile is refused as busy. Without a session the cancel interrupts the
+decode exactly as it always did.
+
 ## The busy check
 
 `IndicatorViewModel.startDecoding` used to ask `isTranscriptionBusy` before anything else and
@@ -121,7 +133,10 @@ check is exactly what it was. A queue item running when the user stops (a file d
 the recording) therefore makes the live session's tail decode and finish wait for it rather
 than queueing the dictation - its decodes are its own to wait for. The fallback of a session
 that failed also waits rather than queueing: `isTranscribing` is cleared a main-actor hop after
-the last decode returned, so a busy check there would read the session's own frame.
+the last decode returned, so a busy check there would read the session's own frame. A session
+that is `.unavailable` is the exception and is treated as no session: its tap never started and
+it decoded nothing, so `isTranscribing` there is somebody else's work and the dictation takes
+the queue path it always took.
 
 ## Settings are one snapshot
 

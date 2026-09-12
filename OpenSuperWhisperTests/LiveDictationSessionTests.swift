@@ -49,9 +49,7 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
         super.tearDown()
     }
 
-    private func makeSession(
-        engine: EngineKind = .whisper, now: @escaping () -> Date = Date.init
-    ) -> LiveDictationSession {
+    private func makeSession(engine: EngineKind = .whisper) -> LiveDictationSession {
         LiveDictationSession(
             recordingSession: session,
             engine: engine,
@@ -60,7 +58,6 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
             tap: tap,
             decoder: decoder,
             segmenter: RunSegmenter(),
-            now: now,
             stopTail: 0,
             pollInterval: nil,
             utteranceDirectory: directory)
@@ -317,6 +314,30 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
         XCTAssertEqual(decoder.decodes.count, 1, "nothing is decoded on the new engine")
     }
 
+    /// The same check, made again by `finish`: a model that finished preparing
+    /// between the last poll and the key going up would otherwise have the tail
+    /// decoded on the new engine and joined to the old engine's utterances,
+    /// handed back as `.committed` without a word.
+    func testAnEngineChangeBeforeTheTailFallsBack() async {
+        decoder.answers = ["First.", "Never decoded."]
+        let live = makeSession(engine: .whisper)
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertEqual(live.transcript?.text, "First.")
+
+        decoder.activeEngine = .sensevoice
+        tap.push(Self.speech(seconds: 0.8))
+        let outcome = await live.finish(session)
+
+        XCTAssertEqual(outcome, .fallback(.engineChanged))
+        XCTAssertEqual(live.state, .failed(.engineChanged))
+        XCTAssertNil(live.transcript)
+        XCTAssertEqual(decoder.decodes.count, 1, "the tail is not decoded on the new engine")
+        XCTAssertFalse(tap.isRunning)
+    }
+
     /// Unbroken speech past twice the cap has no pause to cut in; the WAV has
     /// all of it, so the session gives up rather than cutting inside a word.
     func testABufferPastTheCapFallsBack() async {
@@ -331,20 +352,6 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
         XCTAssertFalse(tap.isRunning)
         let finished = await live.finish(session)
         XCTAssertEqual(finished, .fallback(.bufferExceeded))
-    }
-
-    func testASessionPastTheMaximumDurationFallsBack() async {
-        var clock = Date()
-        let live = makeSession(now: { clock })
-        await live.start()
-
-        clock = clock.addingTimeInterval(LiveDictationSession.maximumDuration + 1)
-        tap.push(Self.speech(seconds: 0.5))
-        await live.poll()
-
-        XCTAssertEqual(live.state, .failed(.sessionTooLong))
-        let finished = await live.finish(session)
-        XCTAssertEqual(finished, .fallback(.sessionTooLong))
     }
 
     // MARK: - Cancel discards
@@ -386,6 +393,30 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
 
         XCTAssertNil(live.transcript)
         XCTAssertEqual(live.state, .cancelled)
+    }
+
+    /// The failed-start timing. `AudioRecorder` reports a start that failed on
+    /// its work queue 20-35 ms after the press, while the tap is still opening
+    /// off the main actor, so the view model's `endLiveSession` lands before
+    /// `start` has returned. The tap that then comes up belongs to nobody and
+    /// has to be stopped, not left listening on a microphone no one is
+    /// recording from.
+    func testACancelWhileTheTapIsOpeningStopsTheTapWhenItComesUp() async {
+        tap.holdStart()
+        let live = makeSession()
+        let starting = Task { await live.start() }
+        await tap.waitUntilOpening()
+
+        live.cancel(session)
+        XCTAssertEqual(live.state, .cancelled)
+
+        tap.releaseStart()
+        await starting.value
+
+        XCTAssertFalse(tap.isRunning, "a tap that opened after the cancel is stopped as soon as it is up")
+        XCTAssertEqual(live.state, .cancelled, "and a late success does not revive the session")
+        let finished = await live.finish(session)
+        XCTAssertEqual(finished, .fallback(.cancelled))
     }
 
     // MARK: - Session naming
@@ -509,12 +540,16 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
 // MARK: - Fakes
 
 /// A tap the test pushes frames into. Records whether it is running so the
-/// session's stops can be asserted.
+/// session's stops can be asserted, and can be held half-open so a test can
+/// act on the session while the tap is still starting.
 final class FakeLiveAudioTap: LiveAudioTapping {
     private let lock = NSLock()
     private var onFrames: (([Float]) -> Void)?
     var startError: Error?
     private(set) var stopCount = 0
+    private var startHold: DispatchSemaphore?
+    private var hasEnteredStart = false
+    private var opening: CheckedContinuation<Void, Never>?
 
     var isRunning: Bool {
         lock.lock()
@@ -522,7 +557,44 @@ final class FakeLiveAudioTap: LiveAudioTapping {
         return onFrames != nil
     }
 
+    /// Makes the next `start` wait at `releaseStart()` - a tap still opening.
+    func holdStart() {
+        lock.lock()
+        startHold = DispatchSemaphore(value: 0)
+        lock.unlock()
+    }
+
+    /// Resumes once a held `start` has been entered on its own thread.
+    func waitUntilOpening() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if hasEnteredStart {
+                lock.unlock()
+                continuation.resume()
+                return
+            }
+            opening = continuation
+            lock.unlock()
+        }
+    }
+
+    func releaseStart() {
+        lock.lock()
+        let hold = startHold
+        lock.unlock()
+        hold?.signal()
+    }
+
     func start(onFrames: @escaping ([Float]) -> Void) throws {
+        lock.lock()
+        hasEnteredStart = true
+        let hold = startHold
+        let opening = self.opening
+        self.opening = nil
+        lock.unlock()
+        opening?.resume()
+        hold?.wait()
+
         if let startError { throw startError }
         lock.lock()
         self.onFrames = onFrames

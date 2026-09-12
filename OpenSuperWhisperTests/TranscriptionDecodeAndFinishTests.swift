@@ -139,9 +139,9 @@ final class TranscriptionDecodeAndFinishTests: XCTestCase {
         XCTAssertEqual(engine.startCount, 1, "no engine is touched: the pieces were decoded already")
     }
 
-    /// A cancelled finish returns nothing, exactly as a cancelled decode does -
-    /// which is what lets the capsule's cancel button stop the rewrite of a
-    /// live-decoded transcript.
+    /// A cancelled finish returns nothing, exactly as a cancelled decode does:
+    /// it is the same frame, and the frame's rule does not depend on what runs
+    /// inside it.
     func testACancelledFinishProducesNoText() async {
         let engine = GatedStubEngine(text: "first")
         let service = makeService(engine)
