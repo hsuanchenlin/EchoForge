@@ -11,7 +11,7 @@ import Foundation
 /// only improve a transcript or leave it alone - is untouched.
 ///
 /// One flag rather than a count because transcriptions are serialized
-/// (`TranscriptionService.transcribeAudio` waits for the previous one), so there
+/// (`TranscriptionService.runTranscription` waits for the previous one), so there
 /// is never more than one rewrite in flight.
 @MainActor
 final class StyleRewriteActivity: ObservableObject {

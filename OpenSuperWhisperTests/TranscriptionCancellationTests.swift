@@ -78,7 +78,7 @@ final class TranscriptionCancellationTests: XCTestCase {
     /// A dictation started right after a cancelled one runs *after* it, not
     /// beside it.
     ///
-    /// The serialization loop in `transcribeAudio` is the only thing keeping two
+    /// The serialization loop in `runTranscription` is the only thing keeping two
     /// transcriptions off one engine, and cancelling used to clear the handle it
     /// waits on.
     func testADictationStartedAfterACancelDoesNotOverlapIt() async {

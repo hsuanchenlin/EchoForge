@@ -246,7 +246,7 @@ class TranscriptionService: ObservableObject {
     /// are the app's answer to "is the engine free", and cancelling does not
     /// make it free: a whisper context must not be handed a second recording
     /// while the first is still inside `whisper_full`, which is exactly what the
-    /// serialization loop in `transcribeAudio` exists to prevent and exactly
+    /// serialization loop in `runTranscription` exists to prevent and exactly
     /// what clearing them here allowed - cancel, press again, two transcriptions
     /// on one context. The cancelled work's own teardown clears them when it
     /// actually unwinds, and that teardown is generation-checked so it can only
@@ -256,7 +256,7 @@ class TranscriptionService: ObservableObject {
         partialTranscript = nil
         progress = 0.0
 
-        // `isTranscribing` spans the whole of `transcribeAudio`, including the
+        // `isTranscribing` spans the whole of `runTranscription`, including the
         // engine load before the task exists, so it - rather than the task box -
         // is what says whether there is anything to cancel. With nothing in
         // flight, raising the flag would only mute the next transcription's
