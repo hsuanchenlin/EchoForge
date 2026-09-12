@@ -111,6 +111,39 @@ final class FailedRecordingStartTests: XCTestCase {
         }
     }
 
+    /// The live decoder is a consumer of the microphone too, and it is torn down
+    /// with the capture that never started - by the view model that owns both,
+    /// which is the one place the failure is heard. Its own directory never
+    /// touches the recorder: it neither starts nor stops a recording, so there
+    /// is no second claim on the microphone for a failed start to leave behind.
+    func testTheLiveSessionIsTornDownWithAFailedStartAndNeverRecords() throws {
+        let indicator = try Self.source(of: "OpenSuperWhisper/Indicator/IndicatorWindow.swift")
+        XCTAssertTrue(
+            try Self.body(of: "private func recordingSessionDidFailToStart(", in: indicator)
+                .contains("endLiveSession(session)"),
+            "a start that failed has to end the live session it was decoding for")
+        XCTAssertTrue(
+            try Self.body(of: "func cancelRecording() {", in: indicator)
+                .contains("endLiveSession(session)"),
+            "and so does a cancel, before the recorder is told")
+
+        let live = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("OpenSuperWhisper/Live")
+        let files = try FileManager.default.contentsOfDirectory(atPath: live.path)
+            .filter { $0.hasSuffix(".swift") }
+        XCTAssertGreaterThan(files.count, 3, "the Live directory is not where it was expected")
+        for file in files {
+            let text = try String(contentsOf: live.appendingPathComponent(file), encoding: .utf8)
+            for forbidden in ["startRecording(", "stopRecording(", "cancelRecording(", "AVAudioRecorder"] {
+                XCTAssertFalse(
+                    text.contains(forbidden),
+                    "Live/\(file) mentions \(forbidden): the live path taps the microphone the "
+                        + "recorder already holds, it never records on its own")
+            }
+        }
+    }
+
     private static func body(of signature: String, in source: String) throws -> String {
         let start = try XCTUnwrap(source.range(of: signature), "no function \(signature) to read")
         let rest = source[start.upperBound...]

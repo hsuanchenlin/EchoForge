@@ -277,6 +277,12 @@ class SettingsViewModel: ObservableObject {
         }
     }
 
+    @Published var liveTranscriptionEnabled: Bool {
+        didSet {
+            AppPreferences.shared.liveTranscriptionEnabled = liveTranscriptionEnabled
+        }
+    }
+
     @Published var spokenIntentsEnabled: Bool {
         didSet {
             AppPreferences.shared.spokenIntentsEnabled = spokenIntentsEnabled
@@ -372,6 +378,7 @@ class SettingsViewModel: ObservableObject {
         self.debugMode = prefs.debugMode
         self.playSoundOnRecordStart = prefs.playSoundOnRecordStart
         self.capsuleHUDEnabled = prefs.capsuleHUDEnabled
+        self.liveTranscriptionEnabled = prefs.liveTranscriptionEnabled
         self.spokenIntentsEnabled = prefs.spokenIntentsEnabled
         self.useAsianAutocorrect = prefs.useAsianAutocorrect
         self.chineseOutputScript = prefs.chineseOutputScript
@@ -1991,6 +1998,20 @@ struct SettingsView: View {
                             }
                             Spacer()
                             Toggle("", isOn: $viewModel.capsuleHUDEnabled)
+                                .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
+                                .labelsHidden()
+                        }
+
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Live transcription")
+                                    .font(.subheadline)
+                                Text("Transcribe while you speak - the words appear on the capsule and the paste is ready sooner. Local engines only")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Toggle("", isOn: $viewModel.liveTranscriptionEnabled)
                                 .toggleStyle(SwitchToggleStyle(tint: Color.accentColor))
                                 .labelsHidden()
                         }

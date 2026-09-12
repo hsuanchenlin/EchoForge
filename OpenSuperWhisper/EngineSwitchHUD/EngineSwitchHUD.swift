@@ -56,9 +56,10 @@ final class EngineSwitchHUD {
     /// How far down the pill moves when the capsule HUD is switched on, so the two
     /// never sit on top of each other: a press during a dictation is exactly when
     /// both want the top of the screen. The capsule's own slot plus a gap - its
-    /// *expanded* slot, since a capsule reporting a microphone problem is taller
-    /// and is exactly the one a user must not have covered up.
-    static let capsuleClearance: CGFloat = CapsuleHUDView.expandedCapsuleHeight + 8
+    /// *tallest* slot, since a capsule reporting a microphone problem over a
+    /// live transcript is taller and is exactly the one a user must not have
+    /// covered up.
+    static let capsuleClearance: CGFloat = CapsuleHUDView.maximumCapsuleHeight + 8
 
     let viewModel: EngineSwitchHUDViewModel
 

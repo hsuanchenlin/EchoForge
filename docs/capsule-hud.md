@@ -61,7 +61,7 @@ work the capsule is currently reporting on.
 | State | The pill | Goes away |
 | --- | --- | --- |
 | `.connecting` | mode chip, spinner, "Connecting…" | when capture starts |
-| `.recording` | mode chip, level meter, `m:ss` | when the audio stops |
+| `.recording` | mode chip, level meter, `m:ss`; with live transcription on, a second line with the words committed so far | when the audio stops |
 | `.recording` + confirmation | mode chip, "Press Esc to cancel", countdown bar | when the window lapses |
 | `.polishing(.transcribing)` | mode chip, spinner, "Transcribing…", cancel; a second line with the words decoded so far, on the engines that can say | when the text arrives |
 | `.polishing(.rewriting)` | mode chip, spinner, "Polishing…", cancel | when the text arrives |
@@ -116,12 +116,34 @@ report along the way, so `PartialTranscriptEmitting` is a **separate** protocol
 that only Whisper conforms to, and the capsule simply shows the spinner and the
 label alone for the others - exactly as it did before this existed.
 
+The line has a second source since live dictation (`docs/live-dictation.md`):
+with `liveTranscriptionEnabled` on, `LiveDictationSession` decodes each
+utterance while the microphone is still open and publishes the joined text,
+which `IndicatorViewModel.liveTranscript` carries and
+`CapsuleHUDViewModel.showLiveTranscript` accepts **while recording** as well as
+during the decode. It is the same committed-only contract - every publication is
+the whole transcript so far, and it only grows - and it works on every local
+engine, since it is the session cutting utterances rather than the engine
+emitting segments. The two sources never take turns: once the live line has
+shown, the global publisher is ignored for the rest of the session, because the
+tail decode reaches it too as a fresh decode of one short piece, and letting it
+through would replace the whole committed transcript with the last utterance's
+segments the moment the key went up. A session that falls back publishes `nil`,
+which `clearLiveTranscript` reads as handing the line back, and the whole-file
+decode's own segments then show as before. `CapsuleLiveTranscriptTests` holds
+both halves.
+
 The line shows the **tail** of the transcript, truncated at the front and capped
 at the same width the microphone diagnostic uses, because a decode that has been
 running for thirty seconds has already said the beginning and what a user wants
 to know is where it has got to. It is announced to VoiceOver as "Transcribed so
 far", so a screen reader does not read a growing transcript as though the
-dictation had finished.
+dictation had finished. The pill grows downwards by one line to hold it
+(`CapsuleHUDView.secondaryLineHeight`), and by two when a microphone diagnostic
+is up beside it - the diagnostic first, since it names something to act on -
+which is the tallest the pill gets (`maximumCapsuleHeight`) and the slot the
+engine-switch pill clears. `CapsuleHUDRenderTests` draws both appearances with
+the line, and both lines together.
 
 The Esc cancel-confirmation is the session's, not the capsule's:
 `IndicatorViewModel` runs the same state machine for both overlays and the
@@ -271,8 +293,9 @@ The pill grows a second line for this, from `capsuleHeight` to
 `expandedCapsuleHeight`, and it grows **downwards**: `pillTopInset` pins the top
 inside the panel, because the panel's transparent top margin deliberately
 overlaps the menu bar and a centred pill would climb into it. `EngineSwitchHUD`
-clears the expanded height for the same reason - a capsule reporting a microphone
-problem is exactly the one that must not be covered up.
+clears the tallest height (`maximumCapsuleHeight`, this line over a live
+transcript) for the same reason - a capsule reporting a microphone problem is
+exactly the one that must not be covered up.
 
 `CapsuleHUDRenderTests` draws all of it offscreen and reads it back, because the
 states worth looking at are the ones that need a broken microphone to produce.

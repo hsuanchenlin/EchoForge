@@ -905,6 +905,23 @@ Cancelling does **not** clear `transcriptionTask` or `isTranscribing` - those tw
 to "is the engine free", cancelling does not make it free, and clearing them let a press right
 after a cancel start a second transcription on a whisper context still inside `whisper_full`.
 
+**Live dictation** (`OpenSuperWhisper/Live/`, off by default behind `liveTranscriptionEnabled`)
+moves the decode *earlier* rather than making it cheaper: `LiveDictationSession` taps the
+microphone beside the recorder (`LiveAudioTap`, a second client on the same device, pinned to
+the same `AudioDeviceID`), cuts utterances with `LiveCutPolicy`, decodes each through
+`TranscriptionService.decodeRaw` while the key is still down, and `finish` decodes only the
+tail. `docs/live-dictation.md` is the whole story. Four things there are absolute. Nothing is
+pasted early and nothing on screen is revised - the joined raw text goes through
+`finishTranscribed`, the third transcription frame, so the paste is one paste after every
+stage and the capsule's cancel still works. Every live-path failure is a **fallback** to the
+whole-file decode of the WAV the recorder still writes, with the capsule line cleared first;
+`LiveDictationSessionTests` holds each row of the table. Only `DictationPurpose.dictation` on a
+local engine gets a session (`LiveDictationEligibility`; `LiveCutBudget.preset(for: .cloud)`
+is nil, and `CloudPrivacyTests` scans `Live/`). And `IndicatorViewModel.startDecoding` checks
+the live path **before** its busy check: an utterance decode raises `isTranscribing` like a
+queue item does, and a dictation that decoded itself all along must not be queued as a file at
+the last moment.
+
 `AudioRecorder.startRecording` hands back its session synchronously and then pays CoreAudio on
 its work queue, so a start can fail after the caller believes it is recording.
 `AudioRecorder.failedStart` is how it says so, and it names its session because five keys share

@@ -175,6 +175,21 @@ final class AppPreferences {
     @UserDefault(key: PreferenceKeys.capsuleHUDEnabled, defaultValue: true)
     var capsuleHUDEnabled: Bool
 
+    /// Whether a dictation is decoded **while it is being recorded**, so the
+    /// words appear on the capsule as they are spoken and the wait after the
+    /// key goes up is one utterance's decode rather than the whole
+    /// recording's. See `LiveDictationSession` and `docs/live-dictation.md`.
+    ///
+    /// Off by default for now: it is the first release carrying the feature
+    /// and it puts the microphone on a second capture path, so it goes through
+    /// a release of use before it becomes the default - the same road the
+    /// capsule took. Nothing about the result changes when it is on: the paste
+    /// still happens once, at the end, after every post-processing stage, and
+    /// any failure on the live path falls back to the whole-file decode of the
+    /// same recording. Read once per session, like `capsuleHUDEnabled`.
+    @UserDefault(key: PreferenceKeys.liveTranscriptionEnabled, defaultValue: false)
+    var liveTranscriptionEnabled: Bool
+
     /// Whether a dictation is read for a spoken command - "Ask: …",
     /// "Translate to Spanish: …" - before the words are inserted.
     ///

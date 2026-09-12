@@ -33,6 +33,7 @@ enum PreferenceKeys {
     // Overlays and spoken commands
     static let playSoundOnRecordStart = "playSoundOnRecordStart"
     static let capsuleHUDEnabled = "capsuleHUDEnabled"
+    static let liveTranscriptionEnabled = "liveTranscriptionEnabled"
     static let spokenIntentsEnabled = "spokenIntentsEnabled"
     static let spokenCorrectionsEnabled = "spokenCorrectionsEnabled"
     static let fillerWordRemovalEnabled = "fillerWordRemovalEnabled"
@@ -92,7 +93,8 @@ enum PreferenceKeys {
         pendingEnginePreparation, fluidAudioModelVersion,
         whisperLanguage, suppressBlankAudio, showTimestamps, temperature, noSpeechThreshold,
         initialPrompt, useBeamSearch, beamSize, debugMode,
-        playSoundOnRecordStart, capsuleHUDEnabled, spokenIntentsEnabled, voiceSnippetsEnabled,
+        playSoundOnRecordStart, capsuleHUDEnabled, liveTranscriptionEnabled, spokenIntentsEnabled,
+        voiceSnippetsEnabled,
         spokenCorrectionsEnabled, fillerWordRemovalEnabled,
         youTubeLatestVideoEnabled, youTubeChannelModelMatchEnabled, youTubeChannelPickerEnabled,
         cloudTranslationEnabled, cloudBaseURL, cloudTranscriptionModel, cloudTranslationModel,

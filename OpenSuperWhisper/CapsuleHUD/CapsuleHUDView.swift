@@ -18,14 +18,23 @@ struct CapsuleHUDView: View {
     /// was asked to.
     static let capsuleHeight: CGFloat = 40
 
-    /// The pill's height while it is saying something about the microphone.
+    /// What one more line under the meter's row adds to the pill.
+    static let secondaryLineHeight: CGFloat = 24
+
+    /// The pill's height while it is carrying one line under the meter's row -
+    /// a microphone diagnostic, or the words decoded so far.
     ///
-    /// The diagnostic gets a line of its own rather than a place on the meter's
-    /// row: it names an input device, and a device name is long enough to push
-    /// the duration counter off a single-row pill. The pill grows **downwards**
-    /// only - see `pillTopInset` - so the thing the user has learned the position
-    /// of does not move when a warning appears.
-    static let expandedCapsuleHeight: CGFloat = 64
+    /// Each gets a line of its own rather than a place on the meter's row: the
+    /// diagnostic names an input device, and a device name is long enough to
+    /// push the duration counter off a single-row pill, and a transcript is
+    /// longer still. The pill grows **downwards** only - see `pillTopInset` -
+    /// so the thing the user has learned the position of does not move when a
+    /// line appears.
+    static let expandedCapsuleHeight: CGFloat = capsuleHeight + secondaryLineHeight
+
+    /// The tallest the pill gets: a live dictation whose microphone is also
+    /// worth a warning carries both lines, the diagnostic first.
+    static let maximumCapsuleHeight: CGFloat = capsuleHeight + 2 * secondaryLineHeight
 
     /// Where the top of the pill sits inside the panel.
     ///
@@ -36,7 +45,7 @@ struct CapsuleHUDView: View {
     /// from this same number, so the two cannot disagree.
     static let pillTopInset: CGFloat = 28
 
-    static let windowSize = CGSize(width: 440, height: 128)
+    static let windowSize = CGSize(width: 440, height: 140)
 
     @ObservedObject var viewModel: CapsuleHUDViewModel
     @Environment(\.colorScheme) private var colorScheme
@@ -71,11 +80,35 @@ struct CapsuleHUDView: View {
     /// audio nobody can do anything about any more.
     private var showsSignalDiagnostic: Bool {
         viewModel.state == .recording && viewModel.signal.isDiagnostic
+            && !viewModel.isConfirmingCancel
+    }
+
+    /// Whether the pill is carrying the words decoded so far.
+    ///
+    /// While recording, that is a live session's committed utterances; during
+    /// the decode, whatever the engine has committed. Both are one line under
+    /// the first row, and the pill's height counts them the same way. Hidden
+    /// with the diagnostic while the Esc confirmation is up, which is one
+    /// sentence the user has to read and nothing else.
+    private var showsTranscriptLine: Bool {
+        guard viewModel.partialText != nil else { return false }
+        switch viewModel.state {
+        case .recording: return !viewModel.isConfirmingCancel
+        case .polishing(.transcribing): return true
+        default: return false
+        }
+    }
+
+    /// How many lines sit under the meter's row, which is what sets the pill's
+    /// height. Derived from the same predicates that draw the rows, so the
+    /// frame and the content cannot disagree.
+    private var secondaryLineCount: Int {
+        (showsSignalDiagnostic ? 1 : 0) + (showsTranscriptLine ? 1 : 0)
     }
 
     private var pill: some View {
         content
-            .frame(height: showsSignalDiagnostic ? Self.expandedCapsuleHeight : Self.capsuleHeight)
+            .frame(height: Self.capsuleHeight + CGFloat(secondaryLineCount) * Self.secondaryLineHeight)
             .background {
                 Capsule(style: .continuous)
                     .fill(Material.ultraThinMaterial)
@@ -135,12 +168,16 @@ struct CapsuleHUDView: View {
                         durationCounter
                     }
                 }
-                if showsSignalDiagnostic, !viewModel.isConfirmingCancel {
+                if showsSignalDiagnostic {
                     signalDiagnosticRow
+                }
+                if showsTranscriptLine, let partial = viewModel.partialText {
+                    partialTranscriptRow(partial)
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: viewModel.isConfirmingCancel)
             .animation(.easeInOut(duration: 0.2), value: showsSignalDiagnostic)
+            .animation(.easeInOut(duration: 0.2), value: showsTranscriptLine)
 
         case .polishing(let work):
             VStack(alignment: .leading, spacing: 4) {
@@ -158,11 +195,11 @@ struct CapsuleHUDView: View {
                     PulsingLabel(text: work.label)
                     cancelButton
                 }
-                if work == .transcribing, let partial = viewModel.partialText {
+                if showsTranscriptLine, let partial = viewModel.partialText {
                     partialTranscriptRow(partial)
                 }
             }
-            .animation(.easeInOut(duration: 0.2), value: viewModel.partialText)
+            .animation(.easeInOut(duration: 0.2), value: showsTranscriptLine)
 
         case .awaitingChannelChoice:
             row {
@@ -233,8 +270,9 @@ struct CapsuleHUDView: View {
         }
     }
 
-    /// The words the engine has committed so far, on the same second line the
-    /// signal diagnostic uses while recording.
+    /// The words committed so far - by a live session while the microphone is
+    /// open, or by the engine during the decode - under the meter's row, below
+    /// the signal diagnostic when both are up.
     ///
     /// The **tail** of the transcript rather than its head, because a decode
     /// that has been running for thirty seconds has already said the beginning

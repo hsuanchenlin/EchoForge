@@ -112,6 +112,63 @@ final class TranscriptionDecodeAndFinishTests: XCTestCase {
         XCTAssertEqual(engine.startCount, 3)
     }
 
+    /// `finishTranscribed` is `finish` inside the frame: the same result, and a
+    /// transcription as far as the busy check is concerned while it runs, so a
+    /// dictation pressed during the rewrite of live-decoded text waits its turn.
+    func testFinishTranscribedRunsTheFinishInsideTheFrame() async throws {
+        let engine = GatedStubEngine(text: "unused")
+        let service = makeService(engine)
+        let settings = chineseSettings()
+
+        let wholeFile = Task { try await service.transcribeAudio(url: audioURL, settings: settings) }
+        await engine.waitUntilRunning(count: 1)
+
+        let finishing = Task { try await service.finishTranscribed(raw: "简体 test", settings: settings) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertTrue(service.isTranscribing)
+        XCTAssertEqual(service.transcribedText, "", "the finish waits for the transcription in front of it")
+
+        engine.release()
+        _ = try await wholeFile.value
+        let styled = try await finishing.value
+
+        let direct = await TranscriptionService.finish(raw: "简体 test", settings: settings)
+        XCTAssertEqual(styled, direct)
+        XCTAssertEqual(styled.final, "簡體 test")
+        XCTAssertEqual(service.transcribedText, "簡體 test", "and publishes what it returned")
+        XCTAssertEqual(engine.startCount, 1, "no engine is touched: the pieces were decoded already")
+    }
+
+    /// A cancelled finish returns nothing, exactly as a cancelled decode does -
+    /// which is what lets the capsule's cancel button stop the rewrite of a
+    /// live-decoded transcript.
+    func testACancelledFinishProducesNoText() async {
+        let engine = GatedStubEngine(text: "first")
+        let service = makeService(engine)
+
+        // Held behind a decode so there is a moment to cancel it in.
+        let decode = Task { try await service.decodeRaw(url: audioURL, settings: Settings()) }
+        await engine.waitUntilRunning(count: 1)
+        let finishing = Task { try await service.finishTranscribed(raw: "the words the user cancelled", settings: Settings()) }
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        engine.release()
+        _ = try? await decode.value
+        // The finish's frame is now the one in flight.
+        for _ in 0..<50 where !service.isTranscribing {
+            try? await Task.sleep(nanoseconds: 2_000_000)
+        }
+        service.cancelTranscription()
+
+        do {
+            _ = try await finishing.value
+            XCTFail("A cancelled finish must not return text")
+        } catch {
+            XCTAssertEqual(error as? TranscriptionError, .processingFailed)
+        }
+        XCTAssertNotEqual(service.transcribedText, "the words the user cancelled")
+    }
+
     /// A cancelled decode returns nothing and publishes nothing - the same
     /// answer `TranscriptionCancellationTests` holds `transcribeAudio` to, since
     /// they are one frame.

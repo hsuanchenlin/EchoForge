@@ -208,6 +208,19 @@ final class CapsuleHUDWindowController {
             }
             .store(in: &sessionCancellables)
 
+        // What this session's own live decoder has committed while the
+        // microphone is still open. The session is the source, carried on
+        // the indicator view model, so unlike the global publisher above it
+        // cannot be somebody else's transcription - and nil is how a session
+        // that fell back takes its line down before the whole-file decode
+        // puts its own up.
+        indicatorViewModel.$liveTranscript
+            .receive(on: RunLoop.main)
+            .sink { [weak self] live in
+                self?.viewModel.showLiveTranscript(live?.text)
+            }
+            .store(in: &sessionCancellables)
+
         AudioRecorder.shared.setLevelMonitoring(enabled: true)
     }
 
