@@ -213,6 +213,7 @@ class IndicatorViewModel: ObservableObject {
     /// Cancelling makes the transcription throw, and that failure must not come
     /// back to the user as one: they know what they did.
     private(set) var didCancelWorkInFlight = false
+    private var isDecodingLiveSession = false
 
     var delegate: IndicatorViewDelegate?
     private var blinkTimer: Timer?
@@ -474,6 +475,7 @@ class IndicatorViewModel: ObservableObject {
         recordingSession = nil
         let liveSession = self.liveSession
         self.liveSession = nil
+        isDecodingLiveSession = (liveSession != nil)
 
         // The live path is checked **before** the busy check, and the busy
         // check applies only to the whole-file path. A live session's own
@@ -731,6 +733,7 @@ class IndicatorViewModel: ObservableObject {
             print("Live dictation fell back to the whole-file decode: \(reason)")
             return try await transcriptionService.transcribeAudio(url: tempURL, settings: settings)
         case nil:
+            guard !didCancelWorkInFlight else { throw TranscriptionError.processingFailed }
             return try await transcriptionService.transcribeAudio(url: tempURL, settings: settings)
         }
     }
@@ -899,7 +902,9 @@ class IndicatorViewModel: ObservableObject {
     func cancelWorkInFlight() {
         guard state == .decoding else { return }
         didCancelWorkInFlight = true
-        transcriptionService.cancelTranscription()
+        if !isDecodingLiveSession {
+            transcriptionService.cancelTranscription()
+        }
     }
 
     func insertText(_ text: String) {
