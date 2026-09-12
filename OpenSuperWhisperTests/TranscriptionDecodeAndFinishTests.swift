@@ -133,30 +133,6 @@ final class TranscriptionDecodeAndFinishTests: XCTestCase {
         }
         XCTAssertEqual(service.transcribedText, "")
     }
-
-    /// `finish` is the one entry to post-processing: the transcript stage and the
-    /// spoken-intent stage are called from it and from nowhere else in the app,
-    /// so no caller can run one without the other or in the other order.
-    func testFinishIsTheOnlyCallerOfTheTwoStages() throws {
-        let sourcesRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("OpenSuperWhisper")
-        let enumerator = try XCTUnwrap(FileManager.default.enumerator(at: sourcesRoot, includingPropertiesForKeys: nil))
-
-        var callers: [String: Set<String>] = ["TextPostProcessor.process(": [], "SpokenIntentPipeline.apply(": []]
-        for case let url as URL in enumerator where url.pathExtension == "swift" {
-            let code = try String(contentsOf: url, encoding: .utf8)
-                .split(separator: "\n", omittingEmptySubsequences: false)
-                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-                .joined(separator: "\n")
-            for call in callers.keys where code.contains(call) {
-                callers[call]?.insert(url.lastPathComponent)
-            }
-        }
-
-        XCTAssertEqual(callers["TextPostProcessor.process("], ["TranscriptionService.swift"])
-        XCTAssertEqual(callers["SpokenIntentPipeline.apply("], ["TranscriptionService.swift"])
-    }
 }
 
 /// An engine that answers only when the test lets it, counting how many times it

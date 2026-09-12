@@ -198,6 +198,5 @@ the second one cannot keep the first.
 The halves exist so that a caller can decode pieces of a dictation separately
 and finish the joined text once - the stages run over a whole transcript, never
 over a piece - and `TranscriptionDecodeAndFinishTests` holds them to it: a decode
-returns the engine's words byte for byte, `finish` is the only caller of the two
-stages, and a decode shares the engine's serialisation and cancellation with
-whole-file work rather than running beside it.
+returns the engine's words byte for byte, and a decode shares the engine's
+serialisation and cancellation with whole-file work rather than running beside it.

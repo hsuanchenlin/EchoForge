@@ -492,13 +492,13 @@ Everything between the engine and the user is three stages, described in
 and third are synchronous and cannot fail; keep them that way.
 
 `TranscriptionService.transcribeAudio` is two named halves: `decodeRaw(url:settings:)` is the
-engine and nothing after it, and `finish(raw:settings:)` is the first two stages, the only place
-either is called. They run inside **one** serialised transcription frame (`runTranscription`),
-not two, because `isTranscribing`, the generation and cancellation span the rewrite as well as
-the decode: a cancel pressed while the text is being polished must still paste nothing, and a
-dictation pressed then must still wait its turn. A caller that decodes pieces of a dictation
-separately must finish the joined text once - the stages run over a whole transcript, never a
-piece. `TranscriptionDecodeAndFinishTests` holds all of it.
+engine and nothing after it, and `finish(raw:settings:)` is the first two stages. They run inside
+**one** serialised transcription frame (`runTranscription`), not two, because `isTranscribing`,
+the generation and cancellation span the rewrite as well as the decode: a cancel pressed while
+the text is being polished must still paste nothing, and a dictation pressed then must still wait
+its turn. A caller that decodes pieces of a dictation separately must finish the joined text
+once - the stages run over a whole transcript, never a piece. `TranscriptionDecodeAndFinishTests`
+holds all of it.
 
 **Spoken corrections** (`Utils/SpokenCorrection.swift`, off by default) are the
 transcript stage's second pass. `docs/spoken-corrections.md` is its whole story,
