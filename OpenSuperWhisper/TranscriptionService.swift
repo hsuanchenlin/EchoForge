@@ -108,9 +108,22 @@ class TranscriptionService: ObservableObject {
     /// retry path. Cleared when a new attempt starts.
     @Published private(set) var preparationFailure: String?
 
+    /// The transcription in flight, held by identity so the serialisation loop
+    /// in `runTranscription` can tell "the one I waited on" from "the one that
+    /// replaced it".
+    ///
+    /// Type-erased because two shapes of work run inside one frame - a decode
+    /// that returns the engine's raw text and a full transcription that returns
+    /// a `StyledTranscript` - and the loop and `cancelTranscription` need only
+    /// to wait on either and to cancel either.
     private final class TranscriptionTaskBox {
-        let task: Task<StyledTranscript, Error>
-        init(_ task: Task<StyledTranscript, Error>) { self.task = task }
+        let cancel: () -> Void
+        let waitUntilFinished: () async -> Void
+
+        init<Result>(_ task: Task<Result, Error>) {
+            cancel = { task.cancel() }
+            waitUntilFinished = { _ = try? await task.value }
+        }
     }
 
     private var currentEngine: TranscriptionEngine?
@@ -233,7 +246,7 @@ class TranscriptionService: ObservableObject {
     /// are the app's answer to "is the engine free", and cancelling does not
     /// make it free: a whisper context must not be handed a second recording
     /// while the first is still inside `whisper_full`, which is exactly what the
-    /// serialization loop in `transcribeAudio` exists to prevent and exactly
+    /// serialization loop in `runTranscription` exists to prevent and exactly
     /// what clearing them here allowed - cancel, press again, two transcriptions
     /// on one context. The cancelled work's own teardown clears them when it
     /// actually unwinds, and that teardown is generation-checked so it can only
@@ -243,7 +256,7 @@ class TranscriptionService: ObservableObject {
         partialTranscript = nil
         progress = 0.0
 
-        // `isTranscribing` spans the whole of `transcribeAudio`, including the
+        // `isTranscribing` spans the whole of `runTranscription`, including the
         // engine load before the task exists, so it - rather than the task box -
         // is what says whether there is anything to cancel. With nothing in
         // flight, raising the flag would only mute the next transcription's
@@ -252,7 +265,7 @@ class TranscriptionService: ObservableObject {
 
         cancelledGeneration = transcriptionGeneration
         currentEngine?.cancelTranscription()
-        transcriptionTask?.task.cancel()
+        transcriptionTask?.cancel()
     }
 
     // MARK: - Choosing what to run on
@@ -609,12 +622,73 @@ class TranscriptionService: ObservableObject {
     /// two texts - what was said and what the app made of it - and a caller
     /// handed only the second one cannot keep the first. See
     /// `docs/text-post-processing.md`.
+    ///
+    /// It is the two halves below, `decodeRaw` and `finish`, composed inside
+    /// **one** transcription frame rather than run as two: `isTranscribing`,
+    /// the generation and the serialisation all span the post-processing as
+    /// well as the decode. A cancel pressed while the capsule says the text is
+    /// being polished must still produce no transcript, and a dictation pressed
+    /// then must still wait its turn, so the frame is not allowed to end at the
+    /// engine.
     func transcribeAudio(url: URL, settings: Settings) async throws -> StyledTranscript {
+        try await runTranscription(publishing: { $0.final }) { engine in
+            let raw = try await engine.transcribeAudio(url: url, settings: settings)
+            try Task.checkCancellation()
+            return await Self.finish(raw: raw, settings: settings)
+        }
+    }
+
+    /// Decodes one file to the engine's raw text and stops there: no
+    /// post-processing, no rewriting, nothing routed.
+    ///
+    /// The same frame `transcribeAudio` runs in - serialised against every other
+    /// transcription on the engine, its own generation, progress and committed
+    /// segments published, cancellable - so a caller that decodes pieces of a
+    /// dictation while the microphone is still open queues behind, and ahead
+    /// of, whole-file work exactly as that work queues behind it. What it returns
+    /// has been through no stage of `docs/text-post-processing.md`; `finish`
+    /// is how it gets there.
+    func decodeRaw(url: URL, settings: Settings) async throws -> String {
+        try await runTranscription(publishing: { $0 }) { engine in
+            try await engine.transcribeAudio(url: url, settings: settings)
+        }
+    }
+
+    /// Runs the whole post-processing pipeline over a raw transcript.
+    ///
+    /// Single post-processing choke point: every engine and every caller (live
+    /// dictation, the file/drop queue, the in-window recorder) passes through
+    /// here, so they cannot drift apart. The transcript stage is deterministic
+    /// and cannot fail; the model-backed stages are last, are the only ones
+    /// that can, and return the deterministic text unchanged when they do.
+    /// Which of them runs is `SpokenIntentPipeline`'s decision: normally the
+    /// chosen style, and for a caller that asked for routing, a spoken command
+    /// instead.
+    ///
+    /// Off the main actor on purpose: it is called from inside the detached
+    /// transcription task, and the transcript stage's string work belongs there
+    /// rather than on the thread that draws the overlay.
+    nonisolated static func finish(raw: String, settings: Settings) async -> StyledTranscript {
+        let processed = TextPostProcessor.process(raw, settings: settings)
+        return await SpokenIntentPipeline.apply(to: processed, settings: settings)
+    }
+
+    /// The frame every transcription runs in: waits for the engine to be free,
+    /// takes the next generation, publishes the in-flight state, runs `work` on
+    /// a detached task that is cancelled with this object, and takes the state
+    /// down again when - and only when - that work has actually unwound.
+    ///
+    /// `publishing` names what `transcribedText` shows for a result, since the
+    /// frame does not know whether it ran a decode or a full transcription.
+    private func runTranscription<Result: Sendable>(
+        publishing text: @escaping @Sendable (Result) -> String,
+        _ work: @escaping @Sendable (TranscriptionEngine) async throws -> Result
+    ) async throws -> Result {
         // Serialize access to the engine: a whisper context must not process
         // two transcriptions concurrently (indicator flow and queue flow can
         // both reach this point due to async busy checks).
         while let existing = transcriptionTask {
-            _ = try? await existing.task.value
+            await existing.waitUntilFinished()
             if transcriptionTask === existing {
                 transcriptionTask = nil
             }
@@ -673,36 +747,25 @@ class TranscriptionService: ObservableObject {
                 throw CancellationError()
             }
 
-            let rawResult = try await engine.transcribeAudio(url: url, settings: settings)
+            let result = try await work(engine)
 
             try Task.checkCancellation()
 
-            // Single post-processing choke point: every engine and every caller
-            // (live dictation, the file/drop queue, the in-window recorder)
-            // passes through here, so they cannot drift apart.
-            let processed = TextPostProcessor.process(rawResult, settings: settings)
-
-            // The model-backed stages are last, are the only ones that can
-            // fail, and return the deterministic text unchanged when they do.
-            // Which of them runs is `SpokenIntentPipeline`'s decision: normally
-            // the chosen style, and for a caller that asked for routing, a
-            // spoken command instead.
-            let styled = await SpokenIntentPipeline.apply(to: processed, settings: settings)
-            let result = styled.final
-
-            let finalCancelled = await MainActor.run { service.isCancelled(generation) }
-
-            await MainActor.run {
-                guard !service.isCancelled(generation) else { return }
-                service.transcribedText = result
+            // Read and published in one main-actor hop, so a cancel cannot land
+            // between "may I publish" and "did I": what was published is what
+            // is returned to be pasted, and a cancelled result is neither.
+            let published = await MainActor.run { () -> Bool in
+                guard !service.isCancelled(generation) else { return false }
+                service.transcribedText = text(result)
                 service.progress = 1.0
+                return true
             }
 
-            guard !finalCancelled else {
+            guard published else {
                 throw CancellationError()
             }
 
-            return styled
+            return result
         }
 
         transcriptionTask = TranscriptionTaskBox(task)
