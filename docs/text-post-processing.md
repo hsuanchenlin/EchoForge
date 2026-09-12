@@ -19,8 +19,11 @@ TranscriptionEngine.transcribeAudio()      WhisperEngine | FluidAudioEngine
         │                                  dictated into contributes, when that is
         │                                  switched on: docs/app-vocabulary.md
         ▼
-TranscriptionService.transcribeAudio()     single choke point
+TranscriptionService.decodeRaw()           the engine and nothing after it
         │
+        ▼
+TranscriptionService.finish()              single choke point: every stage
+        │                                  below runs here and nowhere else
         ▼
 TextPostProcessor.process()                TRANSCRIPT STAGE
         │                                  shared by every engine and caller
@@ -188,3 +191,13 @@ made" cannot be read as "corrections were never considered".
 rather than a string. Once a stage can rewrite the user's words, "the text" is
 two texts - what was said and what the app made of it - and a caller handed only
 the second one cannot keep the first.
+
+`transcribeAudio` is two named halves run inside one serialised transcription:
+`decodeRaw(url:settings:)` is the engine and nothing after it, and
+`finish(raw:settings:)` is every stage above, run once over a raw transcript.
+The halves exist so that a caller can decode pieces of a dictation separately
+and finish the joined text once - the stages run over a whole transcript, never
+over a piece - and `TranscriptionDecodeAndFinishTests` holds them to it: a decode
+returns the engine's words byte for byte, `finish` is the only caller of the two
+stages, and a decode shares the engine's serialisation and cancellation with
+whole-file work rather than running beside it.
