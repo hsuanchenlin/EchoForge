@@ -47,8 +47,15 @@ History stores and that the fallback decodes; the tap is a second client on the 
 which macOS allows, and owns no file. It pins the device the user chose
 (`kAudioOutputUnitProperty_CurrentDevice`) rather than trusting the system default, because the
 recorder switches that default on its own work queue after the press and a tap started a few
-milliseconds earlier would open the old one. `start` costs CoreAudio round-trips and runs off
-the main actor. Unifying both captures onto one engine is a later change with its own risk.
+milliseconds earlier would open the old one. A device it cannot pin is a refusal, not a tap on
+the default: that would be a transcript of whichever microphone the default happened to be, not
+of the WAV. `start` costs CoreAudio round-trips and runs off the main actor, and a key that goes
+up before it has returned is a fallback too - the tap was not hearing the recording, so
+`finish` refuses to stand for it (`hasTapStarted`). Once up, the engine can stop itself with no
+callback - macOS stops it when the input device is removed or changes format - while the
+recorder goes on writing, so `isDelivering` is read on every poll and again before the tail, and
+a tap that stopped is the same fallback as one that never started. Unifying both captures onto
+one engine is a later change with its own risk.
 
 **`LiveDictationSession`** owns the tap, the buffer, the poll, the policy, the joined text and
 its state, and `IndicatorViewModel` sees `start`, `finish`, `cancel` and one published
@@ -92,7 +99,9 @@ fail; it can only make one slower than it would have been.
 
 | Failure | Behaviour |
 | --- | --- |
-| The tap will not start (no input, format refused, engine refused) | `.unavailable`; the recording goes on; one `print` line; at stop the session counts as no session, so the busy check runs and the audio is queued as a file if the engine is in use, exactly as without the feature |
+| The tap will not start (no input, device could not be pinned, format refused, engine refused) | `.unavailable`; the recording goes on; one `print` line; at stop the session counts as no session, so the busy check runs and the audio is queued as a file if the engine is in use, exactly as without the feature |
+| The key goes up while the tap is still opening, or the tap fails to open after it | `.failed(.tapUnavailable)` from `finish`, which decodes nothing: the tap was not hearing the recording; a tap that then comes up is stopped the moment it does |
+| The engine stops itself mid-recording (input device removed, format changed) | `.failed(.tapUnavailable)` on the next poll, or from `finish` before the tail - the buffer ends where the engine stopped, not where the key went up, and the WAV has the rest |
 | An utterance decode throws (not a cancel) | `.failed(.decodeFailed)`; everything committed is dropped - a transcript with a hole in it is worse than a late one; capsule line cleared **first**; whole-file decode at stop |
 | The tail decode throws | The same, even though everything before it decoded |
 | The engine that would decode now is not the one the session started on (a model finished preparing, ⌥M carried out) | `.failed(.engineChanged)`; two engines' words joined are not one transcript |

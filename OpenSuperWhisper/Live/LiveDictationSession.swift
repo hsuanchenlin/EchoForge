@@ -9,8 +9,10 @@ import Foundation
 /// intact on disk, the whole-file path is the one every release before this
 /// took, and what the user loses is the seconds the live path would have saved.
 enum LiveDictationFallbackReason: Equatable, CustomStringConvertible {
-    /// The microphone could not be tapped: device busy, format refused, no
-    /// input. The session never decoded anything.
+    /// The tap was not hearing the recording: it could not be opened (device
+    /// not pinned, format refused, no input), it was still opening when the
+    /// key went up, or the engine stopped itself part-way. Whatever it did
+    /// hear cannot stand for the WAV.
     case tapUnavailable(String)
     /// An utterance - or the tail - did not decode. Whatever was committed is
     /// dropped, because a transcript with a hole in it is worse than a late one.
@@ -135,11 +137,11 @@ enum LiveDictationEligibility {
 /// and the guard compares whole texts.
 ///
 /// **Every failure is a fallback.** The recorder is still writing the WAV, so a
-/// tap that will not start, an utterance that throws, an engine that changes or
-/// a buffer that outgrows its cap all end the same way: the published line is
-/// cleared first, the buffer is released, and `finish` answers `.fallback` so
-/// the caller decodes the file whole. A live session can make a dictation
-/// faster; it is never allowed to make one fail.
+/// tap that will not start or stops delivering, an utterance that throws, an
+/// engine that changes or a buffer that outgrows its cap all end the same way:
+/// the published line is cleared first, the buffer is released, and `finish`
+/// answers `.fallback` so the caller decodes the file whole. A live session can
+/// make a dictation faster; it is never allowed to make one fail.
 ///
 /// **It is bound to its `RecordingSession`.** `finish` and `cancel` name the
 /// session they mean and are refused otherwise, the rule
@@ -190,6 +192,11 @@ final class LiveDictationSession: ObservableObject {
     private let buffer = LiveSampleBuffer()
     private var committed = CommittedTranscript()
     private var hasStarted = false
+
+    /// Set once `start` has seen the tap come up. Until then the tap is not
+    /// hearing the recording, so nothing the session holds can stand for it,
+    /// and a tap still opening is `start`'s to stop when it does come up.
+    private var hasTapStarted = false
     private var pollTask: Task<Void, Never>?
     private var sleeper: Task<Void, Never>?
     private var isPolling = false
@@ -289,6 +296,7 @@ final class LiveDictationSession: ObservableObject {
             state = .unavailable(.tapUnavailable(reason))
             return
         }
+        hasTapStarted = true
 
         guard let pollInterval else { return }
         pollTask = Task { [weak self] in
@@ -319,6 +327,11 @@ final class LiveDictationSession: ObservableObject {
         case .running:
             break
         }
+        guard hasTapStarted else {
+            let reason = LiveDictationFallbackReason.tapUnavailable("still opening when the key went up")
+            fail(reason)
+            return .fallback(reason)
+        }
         state = .finishing
 
         // The same tail the recorder keeps: the end of the last word is
@@ -327,6 +340,7 @@ final class LiveDictationSession: ObservableObject {
             try? await Task.sleep(nanoseconds: UInt64(stopTail * 1_000_000_000))
         }
         let tap = self.tap
+        let wasDelivering = tap.isDelivering
         await Task.detached { tap.stop() }.value
 
         // Let the loop finish the step it is in - which may be a decode - and
@@ -344,6 +358,11 @@ final class LiveDictationSession: ObservableObject {
         case .running, .unavailable, .finished: return .fallback(.notThisSession)
         }
 
+        guard wasDelivering else {
+            let reason = LiveDictationFallbackReason.tapUnavailable(Self.engineStoppedReason)
+            fail(reason)
+            return .fallback(reason)
+        }
         guard decoder.activeEngine == engine else {
             fail(.engineChanged)
             return .fallback(.engineChanged)
@@ -387,12 +406,16 @@ final class LiveDictationSession: ObservableObject {
     /// session without a timer; in production the loop `start` launches calls
     /// it every `pollInterval`. Never runs two at once.
     func poll() async {
-        guard state == .running, !isPolling else { return }
+        guard state == .running, hasTapStarted, !isPolling else { return }
         isPolling = true
         defer { isPolling = false }
 
         guard decoder.activeEngine == engine else {
             fail(.engineChanged)
+            return
+        }
+        guard tap.isDelivering else {
+            fail(.tapUnavailable(Self.engineStoppedReason))
             return
         }
 
@@ -475,14 +498,21 @@ final class LiveDictationSession: ObservableObject {
     /// The tap is stopped here and now rather than on a detached task, unlike
     /// in `finish`: a cancel or a fallback is not on the path to a paste, and a
     /// caller that has just cancelled must be able to rely on the microphone
-    /// being let go before it does anything else.
+    /// being let go before it does anything else. A tap that is still opening
+    /// is the one exception - `stop` would block on its `start` - and `start`
+    /// stops it the moment it comes up, since the state is no longer `.running`.
     private func teardown() {
         transcript = nil
         committed = CommittedTranscript()
         buffer.clear()
         sleeper?.cancel()
-        tap.stop()
+        if hasTapStarted { tap.stop() }
     }
+
+    /// The tap came up and then the engine stopped itself: an input device
+    /// removed, a format changed. The recorder went on writing what the tap
+    /// stopped hearing, so the WAV is the only complete copy.
+    private static let engineStoppedReason = "the audio engine stopped"
 
     private static func describe(_ error: Error) -> String {
         (error as? LocalizedError)?.errorDescription ?? "\(error)"

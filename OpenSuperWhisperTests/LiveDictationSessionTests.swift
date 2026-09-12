@@ -9,7 +9,8 @@ import XCTest
 ///
 /// What is held here is the session's contract with `IndicatorViewModel`:
 /// utterances are decoded in order and joined; every failure on the live path
-/// is a `.fallback` with the capsule line already cleared; `finish` decodes
+/// is a `.fallback` with the capsule line already cleared - including a tap
+/// that was not up yet, or stopped, when the key went up; `finish` decodes
 /// only the tail; cancelling discards everything; and `finish` and `cancel`
 /// name the session they mean and are refused otherwise.
 @MainActor
@@ -239,6 +240,109 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
         let outcome = await live.finish(session)
         XCTAssertEqual(outcome, .fallback(.tapUnavailable("No audio input to tap.")))
         XCTAssertTrue(decoder.decodes.isEmpty)
+    }
+
+    /// The key going up while the tap is still opening - a short dictation on
+    /// a slow input. The tap was not hearing the recording, so `finish` cannot
+    /// stand for it: it used to drain an empty buffer and answer
+    /// `.committed("")`, and the recorder's WAV was deleted as no speech.
+    func testFinishWhileTheTapIsStillOpeningFallsBack() async {
+        tap.holdStart()
+        let live = makeSession()
+        let starting = Task { await live.start() }
+        await tap.waitUntilOpening()
+
+        let outcome = await live.finish(session)
+        guard case .fallback(.tapUnavailable) = outcome else {
+            return XCTFail("expected a tap fallback, got \(outcome)")
+        }
+        guard case .failed(.tapUnavailable) = live.state else {
+            return XCTFail("expected .failed(.tapUnavailable), got \(live.state)")
+        }
+        XCTAssertTrue(decoder.decodes.isEmpty)
+
+        tap.releaseStart()
+        await starting.value
+        XCTAssertFalse(tap.isRunning, "a tap that opened after the finish is stopped as soon as it is up")
+        guard case .failed(.tapUnavailable) = live.state else {
+            return XCTFail("a late success does not revive the session, got \(live.state)")
+        }
+    }
+
+    /// The same key-up, with the tap then failing to open: the refusal lands
+    /// on a session that is no longer running and used to be dropped, leaving
+    /// `finish`'s empty answer standing.
+    func testATapThatFailsToOpenAfterTheKeyWentUpFallsBack() async {
+        tap.holdStart()
+        tap.startError = LiveAudioTapError.noInputDevice
+        let live = makeSession()
+        let starting = Task { await live.start() }
+        await tap.waitUntilOpening()
+
+        let outcome = await live.finish(session)
+        guard case .fallback(.tapUnavailable) = outcome else {
+            return XCTFail("expected a tap fallback, got \(outcome)")
+        }
+
+        tap.releaseStart()
+        await starting.value
+        XCTAssertFalse(tap.isRunning)
+        guard case .failed(.tapUnavailable) = live.state else {
+            return XCTFail("expected .failed(.tapUnavailable), got \(live.state)")
+        }
+        XCTAssertTrue(decoder.decodes.isEmpty)
+    }
+
+    /// The engine stopping itself mid-recording - an input device unplugged,
+    /// its format changed - stops the frames while the recorder goes on
+    /// writing the WAV. The next reading notices, clears the line and falls
+    /// back, so the words after the stop come from the file rather than going
+    /// missing from a `.committed` transcript.
+    func testATapThatStopsDeliveringMidSessionFallsBack() async {
+        decoder.answers = ["First."]
+        let live = makeSession()
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertEqual(live.transcript?.text, "First.")
+
+        tap.stall()
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+
+        guard case .failed(.tapUnavailable) = live.state else {
+            return XCTFail("expected .failed(.tapUnavailable), got \(live.state)")
+        }
+        XCTAssertNil(live.transcript)
+        XCTAssertEqual(decoder.decodes.count, 1, "nothing more is decoded from a tap that stopped")
+        let outcome = await live.finish(session)
+        guard case .fallback(.tapUnavailable) = outcome else {
+            return XCTFail("expected a tap fallback, got \(outcome)")
+        }
+    }
+
+    /// The same stop landing between the last reading and the key going up,
+    /// or during the stop tail, is caught by `finish` itself: the buffer ends
+    /// where the engine stopped rather than where the key went up, so the tail
+    /// is not decoded from it.
+    func testATapThatStoppedBeforeTheKeyWentUpFallsBack() async {
+        decoder.answers = ["First.", "Never decoded."]
+        let live = makeSession()
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        tap.push(Self.speech(seconds: 0.8))
+        tap.stall()
+
+        let outcome = await live.finish(session)
+        guard case .fallback(.tapUnavailable) = outcome else {
+            return XCTFail("expected a tap fallback, got \(outcome)")
+        }
+        XCTAssertEqual(decoder.decodes.count, 1, "the tail is not decoded from a truncated buffer")
+        XCTAssertNil(live.transcript)
+        XCTAssertFalse(tap.isRunning)
     }
 
     /// An utterance that throws takes the line down first - a capsule following
@@ -540,8 +644,9 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
 // MARK: - Fakes
 
 /// A tap the test pushes frames into. Records whether it is running so the
-/// session's stops can be asserted, and can be held half-open so a test can
-/// act on the session while the tap is still starting.
+/// session's stops can be asserted, can be held half-open so a test can act
+/// on the session while the tap is still starting, and can stall the way an
+/// engine does when macOS stops it under the tap.
 final class FakeLiveAudioTap: LiveAudioTapping {
     private let lock = NSLock()
     private var onFrames: (([Float]) -> Void)?
@@ -550,11 +655,27 @@ final class FakeLiveAudioTap: LiveAudioTapping {
     private var startHold: DispatchSemaphore?
     private var hasEnteredStart = false
     private var opening: CheckedContinuation<Void, Never>?
+    private var isStalled = false
 
     var isRunning: Bool {
         lock.lock()
         defer { lock.unlock() }
         return onFrames != nil
+    }
+
+    var isDelivering: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return onFrames != nil && !isStalled
+    }
+
+    /// The engine stopping itself under a running tap - an input device
+    /// unplugged, its format changed: frames stop arriving and the tap reports
+    /// it is no longer delivering, without anyone having called `stop`.
+    func stall() {
+        lock.lock()
+        isStalled = true
+        lock.unlock()
     }
 
     /// Makes the next `start` wait at `releaseStart()` - a tap still opening.
@@ -604,14 +725,16 @@ final class FakeLiveAudioTap: LiveAudioTapping {
     func stop() {
         lock.lock()
         onFrames = nil
+        isStalled = false
         stopCount += 1
         lock.unlock()
     }
 
-    /// Delivers frames the way the audio thread would: only while running.
+    /// Delivers frames the way the audio thread would: only while running and
+    /// not stalled.
     func push(_ samples: [Float]) {
         lock.lock()
-        let handler = onFrames
+        let handler = isStalled ? nil : onFrames
         lock.unlock()
         handler?(samples)
     }

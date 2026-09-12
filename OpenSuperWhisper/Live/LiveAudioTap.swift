@@ -16,6 +16,12 @@ protocol LiveAudioTapping: AnyObject {
     /// that threw delivers nothing and needs no `stop`.
     func start(onFrames: @escaping ([Float]) -> Void) throws
 
+    /// Whether frames are still arriving: false before `start` has returned,
+    /// after `stop`, and once the engine has stopped itself - which macOS does
+    /// without a callback when the input device is removed or changes format,
+    /// while the recorder goes on writing a WAV the tap no longer hears.
+    var isDelivering: Bool { get }
+
     /// Stops delivering. Safe to call more than once.
     func stop()
 }
@@ -24,9 +30,13 @@ protocol LiveAudioTapping: AnyObject {
 /// dictation goes on recording, the whole-file decode still runs, and the one
 /// consequence is that nothing appears on the capsule while they speak.
 enum LiveAudioTapError: LocalizedError, Equatable {
-    /// The input node reports no usable format - there is no input device, or
-    /// it has not settled on one yet.
+    /// The microphone the recorder records from did not resolve to a CoreAudio
+    /// device, or the input node reports no usable format for it.
     case noInputDevice
+    /// CoreAudio would not put the recorder's device on the input unit. A tap
+    /// left on the system default hears whichever microphone that happens to
+    /// be, which is not necessarily the one the WAV holds, so it does not start.
+    case deviceNotPinned(String)
     /// AVFoundation would not convert the device's format to the engines' one.
     case unsupportedFormat
     /// `AVAudioEngine` refused to start, with its own explanation.
@@ -35,6 +45,7 @@ enum LiveAudioTapError: LocalizedError, Equatable {
     var errorDescription: String? {
         switch self {
         case .noInputDevice: return "No audio input to tap."
+        case .deviceNotPinned(let reason): return "The input device could not be pinned: \(reason)"
         case .unsupportedFormat: return "The input format could not be converted to 16 kHz mono."
         case .engineFailed(let reason): return "The audio engine could not start: \(reason)"
         }
@@ -54,8 +65,9 @@ enum LiveAudioTapError: LocalizedError, Equatable {
 /// microphone, but it does so on its own work queue after the press, and a tap
 /// that started a few milliseconds earlier would open whatever the default was
 /// before - so the tap names the same `AudioDeviceID` the recorder is about to
-/// use. When that lookup fails the tap falls back to the default input, which
-/// is what the recorder makes the chosen device anyway.
+/// use, and refuses to start when it cannot. A tap on the default input is a
+/// transcript of whichever microphone that is at the moment, not of the WAV,
+/// and the whole-file path is the honest answer for it.
 final class LiveAudioTap: LiveAudioTapping {
 
     /// Samples per input callback, in the device's own rate. About 85 ms at
@@ -91,15 +103,15 @@ final class LiveAudioTap: LiveAudioTapping {
         guard !isRunning else { return }
 
         let input = engine.inputNode
-        if var device = deviceID(), let unit = input.audioUnit {
-            // Best effort: a refusal leaves the tap on the system default input,
-            // which the recorder switches to this very device.
-            let status = AudioUnitSetProperty(
-                unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
-                &device, UInt32(MemoryLayout<AudioDeviceID>.size))
-            if status != noErr {
-                print("Live dictation: could not pin the input device (\(status)); using the default input")
-            }
+        guard var device = deviceID() else { throw LiveAudioTapError.noInputDevice }
+        guard let unit = input.audioUnit else {
+            throw LiveAudioTapError.deviceNotPinned("the input node has no audio unit")
+        }
+        let status = AudioUnitSetProperty(
+            unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
+            &device, UInt32(MemoryLayout<AudioDeviceID>.size))
+        guard status == noErr else {
+            throw LiveAudioTapError.deviceNotPinned("CoreAudio status \(status)")
         }
 
         let sourceFormat = input.outputFormat(forBus: 0)
@@ -129,6 +141,12 @@ final class LiveAudioTap: LiveAudioTapping {
             throw LiveAudioTapError.engineFailed(error.localizedDescription)
         }
         isRunning = true
+    }
+
+    var isDelivering: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return isRunning && engine.isRunning
     }
 
     func stop() {
