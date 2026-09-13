@@ -70,9 +70,21 @@ queues behind a file-drop transcription and ahead of the next one exactly as a f
 
 `finish` keeps listening for the recorder's own stop tail (`AudioRecorder.stopTailDuration`, so
 the end of the last word reaches both paths), stops the tap, lets the poll finish the step it is
-in, then applies `LiveCutPolicy.tail` to what is left: decoded if it holds enough detected
-speech, dropped as breath and key noise otherwise. It returns `.committed(raw:)` - possibly
-empty, the same answer a whole-file decode gives for silence - or `.fallback(reason)`.
+in, then applies `LiveCutPolicy.tail` to what is left. The policy has two answers and the session
+reads three: decoded if the tail holds the budget's minimum of detected speech; dropped if the VAD
+found no speech in it at all, which is the same answer a whole-file decode gives for silence; and
+a **fallback** when the VAD found speech but less than the minimum. The threshold was written for
+the breath and key noise after a pause, and it still stands, but the whole-file decode keeps every
+segment the VAD reports - so when it is a one-word dictation ("OK") or a short last word after a
+pause ("…tag the release. Thanks."), the session cannot answer for the recording and the file is
+decoded instead. It returns `.committed(raw:)` - possibly empty, for silence - or
+`.fallback(reason)`.
+
+The engine a session compares against is the kind **and the load**: `LiveUtteranceDecoding`
+exposes `TranscriptionService.loadGeneration` beside `selection.active`, the session reads both
+when it is made, and every poll and the finish check both. The kind alone cannot see another
+Whisper model or another FluidAudio version loaded under the same `EngineKind`, and utterances
+decoded by two models are not one transcript any more than two engines' are.
 
 **`TranscriptionService.finishTranscribed`** is the third frame beside `transcribeAudio` and
 `decodeRaw`: the post-processing pipeline over a raw transcript, with no engine touched, inside
@@ -104,9 +116,10 @@ fail; it can only make one slower than it would have been.
 | The engine stops itself mid-recording (input device removed, format changed) | `.failed(.tapUnavailable)` on the next poll, or from `finish` before the tail - the buffer ends where the engine stopped, not where the key went up, and the WAV has the rest |
 | An utterance decode throws (not a cancel) | `.failed(.decodeFailed)`; everything committed is dropped - a transcript with a hole in it is worse than a late one; capsule line cleared **first**; whole-file decode at stop |
 | The tail decode throws | The same, even though everything before it decoded |
-| The engine that would decode now is not the one the session started on (a model finished preparing, ⌥M carried out) | `.failed(.engineChanged)`; two engines' words joined are not one transcript |
+| The engine that would decode now is not the one the session started on (a model finished preparing, ⌥M carried out, the same kind loaded again with another model) | `.failed(.engineChanged)`; two engines' words joined are not one transcript, and neither are two models' |
 | Uncommitted audio exceeds 2 × the engine's cap without a pause | `.failed(.bufferExceeded)`; the policy never cuts inside speech, and the WAV has it all |
 | The engine changed between the last poll and the key going up | `.failed(.engineChanged)` from `finish`, before the tail is decoded - the same check the poll makes |
+| The tail holds speech the VAD found but less than the budget's tail minimum (a one-word dictation, a short last word after a pause) | `.failed(.tailBelowMinimum)` from `finish`, with or without utterances already committed; the line is cleared and the WAV is decoded whole, which keeps every segment the VAD reports. A tail with no detected speech is silence and is dropped, not a fallback |
 | Esc / cancel while recording | Buffer, committed text, tap and WAV all discarded; nothing pasted, no row |
 | `AudioRecorder.failedStart` for this session | The view model ends the live session with the capture that never started (`endLiveSession`); a tap still opening when that lands is stopped the moment it comes up |
 | Cancel button after the key went up (tail decode, finish, or a fallback's whole-file decode) | Nothing on the engine is interrupted: the work runs to its end and `IndicatorViewModel.transcribe` refuses its result because `didCancelWorkInFlight` is set - nothing pasted, no row, WAV discarded (below) |

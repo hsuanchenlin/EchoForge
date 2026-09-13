@@ -10,9 +10,10 @@ import XCTest
 /// What is held here is the session's contract with `IndicatorViewModel`:
 /// utterances are decoded in order and joined; every failure on the live path
 /// is a `.fallback` with the capsule line already cleared - including a tap
-/// that was not up yet, or stopped, when the key went up; `finish` decodes
-/// only the tail; cancelling discards everything; and `finish` and `cancel`
-/// name the session they mean and are refused otherwise.
+/// that was not up yet, or stopped, when the key went up, a reload of the same
+/// engine, and a tail the VAD heard words in that the policy would not decode;
+/// `finish` decodes only the tail; cancelling discards everything; and
+/// `finish` and `cancel` name the session they mean and are refused otherwise.
 @MainActor
 final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
 
@@ -174,20 +175,49 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
         XCTAssertEqual(live.transcript?.text, "First. Last.", "the line grows with the tail too")
     }
 
-    /// A tail with less speech than the budget's minimum is breath and key
-    /// noise, and is dropped rather than decoded.
-    func testATailTooShortToBeSpeechIsDropped() async {
-        decoder.answers = ["First."]
+    /// A short last word after a pause - "…tag the release. Thanks." - holds
+    /// less speech than the tail minimum, which the policy will not decode
+    /// live and the whole-file decode keeps. So the session cannot stand for
+    /// the recording: it used to answer `.committed("First.")` and the word
+    /// was missing from the paste. The line is cleared before the fallback.
+    func testAShortLastWordAfterACommittedUtteranceFallsBack() async {
+        decoder.answers = ["First.", "Never decoded."]
         let live = makeSession()
         await live.start()
+        var published: [PartialTranscript?] = []
+        let subscription = live.$transcript.sink { published.append($0) }
+        defer { subscription.cancel() }
 
         tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
         await live.poll()
+        XCTAssertEqual(live.transcript?.text, "First.")
         tap.push(Self.speech(seconds: 0.2))
 
         let outcome = await live.finish(session)
-        XCTAssertEqual(decoder.decodes.count, 1)
-        XCTAssertEqual(outcome, .committed(raw: "First."))
+        XCTAssertEqual(outcome, .fallback(.tailBelowMinimum))
+        XCTAssertEqual(live.state, .failed(.tailBelowMinimum))
+        XCTAssertEqual(decoder.decodes.count, 1, "the short tail is not decoded live")
+        XCTAssertNil(live.transcript, "the line is cleared before the whole-file decode replaces it")
+        XCTAssertEqual(published.last, .some(nil))
+        XCTAssertFalse(tap.isRunning)
+    }
+
+    /// The same word as the whole dictation - "OK", "yes", released after a
+    /// second: nothing committed, a tail under the minimum. It used to answer
+    /// `.committed("")` and the recording was deleted as no speech.
+    func testAShortDictationWithNothingCommittedFallsBack() async {
+        let live = makeSession()
+        await live.start()
+
+        tap.push(Self.speech(seconds: 0.3))
+        await live.poll()
+        XCTAssertNil(live.transcript)
+
+        let outcome = await live.finish(session)
+        XCTAssertEqual(outcome, .fallback(.tailBelowMinimum))
+        XCTAssertEqual(live.state, .failed(.tailBelowMinimum))
+        XCTAssertTrue(decoder.decodes.isEmpty)
+        XCTAssertFalse(tap.isRunning)
     }
 
     /// A recording the VAD found no speech in answers an empty transcript, the
@@ -203,6 +233,24 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
 
         XCTAssertTrue(decoder.decodes.isEmpty)
         XCTAssertEqual(outcome, .committed(raw: ""))
+        XCTAssertEqual(live.state, .finished)
+    }
+
+    /// Silence after the last utterance - the user held the key a moment after
+    /// the last word - is dropped, and what was committed is the transcript.
+    func testSilenceAfterACommittedUtteranceIsDropped() async {
+        decoder.answers = ["First."]
+        let live = makeSession()
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        tap.push(Self.silence(seconds: 1.0))
+
+        let outcome = await live.finish(session)
+        XCTAssertEqual(decoder.decodes.count, 1)
+        XCTAssertEqual(outcome, .committed(raw: "First."))
+        XCTAssertEqual(live.transcript?.text, "First.")
     }
 
     /// The tap listens for the same tail the recorder keeps, so the end of a
@@ -440,6 +488,66 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
         XCTAssertNil(live.transcript)
         XCTAssertEqual(decoder.decodes.count, 1, "the tail is not decoded on the new engine")
         XCTAssertFalse(tap.isRunning)
+    }
+
+    /// The same kind of engine loaded again - another Whisper model chosen in
+    /// Settings, another FluidAudio version - is a change the kind cannot show.
+    /// What was committed came from the old model, so the file is decoded whole.
+    func testAReloadOfTheSameEngineMidSessionFallsBack() async {
+        decoder.answers = ["First."]
+        let live = makeSession(engine: .whisper)
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertEqual(live.transcript?.text, "First.")
+
+        decoder.engineLoadGeneration += 1
+        XCTAssertEqual(decoder.activeEngine, .whisper, "the kind is unchanged")
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+
+        XCTAssertEqual(live.state, .failed(.engineChanged))
+        XCTAssertNil(live.transcript)
+        XCTAssertEqual(decoder.decodes.count, 1, "nothing is decoded on the new load")
+        let outcome = await live.finish(session)
+        XCTAssertEqual(outcome, .fallback(.engineChanged))
+    }
+
+    /// The same reload landing between the last poll and the key going up is
+    /// caught before the tail, the way a change of kind is.
+    func testAReloadOfTheSameEngineBeforeTheTailFallsBack() async {
+        decoder.answers = ["First.", "Never decoded."]
+        let live = makeSession(engine: .whisper)
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertEqual(live.transcript?.text, "First.")
+
+        decoder.engineLoadGeneration += 1
+        tap.push(Self.speech(seconds: 0.8))
+        let outcome = await live.finish(session)
+
+        XCTAssertEqual(outcome, .fallback(.engineChanged))
+        XCTAssertEqual(live.state, .failed(.engineChanged))
+        XCTAssertNil(live.transcript)
+        XCTAssertEqual(decoder.decodes.count, 1, "the tail is not decoded on the new load")
+    }
+
+    /// The load the session compares against is the one current when it was
+    /// made, not zero: a session made after a reload runs on that load.
+    func testASessionMadeAfterAReloadRunsOnThatLoad() async {
+        decoder.engineLoadGeneration = 3
+        decoder.answers = ["First."]
+        let live = makeSession(engine: .whisper)
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+
+        XCTAssertEqual(live.state, .running)
+        XCTAssertEqual(live.transcript?.text, "First.")
     }
 
     /// Unbroken speech past twice the cap has no pause to cut in; the WAV has
@@ -750,6 +858,7 @@ final class FakeUtteranceDecoder: LiveUtteranceDecoding {
     }
 
     var activeEngine: EngineKind? = .whisper
+    var engineLoadGeneration = 0
     var answers: [String] = []
     var error: Error?
     private(set) var decodes: [Decode] = []

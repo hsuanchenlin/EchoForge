@@ -128,7 +128,13 @@ class TranscriptionService: ObservableObject {
 
     private var currentEngine: TranscriptionEngine?
     private var currentEngineKind: EngineKind?
-    private var loadGeneration = 0
+
+    /// Which load of the engine is current. Advanced every time `loadEngine`
+    /// decides to load again - another kind, or the same kind after nothing
+    /// was loaded - so a load that finishes late can tell it has been
+    /// superseded, and a live session can tell the engine under it is not the
+    /// one it started on even when the kind is.
+    private(set) var loadGeneration = 0
     private var transcriptionTask: TranscriptionTaskBox? = nil
 
     /// Which transcription the published state belongs to.

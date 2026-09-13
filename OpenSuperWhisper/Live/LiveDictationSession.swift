@@ -18,12 +18,18 @@ enum LiveDictationFallbackReason: Equatable, CustomStringConvertible {
     /// dropped, because a transcript with a hole in it is worse than a late one.
     case decodeFailed(String)
     /// The engine that would decode now is not the one this session started
-    /// on: a model finished preparing, or the user's choice was carried out.
-    /// Two engines' words joined into one transcript is not one transcript.
+    /// on: a model finished preparing, the user's choice was carried out, or
+    /// the same kind of engine was loaded again with another model. Two
+    /// engines' words joined into one transcript is not one transcript.
     case engineChanged
     /// The uncommitted audio outgrew the cap without the VAD finding a silence
     /// to cut in. Speech that long without a pause is rare; the WAV has it all.
     case bufferExceeded
+    /// The audio after the last cut held speech, but less than the budget's
+    /// tail minimum: too little to decode live without the engine inventing
+    /// words, and too much to drop when the whole-file decode would keep it -
+    /// a one-word dictation, or a short last word after a pause.
+    case tailBelowMinimum
     /// `finish` or `cancel` named a session this one is not for.
     case notThisSession
     /// The session was cancelled before it was finished.
@@ -35,6 +41,7 @@ enum LiveDictationFallbackReason: Equatable, CustomStringConvertible {
         case .decodeFailed(let reason): return "an utterance did not decode (\(reason))"
         case .engineChanged: return "the engine changed during the recording"
         case .bufferExceeded: return "no pause was found before the buffer cap"
+        case .tailBelowMinimum: return "the last words were too short to decode live"
         case .notThisSession: return "the session named is not this one"
         case .cancelled: return "the session was cancelled"
         }
@@ -75,6 +82,12 @@ protocol LiveUtteranceDecoding: AnyObject {
     /// The engine an utterance decodes on right now, or nil when none can.
     @MainActor var activeEngine: EngineKind? { get }
 
+    /// Which load of that engine is running. It advances whenever the service
+    /// decides to load again, whether or not the kind changes - another
+    /// Whisper model, another FluidAudio version - so the kind alone cannot
+    /// tell two loads of one engine apart, and this can.
+    @MainActor var engineLoadGeneration: Int { get }
+
     /// The engine's raw text for one file, through the same frame every other
     /// transcription runs in - serialised, cancellable, and nothing after the
     /// engine.
@@ -83,6 +96,7 @@ protocol LiveUtteranceDecoding: AnyObject {
 
 extension TranscriptionService: LiveUtteranceDecoding {
     var activeEngine: EngineKind? { selection.active }
+    var engineLoadGeneration: Int { loadGeneration }
 }
 
 /// The VAD a live session reads the uncommitted buffer with. A protocol so a
@@ -167,6 +181,11 @@ final class LiveDictationSession: ObservableObject {
 
     /// The engine every utterance is decoded on. A change is a fallback.
     let engine: EngineKind
+
+    /// Which load of it, read from the decoder when the session is made. A
+    /// change is the same fallback: the kind stays but the model under it
+    /// does not.
+    private let engineLoad: Int
 
     /// The settings every utterance is decoded with - the prompt, the terms,
     /// the language - resolved once at the start, and what the caller finishes
@@ -256,6 +275,7 @@ final class LiveDictationSession: ObservableObject {
     ) {
         self.recordingSession = recordingSession
         self.engine = engine
+        self.engineLoad = decoder.engineLoadGeneration
         self.budget = budget
         self.settings = settings
         self.tap = tap
@@ -291,7 +311,7 @@ final class LiveDictationSession: ObservableObject {
             return
         }
         if case .failure(let error) = result {
-            let reason = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+            let reason = Self.describe(error)
             print("Live dictation unavailable: \(reason)")
             state = .unavailable(.tapUnavailable(reason))
             return
@@ -363,7 +383,7 @@ final class LiveDictationSession: ObservableObject {
             fail(reason)
             return .fallback(reason)
         }
-        guard decoder.activeEngine == engine else {
+        guard isOnStartingEngine else {
             fail(.engineChanged)
             return .fallback(.engineChanged)
         }
@@ -372,10 +392,13 @@ final class LiveDictationSession: ObservableObject {
         if !tail.isEmpty {
             do {
                 let segments = try await segments(in: tail)
-                if case .commit(let range) = LiveCutPolicy.tail(
-                    segments: segments, bufferLength: tail.count, budget: budget)
-                {
+                switch LiveCutPolicy.tail(segments: segments, bufferLength: tail.count, budget: budget) {
+                case .commit(let range):
                     try await decode(Array(tail[range]))
+                case .discard where !segments.isEmpty:
+                    fail(.tailBelowMinimum)
+                case .discard, .wait:
+                    break
                 }
             } catch {
                 fail(.decodeFailed(Self.describe(error)))
@@ -410,7 +433,7 @@ final class LiveDictationSession: ObservableObject {
         isPolling = true
         defer { isPolling = false }
 
-        guard decoder.activeEngine == engine else {
+        guard isOnStartingEngine else {
             fail(.engineChanged)
             return
         }
@@ -482,6 +505,12 @@ final class LiveDictationSession: ObservableObject {
         return try await Task.detached(priority: .userInitiated) {
             try segmenter.segments(in: samples)
         }.value
+    }
+
+    /// Whether the next decode would run on the engine, and the load of it,
+    /// that every utterance so far ran on.
+    private var isOnStartingEngine: Bool {
+        decoder.activeEngine == engine && decoder.engineLoadGeneration == engineLoad
     }
 
     private func fail(_ reason: LiveDictationFallbackReason) {

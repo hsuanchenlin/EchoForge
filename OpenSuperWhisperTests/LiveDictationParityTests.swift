@@ -181,6 +181,7 @@ private final class WhisperEngineDecoder: LiveUtteranceDecoding {
     }
 
     var activeEngine: EngineKind? { .whisper }
+    var engineLoadGeneration: Int { 0 }
 
     func decodeRaw(url: URL, settings: Settings) async throws -> String {
         decodeCount += 1
