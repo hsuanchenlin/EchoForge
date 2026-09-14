@@ -149,9 +149,9 @@ somewhere else, and a HUD that took focus would move the insertion point they ar
 about to dictate into.
 
 It is **not** the dictation capsule and is deliberately not routed through it. The
-capsule is one presentation of one dictation (`docs/capsule-hud.md`), it is off by
-default, and a press during a dictation would otherwise have to overwrite what the
-capsule is saying. When the capsule is switched on this pill sits clear of its slot
+capsule is one presentation of one dictation (`docs/capsule-hud.md`), it can be
+switched off, and a press during a dictation would otherwise have to overwrite what
+the capsule is saying. When the capsule is switched on this pill sits clear of its slot
 so the two never overlap.
 
 **It is drawn on every attached display at once.** It used to go to the one screen

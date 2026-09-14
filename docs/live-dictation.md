@@ -10,6 +10,11 @@ are the pure half - where an utterance ends and how the pieces join - and this f
 the other half: `LiveAudioTap`, `LiveDictationSession`, and how `IndicatorViewModel` and the
 capsule use them.
 
+The name has an older sense in these docs and in `Settings`: *live dictation* there is a
+dictation from the key, as opposed to a dropped file, a queued recording or a regenerate - the
+one path that routes spoken intents and corrections - whether or not this switch is on. This
+file is about the switch, which the UI calls *Live transcription*.
+
 ## What it does and does not do
 
 While a dictation is recording, audio is fed through the bundled Silero VAD, and every

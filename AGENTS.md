@@ -395,8 +395,10 @@ An engine must not reach into another engine for any of it. Engines whose backen
 silently clamps long input take `AudioChunkSource` with an `AudioChunkBudget`; the budget type
 documents why each limit exists and `OpenSuperWhisperTests/AudioChunkerTests.swift` pins them.
 
-`OpenSuperWhisper/Live/` is the pure half of live dictation - decoding utterances while the
-microphone is still open - and nothing in it records, taps audio or reads a preference.
+`LiveCutPolicy` and `CommittedTranscript` in `OpenSuperWhisper/Live/` are the pure half of live
+dictation - decoding utterances while the microphone is still open - and neither records, taps
+audio or reads a preference; the session, the tap and the fallback table that use them are under
+"Dictation latency and the queue" below.
 `LiveCutPolicy` decides where the uncommitted audio is cut, from the VAD's segments and an engine's
 `LiveCutBudget` (`preset(for:)`, `nil` for the cloud engine): a pause ends an utterance once it
 holds the minimum speech, the cap forces a cut at the best silence, and **no decision ever lands

@@ -98,10 +98,12 @@ enum LiveCutPolicy {
     }
 
     /// What to do with the buffer once the key has gone up: everything left is
-    /// the last utterance, decoded if the VAD found enough speech in it and
-    /// dropped as silence otherwise. Never `.wait` - there is nothing more to
-    /// wait for - and never cut, whatever its length: the session should have
-    /// asked `cut` while recording, and every engine decodes a long file.
+    /// the last utterance, `.commit` if the VAD found enough speech in it and
+    /// `.discard` otherwise - which the session reads as silence when no speech
+    /// was found and as a fallback to the whole-file decode when some was.
+    /// Never `.wait` - there is nothing more to wait for - and never cut,
+    /// whatever its length: the session should have asked `cut` while
+    /// recording, and every engine decodes a long file.
     static func tail(
         segments: [WhisperVadSegment],
         bufferLength: Int,
