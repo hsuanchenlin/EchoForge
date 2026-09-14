@@ -1,14 +1,14 @@
 import Foundation
 
-/// The language one decode ran in.
+/// The language the engine detected one decode ran in, and how sure it was.
 ///
-/// Two ways it can have been decided, told apart by `probability`. A language the
-/// caller **gave** (`Settings.selectedLanguage` other than `auto`) is what the
-/// decode ran in and nothing was measured: `probability` is nil. A language the
-/// engine **detected** carries the detector's own softmax probability for it -
-/// for whisper.cpp, the mass `whisper_lang_auto_detect` put on the winner over
+/// `probability` is the detector's own softmax probability for `code` - for
+/// whisper.cpp, the mass `whisper_lang_auto_detect` put on the winner over
 /// every language it knows - which is what makes one detection worth pinning a
-/// session on and another not (`LiveLanguagePin`).
+/// session on and another not (`LiveLanguagePin`). A decode that ran in a
+/// language the caller **gave** (`Settings.selectedLanguage` other than `auto`)
+/// detected nothing and reports nothing: `RawDecode.language` is nil for it,
+/// as it is from an engine that cannot say.
 ///
 /// The code is the engine's own (`whisper_lang_str`: "en", "zh", "yue", …), so
 /// it can be handed straight back as `selectedLanguage` for the next decode on
@@ -16,14 +16,8 @@ import Foundation
 /// post-processing stages, which read the language the user chose.
 struct DecodedLanguage: Equatable, Sendable {
     let code: String
-    /// The detector's probability for `code`, in 0...1, or nil when none was
-    /// measured because the language was given.
-    let probability: Float?
-
-    /// A language the caller chose. Nothing was detected.
-    static func given(_ code: String) -> DecodedLanguage {
-        DecodedLanguage(code: code, probability: nil)
-    }
+    /// The detector's probability for `code`, in 0...1.
+    let probability: Float
 
     /// A language the engine detected, with how sure it was.
     static func detected(_ code: String, probability: Float) -> DecodedLanguage {
@@ -32,11 +26,13 @@ struct DecodedLanguage: Equatable, Sendable {
 }
 
 /// What a raw decode hands back: the engine's text and, from an engine that
-/// can say, the language it ran in. Nothing here has been through any stage of
-/// `docs/text-post-processing.md`.
+/// can say, the language it detected. Nothing here has been through any stage
+/// of `docs/text-post-processing.md`.
 struct RawDecode: Equatable, Sendable {
     let text: String
-    /// Nil from an engine that does not report one (`DecodeLanguageReporting`).
+    /// Nil from an engine that does not report one (`DecodeLanguageReporting`),
+    /// and from a decode that ran in a language it was given rather than
+    /// detected.
     let language: DecodedLanguage?
 
     init(text: String, language: DecodedLanguage? = nil) {
@@ -56,11 +52,13 @@ struct RawDecode: Equatable, Sendable {
 /// language on the first confident answer so the utterances after it skip the
 /// detection encode.
 protocol DecodeLanguageReporting: AnyObject {
-    /// `transcribeAudio(url:settings:)` and the language it ran in.
+    /// `transcribeAudio(url:settings:)` and, on `auto`, the language it
+    /// detected.
     ///
     /// On `auto` the engine detects the language itself, before the decode, so
     /// the probability is its own rather than inferred; the decode then runs
     /// in the language found, which is what the engine's own auto-detection
-    /// does internally. It costs no more than `transcribeAudio` on `auto`.
+    /// does internally. It costs no more than `transcribeAudio` on `auto`. A
+    /// language the caller gave was not detected and is not reported.
     func transcribeAudioReportingLanguage(url: URL, settings: Settings) async throws -> RawDecode
 }

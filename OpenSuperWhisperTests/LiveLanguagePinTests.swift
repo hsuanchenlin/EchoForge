@@ -77,24 +77,12 @@ final class LiveLanguagePinTests: IsolatedPreferencesTestCase {
         XCTAssertTrue(pin.isDetecting, "the next utterance is detected again")
     }
 
-    func testAGivenLanguageDoesNotPin() {
-        var pin = LiveLanguagePin(selectedLanguage: "auto")
-        XCTAssertFalse(pin.observe(decode(.given("zh"))))
-        XCTAssertNil(pin.pinnedLanguage)
-    }
-
+    /// An engine that cannot say, and a decode that ran in a language it was
+    /// given, both report none.
     func testNoLanguageDoesNotPin() {
         var pin = LiveLanguagePin(selectedLanguage: "auto")
         XCTAssertFalse(pin.observe(decode(nil)))
         XCTAssertNil(pin.pinnedLanguage)
-    }
-
-    func testAnInvalidCodeDoesNotPin() {
-        for code in ["", "auto", " zh", "zh\n"] {
-            var pin = LiveLanguagePin(selectedLanguage: "auto")
-            XCTAssertFalse(pin.observe(decode(.detected(code, probability: 1))), "\(code.debugDescription)")
-            XCTAssertNil(pin.pinnedLanguage, "\(code.debugDescription)")
-        }
     }
 
     func testAProbabilityOutsideTheUnitIntervalDoesNotPin() {

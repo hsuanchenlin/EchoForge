@@ -233,7 +233,7 @@ final class LiveDictationParityTests: IsolatedPreferencesTestCase {
 
         XCTAssertGreaterThanOrEqual(decoder.decodeCount, 2)
         XCTAssertEqual(decoder.languages, Array(repeating: "en", count: decoder.decodeCount))
-        XCTAssertEqual(decoder.reported.compactMap { $0?.probability }, [], "a given language is reported without a probability")
+        XCTAssertEqual(decoder.reported.compactMap { $0 }, [], "a given language was not detected and is not reported")
         XCTAssertNil(session.pinnedLanguage)
     }
 

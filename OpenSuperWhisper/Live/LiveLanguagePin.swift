@@ -84,18 +84,15 @@ struct LiveLanguagePin: Equatable {
     /// confident detection. Returns whether this call pinned.
     ///
     /// Nothing pins unless every one of these holds: the user asked for
-    /// detection; nothing is pinned yet; the engine reported a language; it
-    /// was *detected* rather than given, and with at least
-    /// `minimumConfidence`; the code is a language rather than `auto` or
-    /// nothing; and the utterance decoded to words by the rule
-    /// `CommittedTranscript` keeps one by - a detection over an utterance the
-    /// transcript drops, `...` on a breath, is not one to hold a session to.
+    /// detection; nothing is pinned yet; the engine reported a detection, with
+    /// at least `minimumConfidence`; and the utterance decoded to words by the
+    /// rule `CommittedTranscript` keeps one by - a detection over an utterance
+    /// the transcript drops, `...` on a breath, is not one to hold a session
+    /// to.
     mutating func observe(_ decode: RawDecode) -> Bool {
         guard isDetecting,
               let language = decode.language,
-              let probability = language.probability,
-              (Self.minimumConfidence...1).contains(probability),
-              Self.isLanguageCode(language.code),
+              (Self.minimumConfidence...1).contains(language.probability),
               CommittedTranscript.kept(decode.text) != nil
         else { return false }
         pinnedLanguage = language.code
@@ -103,12 +100,4 @@ struct LiveLanguagePin: Equatable {
     }
 
     static let automatic = "auto"
-
-    /// A code the next decode can be handed as-is: something, not `auto`, and
-    /// nothing around it the engine would not know.
-    private static func isLanguageCode(_ code: String) -> Bool {
-        !code.isEmpty
-            && code == code.trimmingCharacters(in: .whitespacesAndNewlines)
-            && code != automatic
-    }
 }

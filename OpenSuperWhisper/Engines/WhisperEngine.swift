@@ -209,18 +209,15 @@ class WhisperEngine: TranscriptionEngine, PartialTranscriptEmitting, DecodeLangu
             context.freeState()
         }
 
-        // The language this decode runs in, when the caller wants it back.
-        // Detected here on `auto` so the probability survives; given, it is
-        // simply the caller's. Not read at all otherwise, so the whole-file
-        // path leaves the detection to `whisper_full` exactly as before.
+        // The language this decode detected, when the caller wants it back.
+        // Detected here on `auto` so the probability survives; a given
+        // language was not detected and is not reported. Not read at all
+        // otherwise, so the whole-file path leaves the detection to
+        // `whisper_full` exactly as before.
         let language: DecodedLanguage?
-        if reportingLanguage {
-            if isAutoDetect {
-                language = detectLanguage(in: samples, context: context, nThreads: nThreads)
-                params.language = language?.code
-            } else {
-                language = .given(settings.selectedLanguage)
-            }
+        if reportingLanguage, isAutoDetect {
+            language = detectLanguage(in: samples, context: context, nThreads: nThreads)
+            params.language = language?.code
         } else {
             language = nil
         }

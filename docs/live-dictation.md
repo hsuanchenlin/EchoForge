@@ -200,11 +200,11 @@ Three things there are absolute, and `LiveLanguagePinTests` and the language cas
   `whisperLanguage` is never written by anything on this path.
 
 Nothing pins on less than a detection: a report with no language (the FluidAudio engines, which
-cannot say), a language that was *given* rather than detected, a probability under the bar or
-outside 0...1, a code that is empty or `auto`, or an utterance that decoded to no words - by the
-rule `CommittedTranscript` keeps an utterance by, so the `...` whisper writes for a breath the VAD
-took for speech is dropped by the transcript and the pin alike, whatever the detector was sure of.
-Each of those leaves the next utterance on `auto`.
+cannot say, and any decode that ran in a language it was *given* rather than detected), a
+probability under the bar or outside 0...1, or an utterance that decoded to no words - by the rule
+`CommittedTranscript` keeps an utterance by, so the `...` whisper writes for a breath the VAD took
+for speech is dropped by the transcript and the pin alike, whatever the detector was sure of. Each
+of those leaves the next utterance on `auto`.
 
 **The seam.** `DecodedLanguage` and `RawDecode` (`Engines/DecodedLanguage.swift`) are what a decode
 hands back beside its text, and `DecodeLanguageReporting` is the engine-side protocol - a separate
@@ -219,7 +219,7 @@ probability survives - `whisper_full` computes exactly this and keeps only the w
 encode it spends on window 0 is the one `whisper_full` would have spent on the same detection, so
 the decode and its cost are the same; the table below measures both. A decode whose detection could
 not run is left to `whisper_full` to detect for itself and reports no language, which the pin
-refuses; a given language is reported as given, with no probability. An
+refuses; a given language was not detected and is not reported either. An
 English-only model has nothing to detect and would still be charged the encode; it is answered as
 English with probability 1 - certain by construction - and `whisper_full` is handed `en`, the
 convention whisper.cpp's own CLI applies. Prompt composition is untouched:

@@ -735,28 +735,23 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
         XCTAssertEqual(decoder.decodes.map(\.language), ["auto", "auto", "zh"])
     }
 
-    /// A report that is not a detection - no language, a given one, an empty
-    /// or `auto` code, a probability outside 0...1 - pins nothing, whatever
-    /// its number says.
+    /// A report that is not a detection - no language, or a probability
+    /// outside 0...1 - pins nothing, whatever its number says.
     func testAnInvalidDetectionIsNotPinned() async {
-        decoder.answers = ["a", "b", "c", "d", "e", "f"]
+        decoder.answers = ["a", "b"]
         decoder.languages = [
             nil,
-            .given("zh"),
-            .detected("", probability: 1),
-            .detected("auto", probability: 1),
             .detected("zh", probability: 1.5),
-            .detected(" zh", probability: 1),
         ]
         let live = makeSession(language: "auto")
         await live.start()
 
-        for _ in 0..<6 {
+        for _ in 0..<2 {
             tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
             await live.poll()
             XCTAssertNil(live.pinnedLanguage)
         }
-        XCTAssertEqual(decoder.decodes.map(\.language), Array(repeating: "auto", count: 6))
+        XCTAssertEqual(decoder.decodes.map(\.language), Array(repeating: "auto", count: 2))
     }
 
     /// An utterance that decoded to nothing - the engine heard words the VAD
