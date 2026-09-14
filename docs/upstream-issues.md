@@ -105,6 +105,35 @@ documented in engine-facing copy instead (`docs/speech-model-attribution.md`,
 `SenseVoiceEngineIntegrationTests.testPunctuationAndInverseTextNormalisationAreOneSwitch` is what
 notices the separation.
 
+## FluidAudio: Parakeet's stateless window merge drops a clause on long audio
+
+**Status:** to be filed against <https://github.com/FluidInference/FluidAudio>. Not filed yet.
+
+**Measured** on FluidAudio 0.15.4 (`b9d43724`, the pin this app carries), `parakeet-tdt-0.6b-v3`,
+Apple M5. `AsrManager.transcribeWithState` decodes a file of at most `ASRConstants.maxModelSamples`
+(240,000 samples, 15 s) in one encoder call and hands anything longer to `ChunkProcessor`:
+~14.96 s windows with 2 s of overlap, merged by token deduplication. On a 26.0 s synthesised
+English fixture (`say -v Samantha`, four sentences with 0.9 s pauses;
+`LiveDictationEngineParityTests` documents it) the whole-file decode returns
+"Latency matters as well, many applications. The last sentence is a marker, …" - the clause
+"expect an answer within a few hundred milliseconds of the speaker falling silent" is gone. Three
+runs, identical output. The same file cut to 0-14 s, 14-26 s, 0-16 s, 16-26 s, 0-20 s, 8-26 s,
+10-26 s and 12-26 s decodes every word, and so does a 35 s file made of `jfk.wav` three times, so
+it is not the length alone but where this recording's windows and their merge fall.
+
+**What the app does:** ships around it on the live path only. `LiveCutBudget.parakeet` caps an
+utterance at one window less one encoder frame (`ASRConstants.maxModelSamples -
+ASRConstants.samplesPerEncoderFrame`, 14.92 s), so a live utterance never reaches the merge;
+`LiveCutPolicyTests` pins the value. The whole-file lane still hands FluidAudio the file whole,
+so a Parakeet dictation of more than 15 s decoded from the WAV - every one with the live switch
+off, and every fallback - can still lose words at a seam. Chunking Parakeet through
+`AudioChunkSource` the way SenseVoice and Paraformer are chunked would close that and is a change
+to the whole-file lane, not made here.
+
+**On a FluidAudio bump:** run `LiveDictationEngineParityTests` with the Parakeet fixture and
+compare the whole-file decode to the script. If the clause is back, the live cap can return to
+28 s like the other engines' and the whole-file lane needs no chunker.
+
 ## FluidAudio: model-preparation progress is only half a download
 
 **What was measured**, against the pinned FluidAudio: the `fractionCompleted` on

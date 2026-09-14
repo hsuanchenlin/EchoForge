@@ -80,7 +80,7 @@ private final class SegmentContext: @unchecked Sendable {
     }
 }
 
-class WhisperEngine: TranscriptionEngine, PartialTranscriptEmitting {
+class WhisperEngine: TranscriptionEngine, PartialTranscriptEmitting, DecodeLanguageReporting {
     var engineName: String { "Whisper" }
     
     private var context: MyWhisperContext?
@@ -120,6 +120,23 @@ class WhisperEngine: TranscriptionEngine, PartialTranscriptEmitting {
     }
     
     func transcribeAudio(url: URL, settings: Settings) async throws -> String {
+        try await decode(url: url, settings: settings, reportingLanguage: false).text
+    }
+
+    /// The same decode, and the language it ran in. On `auto` the detection
+    /// is run here rather than inside `whisper_full`, so its probability can
+    /// be read; see `detectLanguage`.
+    func transcribeAudioReportingLanguage(url: URL, settings: Settings) async throws -> RawDecode {
+        try await decode(url: url, settings: settings, reportingLanguage: true)
+    }
+
+    /// One decode. `reportingLanguage` is the only difference between the two
+    /// entry points above, and it changes one thing: on `auto`, whether the
+    /// language is detected by this method (probability read, decode pinned
+    /// to the result) or by `whisper_full` (probability discarded, the same
+    /// decode). Every whole-file transcription passes `false` and runs exactly
+    /// as it did before the flag existed.
+    private func decode(url: URL, settings: Settings, reportingLanguage: Bool) async throws -> RawDecode {
         guard let context = context else {
             throw TranscriptionError.contextInitializationFailed
         }
@@ -156,7 +173,7 @@ class WhisperEngine: TranscriptionEngine, PartialTranscriptEmitting {
         // only through whisper_full, which would share decoding state.)
         let speechSegments = try segmenter.segments(in: converted)
         if speechSegments.isEmpty {
-            return ""
+            return RawDecode(text: "")
         }
         // Timestamps of the trimmed audio would not match the original file,
         // so trimming is applied only when timestamps are not requested.
@@ -182,6 +199,29 @@ class WhisperEngine: TranscriptionEngine, PartialTranscriptEmitting {
         let isAutoDetect = settings.selectedLanguage == "auto"
         params.language = isAutoDetect ? nil : settings.selectedLanguage
         params.detectLanguage = false // means that it only detects the language and does not process the transcription
+
+        // Fresh decoding state per recording: isolates prompt_past between
+        // recordings (a hallucination on silence cannot poison the next one).
+        guard context.initState() else {
+            throw TranscriptionError.contextInitializationFailed
+        }
+        defer {
+            context.freeState()
+        }
+
+        // The language this decode runs in, when the caller wants it back.
+        // Detected here on `auto` so the probability survives; given, it is
+        // simply the caller's. Not read at all otherwise, so the whole-file
+        // path leaves the detection to `whisper_full` exactly as before.
+        var language: DecodedLanguage?
+        if reportingLanguage {
+            if isAutoDetect {
+                language = detectLanguage(in: samples, context: context, nThreads: nThreads)
+                params.language = language?.code
+            } else {
+                language = .given(settings.selectedLanguage)
+            }
+        }
         params.temperature = Float(settings.temperature)
         params.noSpeechThold = Float(settings.noSpeechThreshold)
         // The user's typed prompt, then their personal terms, then whatever the
@@ -272,15 +312,6 @@ class WhisperEngine: TranscriptionEngine, PartialTranscriptEmitting {
         
         try Task.checkCancellation()
         
-        // Fresh decoding state per recording: isolates prompt_past between
-        // recordings (a hallucination on silence cannot poison the next one).
-        guard context.initState() else {
-            throw TranscriptionError.contextInitializationFailed
-        }
-        defer {
-            context.freeState()
-        }
-        
         let didDecode = context.full(samples: samples, params: &cParams)
         // Keeps the unretained box alive for the whole of `full`, which is the
         // only time the callback can fire.
@@ -309,12 +340,58 @@ class WhisperEngine: TranscriptionEngine, PartialTranscriptEmitting {
             text += segmentText + "\n"
         }
         
+        // What the decode actually ran in, read back off the state
+        // (`whisper_full_lang_id`): the detection above once `whisper_full`
+        // has taken it, or the given language. A detection that could not run
+        // is reported as whatever `whisper_full` settled on for itself, with
+        // no probability, since none was read for it.
+        if reportingLanguage, let ran = MyWhisperContext.langStr(id: context.fullLangId) {
+            if let detected = language, detected.code == ran {
+                language = detected
+            } else {
+                language = DecodedLanguage(code: ran, probability: nil)
+            }
+        }
+
         // Engine-specific cleanup only. Shared transcript post-processing is
         // applied once by TextPostProcessor, via TranscriptionService.
-        return text
+        let cleaned = text
             .replacingOccurrences(of: "[MUSIC]", with: "")
             .replacingOccurrences(of: "[BLANK_AUDIO]", with: "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
+        return RawDecode(text: cleaned, language: language)
+    }
+
+    /// whisper.cpp's own language detection, run here so its answer can be
+    /// read: `whisper_full` on `auto` computes exactly this softmax over
+    /// every language the model knows, keeps the winner and drops the
+    /// probabilities. Running it first and handing `whisper_full` the winner
+    /// as the language is what `whisper_full` does internally, so the decode
+    /// is the same and so is the cost - the encode this spends on window 0 is
+    /// the one `whisper_full` would have spent on the same detection.
+    ///
+    /// An English-only model has one language and nothing to detect;
+    /// whisper.cpp would still spend the encode and read the answer off
+    /// tokens the model does not have, so it is answered here instead, as
+    /// English with a probability of 1 - certain by construction rather than
+    /// by measurement, and the convention whisper.cpp's own CLI applies to
+    /// such a model.
+    ///
+    /// Nil when the detection could not run, in which case `whisper_full` is
+    /// left to detect for itself and the report carries no probability.
+    private func detectLanguage(
+        in samples: [Float], context: MyWhisperContext, nThreads: Int
+    ) -> DecodedLanguage? {
+        guard context.isMultilingual else { return .detected("en", probability: 1) }
+        guard context.pcmToMel(samples: samples, nSamples: samples.count, nThreads: nThreads) else {
+            return nil
+        }
+        var probabilities = [Float](repeating: 0, count: MyWhisperContext.langMaxId() + 1)
+        let id = context.langAutoDetect(offsetMs: 0, nThreads: nThreads, langProbs: &probabilities)
+        guard probabilities.indices.contains(id), let code = MyWhisperContext.langStr(id: id) else {
+            return nil
+        }
+        return .detected(code, probability: probabilities[id])
     }
     
     func cancelTranscription() {

@@ -1,3 +1,4 @@
+import FluidAudio
 import Foundation
 
 /// The cut budget each engine dictates live under.
@@ -42,15 +43,34 @@ extension LiveCutBudget {
         maximumSeconds: 28.0
     )
 
-    /// Parakeet takes a whole file and chunks inside FluidAudio, so nothing
-    /// here is an input ceiling; the cap only bounds how much audio the last
-    /// utterance can hold - which is the wait after the key goes up - and 28 s
-    /// keeps it inside the same window the other engines are held to.
+    /// Parakeet takes a whole file and windows it inside FluidAudio: a file of
+    /// at most `ASRConstants.maxModelSamples` (15 s) is one encoder call, and a
+    /// longer one goes through its stateless `ChunkProcessor` - ~15 s windows,
+    /// 2 s overlap, tokens merged by deduplication - which on the pinned
+    /// 0.15.4 **drops a clause at a seam**: measured on a 26 s English
+    /// fixture, deterministically, while every clip of 20 s or less and the
+    /// live path kept it (`docs/upstream-issues.md`). So the cap is one
+    /// window, less one encoder frame of margin, and an utterance never
+    /// crosses a seam. The whole-file fallback still hands FluidAudio the file
+    /// whole; only a tail of unbroken speech longer than this can reach the
+    /// merge on the live path, since the policy never cuts inside speech.
     static let parakeet = LiveCutBudget(
         minimumSpeechSeconds: 3.0,
         pauseSeconds: 0.6,
-        maximumSeconds: 28.0
+        maximumSeconds: parakeetWindowSeconds
     )
+
+    /// One FluidAudio Parakeet window, less one encoder frame: the longest
+    /// input `AsrManager` decodes in a single call rather than through the
+    /// merge above. Read off the library rather than written out because this
+    /// constant is the one `AsrManager.transcribeWithState` actually branches
+    /// on (`audioSamples.count <= ASRConstants.maxModelSamples`), unlike the
+    /// config limits `AudioChunkBudget+FluidAudio.swift` warns about;
+    /// `LiveCutPolicyTests` pins the value it resolves to on the pinned
+    /// version.
+    static let parakeetWindowSeconds =
+        Double(ASRConstants.maxModelSamples - ASRConstants.samplesPerEncoderFrame)
+        / Double(LiveCutBudget.sampleRate)
 
     /// SenseVoice-Small: the cap is the chunk it already prefers, so an
     /// utterance decodes as one chunk.

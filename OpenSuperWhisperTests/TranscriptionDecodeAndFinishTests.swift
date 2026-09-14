@@ -47,7 +47,8 @@ final class TranscriptionDecodeAndFinishTests: XCTestCase {
 
         let raw = try await service.decodeRaw(url: audioURL, settings: chineseSettings())
 
-        XCTAssertEqual(raw, "简体 test")
+        XCTAssertEqual(raw.text, "简体 test")
+        XCTAssertNil(raw.language, "an engine that does not report its language reports none")
     }
 
     /// `finish` is the transcript stage and the spoken-intent stage, in that
@@ -71,7 +72,7 @@ final class TranscriptionDecodeAndFinishTests: XCTestCase {
         engine.release()
         let composed = try await service.transcribeAudio(url: audioURL, settings: settings)
         engine.release()
-        let raw = try await service.decodeRaw(url: audioURL, settings: settings)
+        let raw = try await service.decodeRaw(url: audioURL, settings: settings).text
         let finished = await TranscriptionService.finish(raw: raw, settings: settings)
 
         XCTAssertEqual(composed, finished)

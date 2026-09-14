@@ -90,8 +90,8 @@ protocol LiveUtteranceDecoding: AnyObject {
 
     /// The engine's raw text for one file, through the same frame every other
     /// transcription runs in - serialised, cancellable, and nothing after the
-    /// engine.
-    @MainActor func decodeRaw(url: URL, settings: Settings) async throws -> String
+    /// engine - and the language it ran in, from an engine that can say.
+    @MainActor func decodeRaw(url: URL, settings: Settings) async throws -> RawDecode
 }
 
 extension TranscriptionService: LiveUtteranceDecoding {
@@ -142,7 +142,7 @@ enum LiveDictationEligibility {
 /// what is left and hands back one raw transcript for the post-processing
 /// pipeline to run over once.
 ///
-/// Three rules hold the whole thing.
+/// Three rules hold the whole thing, and a fourth holds the language.
 ///
 /// **Nothing is pasted early and nothing on screen is revised.** The session
 /// publishes `transcript` - committed utterances only, growing and never
@@ -161,6 +161,14 @@ enum LiveDictationEligibility {
 /// session they mean and are refused otherwise, the rule
 /// `RecordingSessionClaim` states for the microphone itself, so no other key
 /// can end or read this one's words.
+///
+/// **The language is decided once, and only for the decodes.** On `auto` the
+/// first utterance is detected and, if the engine is confident, every later
+/// utterance - the tail included - decodes in that language without another
+/// detection (`LiveLanguagePin`). The pin reaches the `Settings` copy each
+/// decode is handed and nothing else: `settings`, which the caller finishes
+/// the joined transcript with and decodes the WAV with on a fallback, still
+/// says what the user chose, and no preference is written.
 ///
 /// `docs/live-dictation.md` is the whole story.
 @MainActor
@@ -190,8 +198,18 @@ final class LiveDictationSession: ObservableObject {
     /// The settings every utterance is decoded with - the prompt, the terms,
     /// the language - resolved once at the start, and what the caller finishes
     /// the joined transcript with, so the decodes and the post-processing read
-    /// one snapshot of the user's preferences.
+    /// one snapshot of the user's preferences. The one thing a decode may see
+    /// differently is the language, once `languagePin` has pinned it; this
+    /// value never changes.
     let settings: Settings
+
+    /// The language the utterances decode in. Starts as what `settings` says
+    /// and is pinned by the first confident detection.
+    private var languagePin: LiveLanguagePin
+
+    /// The language the session has pinned its decodes to, or nil while it is
+    /// decoding in the language `settings` names - `auto` included.
+    var pinnedLanguage: String? { languagePin.pinnedLanguage }
 
     @Published private(set) var state: LiveDictationState = .running
 
@@ -278,6 +296,7 @@ final class LiveDictationSession: ObservableObject {
         self.engineLoad = decoder.engineLoadGeneration
         self.budget = budget
         self.settings = settings
+        self.languagePin = LiveLanguagePin(selectedLanguage: settings.selectedLanguage)
         self.tap = tap
         self.decoder = decoder
         self.segmenter = segmenter
@@ -481,7 +500,8 @@ final class LiveDictationSession: ObservableObject {
 
     /// Writes one utterance out, decodes it, and appends what came back. The
     /// file is removed either way. A result arriving after the session was
-    /// cancelled or failed is dropped, not appended.
+    /// cancelled or failed is dropped, not appended - and neither is its
+    /// language, since the session it would pin is over.
     private func decode(_ samples: [Float]) async throws {
         let directory = utteranceDirectory
         let url = try await Task.detached(priority: .userInitiated) {
@@ -489,9 +509,13 @@ final class LiveDictationSession: ObservableObject {
         }.value
         defer { try? FileManager.default.removeItem(at: url) }
 
-        let raw = try await decoder.decodeRaw(url: url, settings: settings)
+        let decoded = try await decoder.decodeRaw(url: url, settings: languagePin.applied(to: settings))
 
         guard state == .running || state == .finishing else { return }
+        if languagePin.observe(decoded), let pinned = languagePin.pinnedLanguage {
+            print("Live dictation: language pinned to \(pinned) for this session")
+        }
+        let raw = decoded.text
         guard committed.append(raw), let kept = CommittedTranscript.kept(raw) else { return }
         transcript = PartialTranscript(
             text: committed.text, segment: kept, segmentCount: committed.utterances.count)

@@ -51,12 +51,16 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
         super.tearDown()
     }
 
-    private func makeSession(engine: EngineKind = .whisper) -> LiveDictationSession {
-        LiveDictationSession(
+    private func makeSession(
+        engine: EngineKind = .whisper, language: String = "en"
+    ) -> LiveDictationSession {
+        var settings = Settings()
+        settings.selectedLanguage = language
+        return LiveDictationSession(
             recordingSession: session,
             engine: engine,
             budget: Self.budget,
-            settings: Settings(),
+            settings: settings,
             tap: tap,
             decoder: decoder,
             segmenter: RunSegmenter(),
@@ -676,6 +680,203 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
         XCTAssertEqual(finished, .fallback(.notThisSession))
     }
 
+    // MARK: - Language
+
+    /// On `auto`, the first utterance is detected and its language is what
+    /// every later decode - the tail included - is asked for, with no
+    /// detection: the whole-file semantics, one utterance at a time. The
+    /// settings the transcript is finished with still say `auto`, and the
+    /// preference is untouched.
+    func testTheFirstConfidentDetectionPinsTheLanguageForTheRestOfTheSession() async {
+        decoder.answers = ["第一句。", "第二句。", "最後。"]
+        decoder.languages = [.detected("zh", probability: 0.99)]
+        let live = makeSession(language: "auto")
+        await live.start()
+        XCTAssertNil(live.pinnedLanguage)
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertEqual(decoder.decodes.map(\.language), ["auto"], "the first utterance is detected")
+        XCTAssertEqual(live.pinnedLanguage, "zh")
+
+        tap.push(Self.speech(seconds: 1.2) + Self.silence(seconds: 0.6))
+        await live.poll()
+        tap.push(Self.speech(seconds: 0.8))
+        let outcome = await live.finish(session)
+
+        XCTAssertEqual(decoder.decodes.map(\.language), ["auto", "zh", "zh"],
+                       "every decode after the pin, the tail included, runs in the pinned language")
+        XCTAssertEqual(outcome, .committed(raw: "第一句。第二句。最後。"))
+        XCTAssertEqual(live.settings.selectedLanguage, "auto", "the finish settings are never pinned")
+        XCTAssertEqual(AppPreferences.shared.whisperLanguage, "en", "no preference is written")
+    }
+
+    /// A detection the engine was not sure of is not pinned: the next
+    /// utterance is detected again, and the first confident one pins.
+    func testALowConfidenceDetectionIsNotPinned() async {
+        decoder.answers = ["One.", "Two.", "Three."]
+        decoder.languages = [
+            .detected("en", probability: LiveLanguagePin.minimumConfidence - 0.01),
+            .detected("zh", probability: LiveLanguagePin.minimumConfidence),
+        ]
+        let live = makeSession(language: "auto")
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertNil(live.pinnedLanguage, "not confident enough to hold the session to")
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertEqual(live.pinnedLanguage, "zh")
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertEqual(decoder.decodes.map(\.language), ["auto", "auto", "zh"])
+    }
+
+    /// A report that is not a detection - no language, a given one, an empty
+    /// or `auto` code, a probability outside 0...1 - pins nothing, whatever
+    /// its number says.
+    func testAnInvalidDetectionIsNotPinned() async {
+        decoder.answers = ["a", "b", "c", "d", "e", "f"]
+        decoder.languages = [
+            nil,
+            .given("zh"),
+            .detected("", probability: 1),
+            .detected("auto", probability: 1),
+            .detected("zh", probability: 1.5),
+            .detected(" zh", probability: 1),
+        ]
+        let live = makeSession(language: "auto")
+        await live.start()
+
+        for _ in 0..<6 {
+            tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+            await live.poll()
+            XCTAssertNil(live.pinnedLanguage)
+        }
+        XCTAssertEqual(decoder.decodes.map(\.language), Array(repeating: "auto", count: 6))
+    }
+
+    /// An utterance that decoded to nothing - the engine heard words the VAD
+    /// found and wrote none - pins nothing, whatever the detector said of it.
+    func testADetectionOverAnEmptyDecodeIsNotPinned() async {
+        decoder.answers = ["", "Words."]
+        decoder.languages = [.detected("zh", probability: 1), .detected("en", probability: 1)]
+        let live = makeSession(language: "auto")
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertNil(live.pinnedLanguage)
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertEqual(live.pinnedLanguage, "en")
+    }
+
+    /// A language the user chose is what every utterance decodes in; a
+    /// detection the engine reports anyway is never consulted.
+    func testAnExplicitLanguageIsNeverChangedByADetection() async {
+        decoder.answers = ["One.", "Two."]
+        decoder.languages = [.detected("zh", probability: 1), .detected("zh", probability: 1)]
+        let live = makeSession(language: "en")
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        tap.push(Self.speech(seconds: 0.8))
+        let outcome = await live.finish(session)
+
+        XCTAssertEqual(outcome, .committed(raw: "One. Two."))
+        XCTAssertNil(live.pinnedLanguage)
+        XCTAssertEqual(decoder.decodes.map(\.language), ["en", "en"])
+    }
+
+    /// A pin belongs to the session that made it: the next press starts on
+    /// `auto` again.
+    func testAPinDoesNotOutliveItsSession() async {
+        decoder.answers = ["One.", "Two."]
+        decoder.languages = [.detected("zh", probability: 1), .detected("de", probability: 1)]
+        let first = makeSession(language: "auto")
+        await first.start()
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await first.poll()
+        XCTAssertEqual(first.pinnedLanguage, "zh")
+        _ = await first.finish(session)
+
+        tap = FakeLiveAudioTap()
+        claim.release(session)
+        session = claim.claim()
+        let second = makeSession(language: "auto")
+        await second.start()
+        XCTAssertNil(second.pinnedLanguage)
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await second.poll()
+
+        XCTAssertEqual(decoder.decodes.map(\.language), ["auto", "auto"], "the second session detects afresh")
+        XCTAssertEqual(second.pinnedLanguage, "de")
+    }
+
+    /// A session that falls back after pinning hands the caller settings that
+    /// still say `auto`: the whole-file decode of the WAV detects for itself.
+    func testAFallbackAfterAPinLeavesTheSettingsOnAuto() async {
+        decoder.answers = ["One."]
+        decoder.languages = [.detected("zh", probability: 1)]
+        let live = makeSession(language: "auto")
+        await live.start()
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertEqual(live.pinnedLanguage, "zh")
+
+        decoder.engineLoadGeneration += 1
+        tap.push(Self.speech(seconds: 0.8))
+        let outcome = await live.finish(session)
+
+        XCTAssertEqual(outcome, .fallback(.engineChanged))
+        XCTAssertEqual(live.settings.selectedLanguage, "auto")
+        XCTAssertEqual(AppPreferences.shared.whisperLanguage, "en")
+    }
+
+    /// A detection that lands after the session was cancelled pins nothing,
+    /// for the reason its words are dropped: the session it would pin is over.
+    func testADetectionArrivingAfterCancelIsDropped() async {
+        decoder.answers = ["Late words."]
+        decoder.languages = [.detected("zh", probability: 1)]
+        decoder.gate = true
+        let live = makeSession(language: "auto")
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        let polling = Task { await live.poll() }
+        await decoder.waitUntilDecoding()
+
+        live.cancel(session)
+        decoder.release()
+        await polling.value
+
+        XCTAssertNil(live.pinnedLanguage)
+        XCTAssertEqual(live.state, .cancelled)
+    }
+
+    /// An engine that cannot say what language it decoded in - the FluidAudio
+    /// engines - never pins, and every decode runs in the language chosen.
+    func testAnEngineThatReportsNoLanguageNeverPins() async {
+        decoder.answers = ["One.", "Two."]
+        decoder.activeEngine = .sensevoice
+        let live = makeSession(engine: .sensevoice, language: "auto")
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+
+        XCTAssertNil(live.pinnedLanguage)
+        XCTAssertEqual(decoder.decodes.map(\.language), ["auto", "auto"])
+    }
+
     // MARK: - Eligibility
 
     /// Off by default: a fresh install decodes whole files exactly as before.
@@ -855,11 +1056,16 @@ final class FakeUtteranceDecoder: LiveUtteranceDecoding {
     struct Decode {
         let url: URL
         let sampleCount: Int
+        /// The language the session asked for, which is how a pin shows.
+        let language: String
     }
 
     var activeEngine: EngineKind? = .whisper
     var engineLoadGeneration = 0
     var answers: [String] = []
+    /// The language each decode reports beside its text, in order; a decode
+    /// past the end of the list reports none, like an engine that cannot say.
+    var languages: [DecodedLanguage?] = []
     var error: Error?
     private(set) var decodes: [Decode] = []
 
@@ -869,9 +1075,9 @@ final class FakeUtteranceDecoder: LiveUtteranceDecoding {
     private var decodingContinuation: CheckedContinuation<Void, Never>?
     private var isDecoding = false
 
-    func decodeRaw(url: URL, settings: Settings) async throws -> String {
+    func decodeRaw(url: URL, settings: Settings) async throws -> RawDecode {
         let samples = try await PCMAudioLoader.loadSamples(from: url) ?? []
-        decodes.append(Decode(url: url, sampleCount: samples.count))
+        decodes.append(Decode(url: url, sampleCount: samples.count, language: settings.selectedLanguage))
         if gate {
             isDecoding = true
             decodingContinuation?.resume()
@@ -880,7 +1086,9 @@ final class FakeUtteranceDecoder: LiveUtteranceDecoding {
             isDecoding = false
         }
         if let error { throw error }
-        return answers.isEmpty ? "" : answers.removeFirst()
+        let text = answers.isEmpty ? "" : answers.removeFirst()
+        let language = languages.isEmpty ? nil : languages.removeFirst()
+        return RawDecode(text: text, language: language)
     }
 
     func waitUntilDecoding() async {
