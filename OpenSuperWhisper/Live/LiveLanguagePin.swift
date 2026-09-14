@@ -87,15 +87,16 @@ struct LiveLanguagePin: Equatable {
     /// detection; nothing is pinned yet; the engine reported a language; it
     /// was *detected* rather than given, and with at least
     /// `minimumConfidence`; the code is a language rather than `auto` or
-    /// nothing; and the utterance decoded to words - a detection over an
-    /// utterance the engine heard nothing in is not one to hold a session to.
+    /// nothing; and the utterance decoded to words by the rule
+    /// `CommittedTranscript` keeps one by - a detection over an utterance the
+    /// transcript drops, `...` on a breath, is not one to hold a session to.
     mutating func observe(_ decode: RawDecode) -> Bool {
         guard isDetecting,
               let language = decode.language,
               let probability = language.probability,
               (Self.minimumConfidence...1).contains(probability),
               Self.isLanguageCode(language.code),
-              !decode.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+              CommittedTranscript.kept(decode.text) != nil
         else { return false }
         pinnedLanguage = language.code
         return true

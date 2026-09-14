@@ -213,7 +213,7 @@ class WhisperEngine: TranscriptionEngine, PartialTranscriptEmitting, DecodeLangu
         // Detected here on `auto` so the probability survives; given, it is
         // simply the caller's. Not read at all otherwise, so the whole-file
         // path leaves the detection to `whisper_full` exactly as before.
-        var language: DecodedLanguage?
+        let language: DecodedLanguage?
         if reportingLanguage {
             if isAutoDetect {
                 language = detectLanguage(in: samples, context: context, nThreads: nThreads)
@@ -221,6 +221,8 @@ class WhisperEngine: TranscriptionEngine, PartialTranscriptEmitting, DecodeLangu
             } else {
                 language = .given(settings.selectedLanguage)
             }
+        } else {
+            language = nil
         }
         params.temperature = Float(settings.temperature)
         params.noSpeechThold = Float(settings.noSpeechThreshold)
@@ -340,19 +342,6 @@ class WhisperEngine: TranscriptionEngine, PartialTranscriptEmitting, DecodeLangu
             text += segmentText + "\n"
         }
         
-        // What the decode actually ran in, read back off the state
-        // (`whisper_full_lang_id`): the detection above once `whisper_full`
-        // has taken it, or the given language. A detection that could not run
-        // is reported as whatever `whisper_full` settled on for itself, with
-        // no probability, since none was read for it.
-        if reportingLanguage, let ran = MyWhisperContext.langStr(id: context.fullLangId) {
-            if let detected = language, detected.code == ran {
-                language = detected
-            } else {
-                language = DecodedLanguage(code: ran, probability: nil)
-            }
-        }
-
         // Engine-specific cleanup only. Shared transcript post-processing is
         // applied once by TextPostProcessor, via TranscriptionService.
         let cleaned = text
@@ -378,7 +367,7 @@ class WhisperEngine: TranscriptionEngine, PartialTranscriptEmitting, DecodeLangu
     /// such a model.
     ///
     /// Nil when the detection could not run, in which case `whisper_full` is
-    /// left to detect for itself and the report carries no probability.
+    /// left to detect for itself and no language is reported.
     private func detectLanguage(
         in samples: [Float], context: MyWhisperContext, nThreads: Int
     ) -> DecodedLanguage? {

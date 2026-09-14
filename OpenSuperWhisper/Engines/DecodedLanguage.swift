@@ -1,6 +1,6 @@
 import Foundation
 
-/// The language one decode ran in, read back from the engine after the decode.
+/// The language one decode ran in.
 ///
 /// Two ways it can have been decided, told apart by `probability`. A language the
 /// caller **gave** (`Settings.selectedLanguage` other than `auto`) is what the
@@ -8,9 +8,7 @@ import Foundation
 /// engine **detected** carries the detector's own softmax probability for it -
 /// for whisper.cpp, the mass `whisper_lang_auto_detect` put on the winner over
 /// every language it knows - which is what makes one detection worth pinning a
-/// session on and another not (`LiveLanguagePin`). A detection whose
-/// probability could not be read is reported with nil too, and is treated as
-/// given: nothing pins a session on a number nobody measured.
+/// session on and another not (`LiveLanguagePin`).
 ///
 /// The code is the engine's own (`whisper_lang_str`: "en", "zh", "yue", …), so
 /// it can be handed straight back as `selectedLanguage` for the next decode on
@@ -19,8 +17,7 @@ import Foundation
 struct DecodedLanguage: Equatable, Sendable {
     let code: String
     /// The detector's probability for `code`, in 0...1, or nil when none was
-    /// measured - the language was given, or the detection ran where its
-    /// probability could not be read.
+    /// measured because the language was given.
     let probability: Float?
 
     /// A language the caller chose. Nothing was detected.
@@ -32,8 +29,6 @@ struct DecodedLanguage: Equatable, Sendable {
     static func detected(_ code: String, probability: Float) -> DecodedLanguage {
         DecodedLanguage(code: code, probability: probability)
     }
-
-    var wasDetected: Bool { probability != nil }
 }
 
 /// What a raw decode hands back: the engine's text and, from an engine that
@@ -56,10 +51,10 @@ struct RawDecode: Equatable, Sendable {
 /// reason `PartialTranscriptEmitting` is: one engine in this app has the
 /// answer, and giving the others a value they could never fill would make
 /// "does this engine report its language" a runtime question. Whisper is that
-/// engine - whisper.cpp keeps the language a decode ran in on its state
-/// (`whisper_full_lang_id`) and its detector reports a probability - and live
-/// dictation is the caller, which pins a session's language on the first
-/// confident answer so the utterances after it skip the detection encode.
+/// engine - whisper.cpp's detector reports a probability beside the language
+/// it picks - and live dictation is the caller, which pins a session's
+/// language on the first confident answer so the utterances after it skip the
+/// detection encode.
 protocol DecodeLanguageReporting: AnyObject {
     /// `transcribeAudio(url:settings:)` and the language it ran in.
     ///

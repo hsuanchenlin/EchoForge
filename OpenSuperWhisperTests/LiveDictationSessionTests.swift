@@ -776,6 +776,34 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
         XCTAssertEqual(live.pinnedLanguage, "en")
     }
 
+    /// A breath the VAD took for speech decodes to `...` with a detection the
+    /// softmax is sure of, and the transcript drops it as no words. The pin
+    /// drops it too: the next utterance is detected again, and the first one
+    /// with words in it - the user's actual language - is what the rest of the
+    /// session decodes in, the tail included.
+    func testADetectionOverPunctuationOnlyOutputIsNotPinned() async {
+        decoder.answers = ["...", "第一句。", "第二句。"]
+        decoder.languages = [.detected("nn", probability: 0.9), .detected("zh", probability: 0.99)]
+        let live = makeSession(language: "auto")
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertNil(live.pinnedLanguage, "no words were decoded, so nothing holds the session to `nn`")
+        XCTAssertNil(live.transcript)
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertEqual(live.pinnedLanguage, "zh")
+
+        tap.push(Self.speech(seconds: 0.8))
+        let outcome = await live.finish(session)
+
+        XCTAssertEqual(decoder.decodes.map(\.language), ["auto", "auto", "zh"],
+                       "the utterance after the dropped one is detected again; the tail runs in its language")
+        XCTAssertEqual(outcome, .committed(raw: "第一句。第二句。"))
+    }
+
     /// A language the user chose is what every utterance decodes in; a
     /// detection the engine reports anyway is never consulted.
     func testAnExplicitLanguageIsNeverChangedByADetection() async {

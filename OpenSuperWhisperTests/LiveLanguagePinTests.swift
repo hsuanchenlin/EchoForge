@@ -112,6 +112,30 @@ final class LiveLanguagePinTests: IsolatedPreferencesTestCase {
         XCTAssertNil(pin.pinnedLanguage)
     }
 
+    /// What whisper writes for a breath the VAD took for speech - `...`, `。`,
+    /// `♪` - is what `CommittedTranscript` drops, and the pin agrees with it:
+    /// the detection over that piece is refused and the first utterance with
+    /// a word in it decides the session.
+    func testADetectionOverPunctuationOnlyOutputDoesNotPin() {
+        for text in ["...", "。", "♪", " . . . ", "!?"] {
+            var pin = LiveLanguagePin(selectedLanguage: "auto")
+            XCTAssertFalse(pin.observe(decode(.detected("nn", probability: 0.9), text: text)), text.debugDescription)
+            XCTAssertNil(pin.pinnedLanguage, text.debugDescription)
+            XCTAssertTrue(pin.isDetecting, text.debugDescription)
+
+            XCTAssertTrue(pin.observe(decode(.detected("zh", probability: 0.99), text: "第一句。")), text.debugDescription)
+            XCTAssertEqual(pin.pinnedLanguage, "zh", text.debugDescription)
+        }
+    }
+
+    func testThePinKeepsAnUtteranceByTheTranscriptsRule() {
+        for text in ["...", "", "x", "7", "第一句。", "  words  "] {
+            var pin = LiveLanguagePin(selectedLanguage: "auto")
+            let pinned = pin.observe(decode(.detected("en", probability: 1), text: text))
+            XCTAssertEqual(pinned, CommittedTranscript.kept(text) != nil, text.debugDescription)
+        }
+    }
+
     func testAnExplicitLanguageIsNeverPinnedOver() {
         var pin = LiveLanguagePin(selectedLanguage: "en")
         XCTAssertFalse(pin.observe(decode(.detected("zh", probability: 1))))

@@ -201,7 +201,9 @@ Three things there are absolute, and `LiveLanguagePinTests` and the language cas
 
 Nothing pins on less than a detection: a report with no language (the FluidAudio engines, which
 cannot say), a language that was *given* rather than detected, a probability under the bar or
-outside 0...1, a code that is empty or `auto`, or an utterance that decoded to no words at all.
+outside 0...1, a code that is empty or `auto`, or an utterance that decoded to no words - by the
+rule `CommittedTranscript` keeps an utterance by, so the `...` whisper writes for a breath the VAD
+took for speech is dropped by the transcript and the pin alike, whatever the detector was sure of.
 Each of those leaves the next utterance on `auto`.
 
 **The seam.** `DecodedLanguage` and `RawDecode` (`Engines/DecodedLanguage.swift`) are what a decode
@@ -215,9 +217,9 @@ detector itself (`whisper_lang_auto_detect_with_state`, before `whisper_full`) s
 probability survives - `whisper_full` computes exactly this and keeps only the winner - and hands
 `whisper_full` the winner as the language, which is what `whisper_full` does internally. The
 encode it spends on window 0 is the one `whisper_full` would have spent on the same detection, so
-the decode and its cost are the same; the table below measures both. After the decode the language
-is read back off the state (`whisper_full_lang_id`) either way, and a decode whose detection could
-not run reports what `whisper_full` settled on with no probability, which the pin refuses. An
+the decode and its cost are the same; the table below measures both. A decode whose detection could
+not run is left to `whisper_full` to detect for itself and reports no language, which the pin
+refuses; a given language is reported as given, with no probability. An
 English-only model has nothing to detect and would still be charged the encode; it is answered as
 English with probability 1 - certain by construction - and `whisper_full` is handed `en`, the
 convention whisper.cpp's own CLI applies. Prompt composition is untouched:
