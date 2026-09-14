@@ -213,6 +213,7 @@ class IndicatorViewModel: ObservableObject {
     /// Cancelling makes the transcription throw, and that failure must not come
     /// back to the user as one: they know what they did.
     private(set) var didCancelWorkInFlight = false
+    private var isDecodingLiveSession = false
 
     var delegate: IndicatorViewDelegate?
     private var blinkTimer: Timer?
@@ -288,6 +289,11 @@ class IndicatorViewModel: ObservableObject {
     /// happening and say why, on the same two-second timer every other message
     /// on this card uses.
     private func recordingSessionDidFailToStart(_ reason: FailedRecordingStart.Reason) {
+        // The live decoder is a consumer of this microphone, so it goes with
+        // the capture that never started - named, like every end of a session.
+        if let session = recordingSession {
+            endLiveSession(session)
+        }
         recordingSession = nil
         recordingStartedAt = nil
         resetCancelConfirmation()
@@ -305,6 +311,24 @@ class IndicatorViewModel: ObservableObject {
     /// owns no recording - it was refused, or it has already ended - and every
     /// path that reads the recorder is gated on it.
     private var recordingSession: RecordingSession?
+
+    /// The decoder running alongside the recording, or nil when this dictation
+    /// takes the whole-file path: the switch is off, the engine is the cloud
+    /// one, or the key was not the dictation key (`LiveDictationEligibility`).
+    ///
+    /// Bound to `recordingSession` - it is made with the claim and ends with
+    /// it, by name - and owned here rather than by the recorder because it is
+    /// a consumer of the microphone the way the capsule's level meter is, not
+    /// a second recorder. The WAV is still written; this only decides how much
+    /// of it is left to decode when the key goes up.
+    private var liveSession: LiveDictationSession?
+    private var liveSessionCancellable: AnyCancellable?
+
+    /// What the live decoder has committed so far, republished from the session
+    /// so the overlay following this view model can draw it without knowing the
+    /// session exists. Nil while nothing is committed, and nil again the moment
+    /// the session falls back.
+    @Published private(set) var liveTranscript: PartialTranscript?
     
     var isTranscriptionBusy: Bool {
         transcriptionService.isTranscribing || transcriptionQueue.isProcessing
@@ -368,10 +392,46 @@ class IndicatorViewModel: ObservableObject {
             return
         }
         recordingSession = claimed
+        startLiveSessionIfEligible(for: claimed)
 
         state = .recording
         startBlinking()
         recordingStartedAt = Date()
+    }
+
+    /// Starts decoding alongside the recording, when this dictation qualifies.
+    ///
+    /// The settings are resolved now rather than when the key goes up, and the
+    /// session keeps them: the utterances are decoded with this prompt, these
+    /// terms and this language, and `startDecoding` finishes the joined text
+    /// with the same snapshot, so one dictation cannot be decoded under one set
+    /// of preferences and post-processed under another.
+    private func startLiveSessionIfEligible(for session: RecordingSession) {
+        guard let live = LiveDictationSession.make(
+            for: session,
+            purpose: purpose,
+            settings: Settings(
+                purpose: purpose,
+                dictationTarget: dictationTarget,
+                routesSpokenIntents: true,
+                correctsSpokenEdits: true),
+            service: transcriptionService)
+        else { return }
+        liveSession = live
+        liveSessionCancellable = live.$transcript.sink { [weak self] transcript in
+            self?.liveTranscript = transcript
+        }
+        Task { await live.start() }
+    }
+
+    /// Ends the live session for `session`, discarding what it holds, and stops
+    /// following it. The session is the one that checks the name; this only
+    /// stops carrying its line.
+    private func endLiveSession(_ session: RecordingSession) {
+        liveSession?.cancel(session)
+        liveSession = nil
+        liveSessionCancellable = nil
+        liveTranscript = nil
     }
     
     func handleCancelRequest() -> Bool {
@@ -413,8 +473,22 @@ class IndicatorViewModel: ObservableObject {
             return
         }
         recordingSession = nil
+        var liveSession = self.liveSession
+        self.liveSession = nil
+        if case .unavailable? = liveSession?.state {
+            liveSession = nil
+        }
+        isDecodingLiveSession = (liveSession != nil)
 
-        if isTranscriptionBusy {
+        // The live path is checked **before** the busy check, and the busy
+        // check applies only to the whole-file path. A live session's own
+        // utterance decode raises `isTranscribing` exactly like a queue item
+        // does, so a dictation that had been decoding itself all along would
+        // otherwise be queued as a file at the last moment. Its decodes are its
+        // own to wait for, and `finish` waits for them; what the busy rule
+        // protects - one transcription per engine at a time - is kept by the
+        // frame every decode already runs in.
+        if liveSession == nil, isTranscriptionBusy {
             if purpose == .selectionEdit {
                 Task { [weak self] in
                     guard let self,
@@ -447,7 +521,12 @@ class IndicatorViewModel: ObservableObject {
         Task { [weak self] in
             guard let self = self else { return }
 
-            if let tempURL = await self.recorder.stopRecording(session) {
+            // Both stop after the same tail; neither waits for the other. The
+            // live session then decodes what is left while the file is closed.
+            async let stopped = self.recorder.stopRecording(session)
+            let liveOutcome = await liveSession?.finish(session)
+
+            if let tempURL = await stopped {
                 // Reading the file back to measure it is the one piece of work
                 // on this path whose answer is not needed until a row is
                 // written, so it runs alongside the transcription instead of in
@@ -462,7 +541,10 @@ class IndicatorViewModel: ObservableObject {
                     // pipeline read the allowlist with. A second `Settings`
                     // built after the transcription would read preferences the
                     // user could have changed while they were speaking.
-                    let settings = Settings(
+                    // A live session already resolved them at the press, and
+                    // decoded every utterance with them; the joined text is
+                    // finished with the same snapshot.
+                    let settings = liveSession?.settings ?? Settings(
                         purpose: self.purpose,
                         dictationTarget: self.dictationTarget,
                         // Live dictation is the one path where a spoken
@@ -476,8 +558,8 @@ class IndicatorViewModel: ObservableObject {
                         // the instruction. `Settings` refuses both.
                         correctsSpokenEdits: true
                     )
-                    let styled = try await transcriptionService.transcribeAudio(
-                        url: tempURL, settings: settings)
+                    let styled = try await self.transcribe(
+                        tempURL, liveOutcome: liveOutcome, settings: settings)
                     let text = styled.final
 
                     let duration = await measuredDuration
@@ -622,6 +704,41 @@ class IndicatorViewModel: ObservableObject {
                 }
             }
         }
+    }
+
+    /// The transcript for this dictation: the live session's joined text,
+    /// finished, when the session stood for the recording; the whole-file
+    /// decode of `tempURL` otherwise, exactly as before live decoding existed.
+    ///
+    /// A fallback is a `print` and nothing else visible - the session has
+    /// already taken its line off the capsule, and the whole-file decode puts
+    /// its own up.
+    ///
+    /// A cancel on the live path is a discard, not an interrupt. The frame in
+    /// flight when the button is pressed may be a queue item's that this
+    /// dictation is waiting behind - the busy check was skipped for it - so
+    /// `cancelWorkInFlight` never reaches `cancelTranscription` for a live
+    /// session; the tail decode, the finish or the fallback's whole-file decode
+    /// runs to its end, and `didCancelWorkInFlight` is read on either side of
+    /// it so the result is refused whichever frame, or the gap between two, the
+    /// press landed in. The whole-file path is interrupted as it always was,
+    /// and throws before the second read.
+    private func transcribe(
+        _ tempURL: URL, liveOutcome: LiveDictationOutcome?, settings: Settings
+    ) async throws -> StyledTranscript {
+        guard !didCancelWorkInFlight else { throw TranscriptionError.processingFailed }
+        let styled: StyledTranscript
+        switch liveOutcome {
+        case .committed(let raw):
+            styled = try await transcriptionService.finishTranscribed(raw: raw, settings: settings)
+        case .fallback(let reason):
+            print("Live dictation fell back to the whole-file decode: \(reason)")
+            styled = try await transcriptionService.transcribeAudio(url: tempURL, settings: settings)
+        case nil:
+            styled = try await transcriptionService.transcribeAudio(url: tempURL, settings: settings)
+        }
+        guard !didCancelWorkInFlight else { throw TranscriptionError.processingFailed }
+        return styled
     }
     
     /// Carries out an "open the latest YouTube video from …" and reports it.
@@ -784,11 +901,16 @@ class IndicatorViewModel: ObservableObject {
     /// that they did.
     ///
     /// The audio goes with it, which is what cancelling means here: the temporary
-    /// file is removed by the failure path the cancellation triggers.
+    /// file is removed by the failure path that follows - the interrupted decode's
+    /// own throw on the whole-file path, and `transcribe`'s refusal of the finished
+    /// work on the live one, where nothing on the engine is interrupted because
+    /// the frame in flight may not be this dictation's.
     func cancelWorkInFlight() {
         guard state == .decoding else { return }
         didCancelWorkInFlight = true
-        transcriptionService.cancelTranscription()
+        if !isDecodingLiveSession {
+            transcriptionService.cancelTranscription()
+        }
     }
 
     func insertText(_ text: String) {
@@ -842,6 +964,7 @@ class IndicatorViewModel: ObservableObject {
         hideTimer?.invalidate()
         hideTimer = nil
         cancellables.removeAll()
+        liveSessionCancellable = nil
     }
 
     func cancelRecording() {
@@ -849,6 +972,9 @@ class IndicatorViewModel: ObservableObject {
         hideTimer = nil
         guard let session = recordingSession else { return }
         recordingSession = nil
+        // Buffer, committed words and file all go: nothing is pasted, nothing
+        // is kept.
+        endLiveSession(session)
         recorder.cancelRecording(session)
     }
 }

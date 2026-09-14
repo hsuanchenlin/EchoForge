@@ -877,16 +877,18 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(origin.y, tiny.minY)
     }
 
-    /// The pill has two heights, and the taller one must grow **downwards**: the
-    /// panel's top margin is transparent and deliberately overlaps the menu bar,
-    /// so a pill centred in the panel would climb into it as it grew.
+    /// The pill has three heights, and the taller ones must grow **downwards**:
+    /// the panel's top margin is transparent and deliberately overlaps the menu
+    /// bar, so a pill centred in the panel would climb into it as it grew.
     func testAnExpandedPillGrowsDownwardsRatherThanIntoTheMenuBar() {
         XCTAssertGreaterThan(
             CapsuleHUDView.expandedCapsuleHeight, CapsuleHUDView.capsuleHeight)
+        XCTAssertGreaterThan(
+            CapsuleHUDView.maximumCapsuleHeight, CapsuleHUDView.expandedCapsuleHeight)
         XCTAssertLessThanOrEqual(
-            CapsuleHUDView.pillTopInset + CapsuleHUDView.expandedCapsuleHeight,
+            CapsuleHUDView.pillTopInset + CapsuleHUDView.maximumCapsuleHeight + 13,
             CapsuleHUDView.windowSize.height,
-            "the expanded pill has to fit inside the panel, shadow margin and all")
+            "the tallest pill has to fit inside the panel, shadow (radius 10, offset 3) and all")
 
         let size = CapsuleHUDView.windowSize
         let origin = CapsuleHUDWindowController.origin(
@@ -904,7 +906,7 @@ final class CapsuleHUDViewModelTests: XCTestCase {
     /// microphone problem is exactly the one that must not be covered up.
     func testTheEngineSwitchPillClearsTheExpandedCapsule() {
         XCTAssertGreaterThanOrEqual(
-            EngineSwitchHUD.capsuleClearance, CapsuleHUDView.expandedCapsuleHeight)
+            EngineSwitchHUD.capsuleClearance, CapsuleHUDView.maximumCapsuleHeight)
     }
 
     func testTheSecondScreenGetsItsOwnCoordinates() {
@@ -920,5 +922,136 @@ final class CapsuleHUDViewModelTests: XCTestCase {
             right.maxY - CapsuleHUDWindowController.topMargin,
             accuracy: 0.001
         )
+    }
+}
+
+/// The line a live session puts on the capsule while the microphone is still
+/// open, and what keeps it apart from the global decode's line.
+@MainActor
+final class CapsuleLiveTranscriptTests: XCTestCase {
+
+    private func recordingCapsule() -> CapsuleHUDViewModel {
+        let viewModel = CapsuleHUDViewModel(now: { Date() }, schedule: { _, _ in })
+        viewModel.beginSession(mode: .dictate)
+        viewModel.beginRecording()
+        return viewModel
+    }
+
+    /// The whole point: committed words show while recording, where the global
+    /// decode's line is refused.
+    func testTheLiveLineShowsWhileRecording() {
+        let viewModel = recordingCapsule()
+        viewModel.showLiveTranscript("We ship on Friday.")
+        XCTAssertEqual(viewModel.partialText, "We ship on Friday.")
+        XCTAssertEqual(viewModel.state, .recording, "the line changes nothing about the state")
+    }
+
+    /// It only ever grows: each publication is the joined transcript so far.
+    func testTheLiveLineGrowsWithEachUtterance() {
+        let viewModel = recordingCapsule()
+        viewModel.showLiveTranscript("We ship on Friday.")
+        viewModel.showLiveTranscript("We ship on Friday. Tag the release.")
+        XCTAssertEqual(viewModel.partialText, "We ship on Friday. Tag the release.")
+    }
+
+    /// The tail is decoded after the key goes up, and the line keeps growing
+    /// through it rather than vanishing at the state change.
+    func testTheLiveLineSurvivesIntoTheDecode() {
+        let viewModel = recordingCapsule()
+        viewModel.showLiveTranscript("We ship on Friday.")
+        viewModel.beginPolishing(.transcribing)
+        XCTAssertEqual(viewModel.partialText, "We ship on Friday.")
+
+        viewModel.showLiveTranscript("We ship on Friday. Tag the release.")
+        XCTAssertEqual(viewModel.partialText, "We ship on Friday. Tag the release.")
+    }
+
+    /// The tail decode also reaches the global publisher, as a fresh decode of
+    /// one short piece. Letting it through would replace the whole committed
+    /// transcript with the last utterance's segments the moment the key went
+    /// up, so the live line owns the pill for the rest of the session.
+    func testTheGlobalDecodeCannotReplaceTheLiveLine() {
+        let viewModel = recordingCapsule()
+        viewModel.showLiveTranscript("We ship on Friday. Tag the release.")
+        viewModel.beginPolishing(.transcribing)
+
+        viewModel.showPartialTranscript("release.")
+
+        XCTAssertEqual(viewModel.partialText, "We ship on Friday. Tag the release.")
+    }
+
+    /// A fallback clears the line **first**, through the same publisher that put
+    /// it up, and hands the line back to the whole-file decode that follows.
+    func testAFallbackClearsTheLineAndGivesItBackToTheDecode() {
+        let viewModel = recordingCapsule()
+        viewModel.showLiveTranscript("We ship on Friday.")
+
+        viewModel.showLiveTranscript(nil)
+        XCTAssertNil(viewModel.partialText)
+
+        viewModel.beginPolishing(.transcribing)
+        viewModel.showPartialTranscript("We ship")
+        XCTAssertEqual(viewModel.partialText, "We ship", "the whole-file decode's segments show as they always did")
+    }
+
+    func testClearingIsIdempotentAndHarmlessBeforeAnythingShowed() {
+        let viewModel = recordingCapsule()
+        viewModel.showLiveTranscript(nil)
+        viewModel.clearLiveTranscript()
+        XCTAssertNil(viewModel.partialText)
+
+        viewModel.beginPolishing(.transcribing)
+        viewModel.showPartialTranscript("decoded")
+        XCTAssertEqual(viewModel.partialText, "decoded")
+    }
+
+    /// The rewrite replaces the line with what it is doing to the text, the
+    /// same rule the global line follows.
+    func testTheLiveLineGoesWhenRewritingStarts() {
+        let viewModel = recordingCapsule()
+        viewModel.showLiveTranscript("We ship on Friday.")
+        viewModel.beginPolishing(.transcribing)
+        viewModel.beginPolishing(.rewriting)
+        XCTAssertNil(viewModel.partialText)
+    }
+
+    func testAnEmptyLiveValueLeavesThePillAsItWas() {
+        let viewModel = recordingCapsule()
+        viewModel.showLiveTranscript("We ship on Friday.")
+        viewModel.showLiveTranscript("   ")
+        XCTAssertEqual(viewModel.partialText, "We ship on Friday.")
+    }
+
+    /// Nothing before the microphone is open, and nothing once a badge is up.
+    func testTheLiveLineIsRefusedOutsideTheSession() {
+        let connecting = CapsuleHUDViewModel(now: { Date() }, schedule: { _, _ in })
+        connecting.beginSession(mode: .dictate)
+        connecting.showLiveTranscript("early")
+        XCTAssertNil(connecting.partialText)
+
+        let done = recordingCapsule()
+        done.complete()
+        done.showLiveTranscript("late")
+        XCTAssertNil(done.partialText)
+    }
+
+    func testANewSessionDoesNotInheritTheLiveLine() {
+        let viewModel = recordingCapsule()
+        viewModel.showLiveTranscript("We ship on Friday.")
+        viewModel.beginSession(mode: .dictate)
+        XCTAssertNil(viewModel.partialText)
+
+        viewModel.beginRecording()
+        viewModel.beginPolishing(.transcribing)
+        viewModel.showPartialTranscript("fresh decode")
+        XCTAssertEqual(viewModel.partialText, "fresh decode", "and the global decode is not locked out either")
+    }
+
+    /// Cancelling a session takes the line with it.
+    func testDismissClearsTheLiveLine() {
+        let viewModel = recordingCapsule()
+        viewModel.showLiveTranscript("We ship on Friday.")
+        viewModel.dismiss()
+        XCTAssertNil(viewModel.partialText)
     }
 }

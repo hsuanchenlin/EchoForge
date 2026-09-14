@@ -102,8 +102,18 @@ final class CapsuleHUDRenderTests: XCTestCase {
             peakDecibels: -160, seconds: 3,
             microphoneName: "Universal Audio Apollo Twin X QUAD Heritage Edition Input 1")
 
+        try assertNothingTouchesThePanelEdges(viewModel, named: "capsule-long-device-name")
+    }
+
+    /// Reads the panel's four edges and fails if the pill - or its shadow -
+    /// reaches any of them, in either direction: a pill wider than the panel is
+    /// sliced, and one taller than it loses its bottom curve.
+    private func assertNothingTouchesThePanelEdges(
+        _ viewModel: CapsuleHUDViewModel, named name: String,
+        file: StaticString = #filePath, line: UInt = #line
+    ) throws {
         let rep = try bitmap(of: try host(viewModel, scheme: .light))
-        try write(try XCTUnwrap(rep.cgImage), named: "capsule-long-device-name")
+        try write(try XCTUnwrap(rep.cgImage), named: name)
 
         let ground = try XCTUnwrap(rep.colorAt(x: 1, y: 1), "no pixel at the corner")
         for x in [0, 1, rep.pixelsWide - 2, rep.pixelsWide - 1] {
@@ -111,9 +121,63 @@ final class CapsuleHUDRenderTests: XCTestCase {
                 let pixel = try XCTUnwrap(rep.colorAt(x: x, y: y))
                 XCTAssertEqual(
                     pixel.redComponent, ground.redComponent, accuracy: 0.02,
-                    "the pill is drawn against the panel edge at (\(x), \(y))")
+                    "the pill is drawn against the panel edge at (\(x), \(y))",
+                    file: file, line: line)
             }
         }
+        for y in [0, 1, rep.pixelsHigh - 2, rep.pixelsHigh - 1] {
+            for x in stride(from: 2, to: rep.pixelsWide - 2, by: 4) {
+                let pixel = try XCTUnwrap(rep.colorAt(x: x, y: y))
+                XCTAssertEqual(
+                    pixel.redComponent, ground.redComponent, accuracy: 0.02,
+                    "the pill is drawn against the panel edge at (\(x), \(y))",
+                    file: file, line: line)
+            }
+        }
+    }
+
+    // MARK: - The live line
+
+    /// A live session's words sit under the meter's row while the recording is
+    /// still going, in both appearances, and the pill grows downwards to hold
+    /// them without touching the panel's edges.
+    func testTheLiveLineShowsWhileRecording() throws {
+        let viewModel = recording(peakDecibels: -11, seconds: 3)
+        viewModel.showLiveTranscript("We ship on Friday and tag the release.")
+
+        try assert(
+            viewModel, named: "capsule-live-line",
+            showing: ["tag the release"])
+        try assert(
+            viewModel, named: "capsule-live-line-dark", scheme: .dark,
+            showing: ["tag the release"])
+        try assertNothingTouchesThePanelEdges(viewModel, named: "capsule-live-line-edges")
+    }
+
+    /// Both lines at once - a quiet microphone under a live transcript - is the
+    /// tallest the pill gets, and it still has to fit the panel.
+    func testTheLiveLineAndADiagnosticFitTogether() throws {
+        let viewModel = recording(peakDecibels: -36, seconds: 3, microphoneName: "Amiron wireless")
+        XCTAssertEqual(viewModel.signal, .low)
+        viewModel.showLiveTranscript("We ship on Friday and tag the release.")
+
+        try assert(
+            viewModel, named: "capsule-live-line-with-diagnostic",
+            showing: ["Low signal", "Amiron wireless", "tag the release"])
+        try assertNothingTouchesThePanelEdges(
+            viewModel, named: "capsule-live-line-with-diagnostic-edges")
+    }
+
+    /// A long transcript is truncated at the front - the words the user wants
+    /// are the newest - rather than allowed to widen the pill.
+    func testALongLiveLineShowsItsTailAndStaysInsideThePanel() throws {
+        let viewModel = recording(peakDecibels: -11, seconds: 3)
+        viewModel.showLiveTranscript(
+            "This dictation has been going on for quite a while now and the pill must show "
+                + "only the most recent words of it")
+
+        try assert(viewModel, named: "capsule-live-line-long", showing: ["recent words"])
+        try assertNothingTouchesThePanelEdges(viewModel, named: "capsule-live-line-long-edges")
     }
 
     // MARK: - Fixtures

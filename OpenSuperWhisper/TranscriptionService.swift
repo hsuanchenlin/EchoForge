@@ -128,7 +128,13 @@ class TranscriptionService: ObservableObject {
 
     private var currentEngine: TranscriptionEngine?
     private var currentEngineKind: EngineKind?
-    private var loadGeneration = 0
+
+    /// Which load of the engine is current. Advanced every time `loadEngine`
+    /// decides to load again - another kind, or the same kind after nothing
+    /// was loaded - so a load that finishes late can tell it has been
+    /// superseded, and a live session can tell the engine under it is not the
+    /// one it started on even when the kind is.
+    private(set) var loadGeneration = 0
     private var transcriptionTask: TranscriptionTaskBox? = nil
 
     /// Which transcription the published state belongs to.
@@ -631,7 +637,7 @@ class TranscriptionService: ObservableObject {
     /// then must still wait its turn, so the frame is not allowed to end at the
     /// engine.
     func transcribeAudio(url: URL, settings: Settings) async throws -> StyledTranscript {
-        try await runTranscription(publishing: { $0.final }) { engine in
+        try await runEngineTranscription(publishing: { $0.final }) { engine in
             let raw = try await engine.transcribeAudio(url: url, settings: settings)
             try Task.checkCancellation()
             return await Self.finish(raw: raw, settings: settings)
@@ -649,8 +655,26 @@ class TranscriptionService: ObservableObject {
     /// has been through no stage of `docs/text-post-processing.md`; `finish`
     /// is how it gets there.
     func decodeRaw(url: URL, settings: Settings) async throws -> String {
-        try await runTranscription(publishing: { $0 }) { engine in
+        try await runEngineTranscription(publishing: { $0 }) { engine in
             try await engine.transcribeAudio(url: url, settings: settings)
+        }
+    }
+
+    /// Runs the post-processing pipeline over a transcript that was decoded
+    /// piece by piece - live dictation's joined utterances - inside the same
+    /// frame `transcribeAudio` runs its own post-processing in.
+    ///
+    /// The frame is the point, not a convenience: `isTranscribing`, the
+    /// generation and the serialisation span this call exactly as they span
+    /// the second half of `transcribeAudio`, so a dictation pressed during the
+    /// rewrite of live-decoded text still waits its turn, and every surface
+    /// that asks "is the engine free" gets the same answer it would for a
+    /// whole-file dictation. No engine is loaded or touched - the pieces were
+    /// decoded already - which is what makes this frame different from the
+    /// other two.
+    func finishTranscribed(raw: String, settings: Settings) async throws -> StyledTranscript {
+        try await runTranscription(publishing: { $0.final }, preparing: { _ in }) { _ in
+            await Self.finish(raw: raw, settings: settings)
         }
     }
 
@@ -673,16 +697,39 @@ class TranscriptionService: ObservableObject {
         return await SpokenIntentPipeline.apply(to: processed, settings: settings)
     }
 
+    /// The frame for work that needs the engine: `runTranscription` with the
+    /// engine loaded, and its progress and committed segments wired to the
+    /// published state, before `work` is handed it.
+    private func runEngineTranscription<Result: Sendable>(
+        publishing text: @escaping @Sendable (Result) -> String,
+        _ work: @escaping @Sendable (TranscriptionEngine) async throws -> Result
+    ) async throws -> Result {
+        try await runTranscription(
+            publishing: text,
+            preparing: { generation in
+                let engine = try await self.engineForTranscription()
+                self.observeProgress(of: engine)
+                self.observePartialTranscripts(of: engine, generation: generation)
+                return engine
+            },
+            work)
+    }
+
     /// The frame every transcription runs in: waits for the engine to be free,
-    /// takes the next generation, publishes the in-flight state, runs `work` on
-    /// a detached task that is cancelled with this object, and takes the state
-    /// down again when - and only when - that work has actually unwound.
+    /// takes the next generation, publishes the in-flight state, runs
+    /// `prepare` on the main actor and then `work` on a detached task that is
+    /// cancelled with this object, and takes the state down again when - and
+    /// only when - that work has actually unwound.
     ///
     /// `publishing` names what `transcribedText` shows for a result, since the
     /// frame does not know whether it ran a decode or a full transcription.
-    private func runTranscription<Result: Sendable>(
+    /// `prepare` is what the work needs resolved inside the frame - the engine,
+    /// for a decode; nothing, for post-processing alone - and runs after the
+    /// generation is taken so a load that throws still tears its own frame down.
+    private func runTranscription<Context, Result: Sendable>(
         publishing text: @escaping @Sendable (Result) -> String,
-        _ work: @escaping @Sendable (TranscriptionEngine) async throws -> Result
+        preparing prepare: @MainActor (_ generation: Int) async throws -> Context,
+        _ work: @escaping @Sendable (Context) async throws -> Result
     ) async throws -> Result {
         // Serialize access to the engine: a whisper context must not process
         // two transcriptions concurrently (indicator flow and queue flow can
@@ -727,10 +774,7 @@ class TranscriptionService: ObservableObject {
             }
         }
 
-        let engine = try await engineForTranscription()
-
-        observeProgress(of: engine)
-        observePartialTranscripts(of: engine, generation: generation)
+        let context = try await prepare(generation)
 
         // Resolved once, outside the task: reading a captured `weak var` from
         // inside concurrently-executing code is an error under the Swift 6
@@ -747,7 +791,7 @@ class TranscriptionService: ObservableObject {
                 throw CancellationError()
             }
 
-            let result = try await work(engine)
+            let result = try await work(context)
 
             try Task.checkCancellation()
 

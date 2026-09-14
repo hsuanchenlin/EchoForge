@@ -230,6 +230,32 @@ final class CloudPrivacyTests: IsolatedPreferencesTestCase {
         }
     }
 
+    /// Live dictation decodes audio while the microphone is still open, and
+    /// every byte of it stays on the Mac: the buffer is in memory, the
+    /// utterances go to the local engine already selected, and the cloud engine
+    /// is never given a session (`LiveCutBudget.preset(for: .cloud)` is nil).
+    /// Nothing under `Live/` may know how to make a request, name a provider or
+    /// touch a credential.
+    func testTheLivePathCannotSendAnything() throws {
+        var scanned = 0
+        try scanProductionSources { path, text in
+            guard path.hasPrefix("Live/") else { return }
+            scanned += 1
+            for symbol in [
+                "URLSession", "URLRequest", "CloudAccess", "CloudCall", "CloudRequests",
+                "CloudEndpoint", "CloudCredential", "Keychain", "kSecClass",
+            ] {
+                XCTAssertFalse(
+                    text.contains(symbol),
+                    "\(path) mentions \(symbol). The live buffer never leaves the Mac; a request "
+                        + "may only be built inside Cloud/, and no live session is ever made for "
+                        + "the cloud engine.")
+            }
+        }
+        XCTAssertGreaterThan(scanned, 3, "the scan found almost none of Live/")
+        XCTAssertNil(LiveCutBudget.preset(for: .cloud))
+    }
+
     private func scanProductionSources(_ check: (String, String) throws -> Void) throws {
         let sources = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()

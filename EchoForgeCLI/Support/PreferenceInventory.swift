@@ -81,6 +81,7 @@ enum PreferenceInventory {
         .init(section: "Shortcuts", label: "Double press to trigger", key: PreferenceKeys.doublePressToTrigger, kind: .boolean),
         .init(section: "Shortcuts", label: "Esc cancels without confirming", key: PreferenceKeys.escCancelWithoutConfirmation, kind: .boolean),
         .init(section: "Shortcuts", label: "Floating capsule HUD", key: PreferenceKeys.capsuleHUDEnabled, kind: .boolean),
+        .init(section: "Shortcuts", label: "Live transcription", key: PreferenceKeys.liveTranscriptionEnabled, kind: .boolean),
         .init(section: "Shortcuts", label: "Sound on record start", key: PreferenceKeys.playSoundOnRecordStart, kind: .boolean),
         .init(section: "Shortcuts", label: "Selected microphone", key: PreferenceKeys.selectedMicrophoneData, kind: .opaque),
 

@@ -224,6 +224,21 @@ final class CapsuleHUDViewModel: ObservableObject {
     /// spinner and the label alone in that case, exactly as it always has.
     @Published private(set) var partialText: String?
 
+    /// Whether `partialText` is the session's own live decoder's, which then
+    /// owns the line for the rest of the session.
+    ///
+    /// Two sources can write the line and they must not take turns. A live
+    /// session publishes its joined utterances while the microphone is open
+    /// and keeps publishing as the tail is decoded; that tail decode also
+    /// reaches `TranscriptionService.partialTranscript`, as a fresh decode of
+    /// one short piece - and letting it through would replace the whole
+    /// committed transcript with the last utterance's segments the moment the
+    /// key went up. So once the live line has shown, the global publisher is
+    /// ignored until `clearLiveTranscript` - which is what a fallback calls,
+    /// and after which the whole-file decode's segments show as they always
+    /// did.
+    private var showsLiveTranscript = false
+
     /// Whether the first Esc press is being visibly acknowledged.
     ///
     /// The session's own state machine (`IndicatorViewModel.isConfirmingCancel`)
@@ -289,6 +304,7 @@ final class CapsuleHUDViewModel: ObservableObject {
         announcedSignals = []
         isConfirmingCancel = false
         partialText = nil
+        showsLiveTranscript = false
         state = .connecting
     }
 
@@ -314,10 +330,42 @@ final class CapsuleHUDViewModel: ObservableObject {
     /// empty value too, so a decode that has produced only silence leaves the
     /// pill the size it was rather than growing a blank second line.
     func showPartialTranscript(_ text: String?) {
-        guard state == .polishing(.transcribing) else { return }
+        guard state == .polishing(.transcribing), !showsLiveTranscript else { return }
         let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let trimmed, !trimmed.isEmpty else { return }
         partialText = trimmed
+    }
+
+    /// Shows what this session's own live decoder has committed while the
+    /// microphone is still open.
+    ///
+    /// Accepted while recording as well as during the decode, which is the
+    /// difference from `showPartialTranscript`: the source is the session
+    /// itself (`LiveDictationSession.transcript`, carried on the indicator view
+    /// model), never a global publisher, so a queue transcription has no way to
+    /// reach it and the hijack rule the other entry point enforces does not
+    /// apply. Refused for an empty value for the same reason the other is - a
+    /// blank second line is a pill that grew for nothing - and `nil` is what
+    /// clearing looks like on the way in, so a session that falls back takes
+    /// its line down through the same publisher it put it up with.
+    func showLiveTranscript(_ text: String?) {
+        guard state == .recording || state == .polishing(.transcribing) else { return }
+        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let trimmed, !trimmed.isEmpty else {
+            if text == nil { clearLiveTranscript() }
+            return
+        }
+        partialText = trimmed
+        showsLiveTranscript = true
+    }
+
+    /// Takes the live line down and gives the line back to the global decode:
+    /// the session fell back, and the whole-file decode that follows reports
+    /// its own segments the way it always did.
+    func clearLiveTranscript() {
+        guard showsLiveTranscript else { return }
+        showsLiveTranscript = false
+        partialText = nil
     }
 
     func beginConnecting() {
@@ -439,6 +487,7 @@ final class CapsuleHUDViewModel: ObservableObject {
         microphoneName = nil
         isConfirmingCancel = false
         partialText = nil
+        showsLiveTranscript = false
         onHide?()
     }
 

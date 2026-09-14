@@ -201,3 +201,6 @@ and finish the joined text once - the stages run over a whole transcript, never
 over a piece - and `TranscriptionDecodeAndFinishTests` holds them to it: a decode
 returns the engine's words byte for byte, and a decode shares the engine's
 serialisation and cancellation with whole-file work rather than running beside it.
+That caller is live transcription (`docs/live-dictation.md`), and
+`finishTranscribed(raw:settings:)` is the frame it finishes in: the same
+serialised, cancellable frame around `finish` alone, with no engine touched.

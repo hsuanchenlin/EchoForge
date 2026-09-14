@@ -395,8 +395,10 @@ An engine must not reach into another engine for any of it. Engines whose backen
 silently clamps long input take `AudioChunkSource` with an `AudioChunkBudget`; the budget type
 documents why each limit exists and `OpenSuperWhisperTests/AudioChunkerTests.swift` pins them.
 
-`OpenSuperWhisper/Live/` is the pure half of live dictation - decoding utterances while the
-microphone is still open - and nothing in it records, taps audio or reads a preference.
+`LiveCutPolicy` and `CommittedTranscript` in `OpenSuperWhisper/Live/` are the pure half of live
+dictation - decoding utterances while the microphone is still open - and neither records, taps
+audio or reads a preference; the session, the tap and the fallback table that use them are under
+"Dictation latency and the queue" below.
 `LiveCutPolicy` decides where the uncommitted audio is cut, from the VAD's segments and an engine's
 `LiveCutBudget` (`preset(for:)`, `nil` for the cloud engine): a pause ends an utterance once it
 holds the minimum speech, the cap forces a cut at the best silence, and **no decision ever lands
@@ -904,6 +906,25 @@ runs a main-actor hop after the work ends, by which time a *different* one may o
 Cancelling does **not** clear `transcriptionTask` or `isTranscribing` - those two are the answer
 to "is the engine free", cancelling does not make it free, and clearing them let a press right
 after a cancel start a second transcription on a whisper context still inside `whisper_full`.
+
+**Live dictation** (`OpenSuperWhisper/Live/`, off by default behind `liveTranscriptionEnabled`)
+moves the decode *earlier* rather than making it cheaper: `LiveDictationSession` taps the
+microphone beside the recorder (`LiveAudioTap`, a second client on the same device, pinned to
+the same `AudioDeviceID`), cuts utterances with `LiveCutPolicy`, decodes each through
+`TranscriptionService.decodeRaw` while the key is still down, and `finish` decodes only the
+tail. `docs/live-dictation.md` is the whole story. Four things there are absolute. Nothing is
+pasted early and nothing on screen is revised - the joined raw text goes through
+`finishTranscribed`, the third transcription frame, so the paste is one paste after every
+stage; the capsule's cancel there is a discard rather than an interrupt, since the frame in
+flight may be a queue item's, and `IndicatorViewModel.transcribe` refuses the finished result
+instead. Every live-path failure is a **fallback** to the whole-file decode of the WAV the
+recorder still writes, with the capsule line cleared first; `LiveDictationSessionTests` holds
+each row of the table. Only `DictationPurpose.dictation` on a local engine gets a session
+(`LiveDictationEligibility`; `LiveCutBudget.preset(for: .cloud)` is nil, and
+`CloudPrivacyTests` scans `Live/`). And `IndicatorViewModel.startDecoding` checks the live
+path **before** its busy check: an utterance decode raises `isTranscribing` like a queue item
+does, and a dictation that decoded itself all along must not be queued as a file at the last
+moment - a session whose tap never started is the one exception, and takes the queue path.
 
 `AudioRecorder.startRecording` hands back its session synchronously and then pays CoreAudio on
 its work queue, so a start can fail after the caller believes it is recording.

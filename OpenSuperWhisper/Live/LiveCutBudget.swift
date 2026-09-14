@@ -47,10 +47,13 @@ struct LiveCutBudget: Equatable {
     /// cap is preferred over a longer one earlier, so the utterance stays long.
     let capSearchSamples: Int
 
-    /// Detected speech the audio left at stop must hold to be decoded at all.
-    /// Below it the tail is dropped as silence: the last fraction of a second
+    /// Detected speech the audio left at stop must hold to be decoded live.
+    /// Below it the policy answers `.discard`: the last fraction of a second
     /// after a pause is breath and key noise, and an engine handed it answers
-    /// with hallucinated text.
+    /// with hallucinated text. The session reads that answer two ways - a tail
+    /// with no detected speech is silence, one with some is a fallback to the
+    /// whole-file decode, which keeps every segment the VAD reports
+    /// (`LiveDictationSession.finish`).
     let minimumTailSpeechSamples: Int
 
     /// - Parameters:
@@ -63,7 +66,7 @@ struct LiveCutBudget: Equatable {
     ///   - capSearchSeconds: the window before the cap a forced cut searches
     ///     first. Clamped to the cap.
     ///   - minimumTailSpeechSeconds: detected speech the tail needs to be
-    ///     decoded rather than dropped.
+    ///     decoded live rather than answered with `.discard`.
     init(
         minimumSpeechSeconds: Double,
         pauseSeconds: Double,
