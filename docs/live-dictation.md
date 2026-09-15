@@ -2,8 +2,10 @@
 
 Decoding a dictation while it is still being recorded, so the words appear on the capsule as
 they are spoken and the wait after the key goes up is one utterance's decode rather than the
-whole recording's. Off by default (`liveTranscriptionEnabled`), switched on in Settings →
-Shortcuts → Recording Behavior → "Live transcription", beside the capsule's own switch.
+whole recording's. On by default (`liveTranscriptionEnabled`), switched off in Settings →
+Shortcuts → Recording Behavior → "Live transcription", beside the capsule's own switch. An
+install that turned it off keeps it off - the default only fills in for a switch nobody has
+touched.
 
 `OpenSuperWhisper/Live/` is the whole implementation. `LiveCutPolicy` and `CommittedTranscript`
 are the pure half - where an utterance ends and how the pieces join - and this file is about

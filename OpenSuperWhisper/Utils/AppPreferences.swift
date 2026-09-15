@@ -180,14 +180,19 @@ final class AppPreferences {
     /// key goes up is one utterance's decode rather than the whole
     /// recording's. See `LiveDictationSession` and `docs/live-dictation.md`.
     ///
-    /// Off by default for now: it is the first release carrying the feature
-    /// and it puts the microphone on a second capture path, so it goes through
-    /// a release of use before it becomes the default - the same road the
-    /// capsule took. Nothing about the result changes when it is on: the paste
-    /// still happens once, at the end, after every post-processing stage, and
-    /// any failure on the live path falls back to the whole-file decode of the
-    /// same recording. Read once per session, like `capsuleHUDEnabled`.
-    @UserDefault(key: PreferenceKeys.liveTranscriptionEnabled, defaultValue: false)
+    /// **On by default.** Nothing about the result changes with it on: the
+    /// paste still happens once, at the end, after every post-processing stage,
+    /// and any failure on the live path falls back to the whole-file decode of
+    /// the same recording. What it costs is a second capture path on the
+    /// microphone. It was merged off behind this switch and turned on before
+    /// its first release, so no shipped build ever had it off by default.
+    ///
+    /// A stored value still wins: this is the default for an install that has
+    /// never expressed a preference, and anyone who turned it off keeps the
+    /// whole-file decode. `Settings → Shortcuts → Recording Behavior → Live
+    /// transcription` is where it is turned back off. Read once per session,
+    /// like `capsuleHUDEnabled`.
+    @UserDefault(key: PreferenceKeys.liveTranscriptionEnabled, defaultValue: true)
     var liveTranscriptionEnabled: Bool
 
     /// Whether a dictation is read for a spoken command - "Ask: …",

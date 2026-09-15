@@ -902,8 +902,26 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
 
     // MARK: - Eligibility
 
-    /// Off by default: a fresh install decodes whole files exactly as before.
-    func testLiveTranscriptionIsOffByDefault() {
+    /// On by default: a fresh install decodes utterances while recording. The
+    /// stored key is still absent, which is the other half of the claim - this
+    /// is a default rather than a write, so an install that turned live
+    /// transcription off is not being turned back on.
+    func testLiveTranscriptionIsOnByDefault() {
+        XCTAssertTrue(AppPreferences.shared.liveTranscriptionEnabled)
+        XCTAssertNil(storedPreference(PreferenceKeys.liveTranscriptionEnabled))
+        XCTAssertEqual(
+            LiveDictationEligibility.budget(
+                purpose: .dictation, isEnabled: AppPreferences.shared.liveTranscriptionEnabled,
+                engine: .whisper, showTimestamps: false),
+            .whisper)
+    }
+
+    /// Off is a real answer and survives the on-by-default: the default only
+    /// fills in for a key nobody has written.
+    func testAStoredOffSurvivesTheOnByDefault() {
+        AppPreferences.shared.liveTranscriptionEnabled = false
+
+        XCTAssertEqual(storedPreference(PreferenceKeys.liveTranscriptionEnabled) as? Bool, false)
         XCTAssertFalse(AppPreferences.shared.liveTranscriptionEnabled)
         XCTAssertNil(
             LiveDictationEligibility.budget(
@@ -942,8 +960,8 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
     }
 
     /// The production factory reads the same switch and the engine that would
-    /// actually decode: nil on a default install, nil when nothing can
-    /// transcribe, and a session on the active engine once the switch is on.
+    /// actually decode: a session on a default install, nil once the user has
+    /// switched live transcription off, and nil when nothing can transcribe.
     func testTheFactoryFollowsThePreferenceAndTheActiveEngine() {
         let service = TranscriptionService()
         let preferences = AppPreferences.shared
@@ -952,16 +970,17 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
             availability: EngineAvailability(usableEngines: [.sensevoice], whisperModelPaths: []))
         XCTAssertEqual(service.activeEngine, .sensevoice)
 
-        XCTAssertNil(
-            LiveDictationSession.make(
-                for: session, purpose: .dictation, settings: Settings(), service: service),
-            "off by default")
-
-        preferences.liveTranscriptionEnabled = true
         let live = LiveDictationSession.make(
             for: session, purpose: .dictation, settings: Settings(), service: service)
         XCTAssertEqual(live?.engine, .sensevoice)
         XCTAssertEqual(live?.recordingSession, session)
+
+        preferences.liveTranscriptionEnabled = false
+        XCTAssertNil(
+            LiveDictationSession.make(
+                for: session, purpose: .dictation, settings: Settings(), service: service),
+            "a stored off is honoured")
+        preferences.liveTranscriptionEnabled = true
 
         service.refreshSelection(
             availability: EngineAvailability(usableEngines: [], whisperModelPaths: []))

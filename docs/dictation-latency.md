@@ -44,7 +44,7 @@ are the product's chosen quality, not overhead, and neither may be traded for a 
 
 ## The live path: where the decode goes, and what one encode costs
 
-Live dictation (`docs/live-dictation.md`, off by default) does not make the decode cheaper; it
+Live dictation (`docs/live-dictation.md`) does not make the decode cheaper; it
 moves it earlier, so the wait after the key goes up is the last utterance's decode rather than
 the recording's. What it can make cheaper is the one thing whisper.cpp does once per call rather
 than once per window: language detection on `auto`. Measured on `ggml-large-v3-turbo`, Apple M5,
