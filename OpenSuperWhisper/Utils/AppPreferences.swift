@@ -184,8 +184,8 @@ final class AppPreferences {
     /// paste still happens once, at the end, after every post-processing stage,
     /// and any failure on the live path falls back to the whole-file decode of
     /// the same recording. What it costs is a second capture path on the
-    /// microphone, which is why it went through a release behind the switch
-    /// first - the same road the capsule took.
+    /// microphone. It was merged off behind this switch and turned on before
+    /// its first release, so no shipped build ever had it off by default.
     ///
     /// A stored value still wins: this is the default for an install that has
     /// never expressed a preference, and anyone who turned it off keeps the
