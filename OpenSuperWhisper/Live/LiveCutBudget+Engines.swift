@@ -8,9 +8,10 @@ import Foundation
 /// encode of a 30 s window regardless of how much of it is speech, so live
 /// decoding performs about as many encodes as the whole-file decode only if
 /// utterances are long - hence the 8 s floor and the 28 s cap, one utterance
-/// per window. The FluidAudio engines have no window to fill: they chunk under
-/// `AudioChunkBudget` and cost proportionally, so a 3 s floor is affordable and
-/// the cap is the chunk length the engine already prefers.
+/// per window. The FluidAudio engines have no window to fill and cost
+/// proportionally, so a 3 s floor is affordable; the cap is the chunk length
+/// the engine already prefers under `AudioChunkBudget` - or, for Parakeet,
+/// which windows inside FluidAudio instead, one of its windows (below).
 extension LiveCutBudget {
 
     /// The budget for `engine`, or `nil` for one that never dictates live.

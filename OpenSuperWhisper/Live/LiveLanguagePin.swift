@@ -6,7 +6,7 @@ import Foundation
 /// On `auto`, whisper.cpp detects the language once per `whisper_full` call -
 /// on the first 30 s window - and decodes the rest of the file in it. A live
 /// session hands the engine a file per utterance, so without this every
-/// utterance would be detected again: one extra ~0.5 s encode each, and a
+/// utterance would be detected again: one extra ~0.6 s encode each, and a
 /// language that can flip between utterances where the whole-file decode of
 /// the same recording would have held one. The pin restores the whole-file
 /// semantics one utterance at a time: the first utterance decodes on `auto`,
