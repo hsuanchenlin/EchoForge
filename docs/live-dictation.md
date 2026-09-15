@@ -170,7 +170,66 @@ the queue path it always took.
 The `Settings` a dictation is finished with are built at the press when a live session starts,
 carried on the session, and used both for every utterance decode and for the finish - so one
 dictation cannot be decoded under one prompt and language and post-processed under another.
-Without a session they are built at stop, as before.
+Without a session they are built at stop, as before. The one value a decode may see differently
+is the language, below; `LiveDictationSession.settings` itself never changes.
+
+## The language is decided once per session
+
+On `auto`, whisper.cpp detects the language once per `whisper_full` call - on the first 30 s
+window - and decodes the rest of the file in it. A live session hands the engine a file per
+utterance, so left alone every utterance would be detected again: one extra encode each
+(measured below: ~0.6 s of a 1.8 s utterance decode on `ggml-large-v3-turbo`), and a language
+that could flip between utterances where the whole-file decode of the same recording would have
+held one. `LiveLanguagePin` (`Live/LiveLanguagePin.swift`) restores the whole-file semantics one
+utterance at a time: the first utterance decodes on `auto`, and if the engine's answer is a
+**confident** detection - at least `minimumConfidence`, 0.5, "more mass than every other language
+together" - every utterance after it, the tail at stop included, decodes in that language with no
+detection at all.
+
+Three things there are absolute, and `LiveLanguagePinTests` and the language cases in
+`LiveDictationSessionTests` hold them:
+
+- **It is per session.** The pin lives on the `LiveDictationSession` that made it and dies with
+  it: the next press starts on `auto`, and a cancelled or fallen-back session takes its pin with
+  it - the whole-file decode of the WAV runs on the settings the user chose, `auto` included.
+- **It never touches an explicit language.** A session started on anything but `auto` decodes in
+  that language throughout and no detection is consulted, whatever the engine reports.
+- **It never writes a preference.** The pinned language reaches the copy of `Settings` each decode
+  is handed (`LiveLanguagePin.applied(to:)`) and nothing else: `session.settings`, which the joined
+  transcript is post-processed with and the fallback decodes the WAV with, still says `auto`, and
+  `whisperLanguage` is never written by anything on this path.
+
+Nothing pins on less than a detection: a report with no language (the FluidAudio engines, which
+cannot say, and any decode that ran in a language it was *given* rather than detected), a
+probability under the bar or outside 0...1, or an utterance that decoded to no words - by the rule
+`CommittedTranscript` keeps an utterance by, so the `...` whisper writes for a breath the VAD took
+for speech is dropped by the transcript and the pin alike, whatever the detector was sure of. Each
+of those leaves the next utterance on `auto`.
+
+**The seam.** `DecodedLanguage` and `RawDecode` (`Engines/DecodedLanguage.swift`) are what a decode
+hands back beside its text, and `DecodeLanguageReporting` is the engine-side protocol - a separate
+one, the way `PartialTranscriptEmitting` is, because exactly one engine has the answer.
+`TranscriptionService.decodeRaw` returns `RawDecode`, asking the engine through that protocol when
+it conforms and reporting nil otherwise; `transcribeAudio`, the whole-file lane, still calls the
+engine's `transcribeAudio` and is unchanged. `WhisperEngine.transcribeAudioReportingLanguage` is
+the same decode as `transcribeAudio` with one difference: on `auto` it runs whisper.cpp's own
+detector itself (`whisper_lang_auto_detect_with_state`, before `whisper_full`) so the softmax
+probability survives - `whisper_full` computes exactly this and keeps only the winner - and hands
+`whisper_full` the winner as the language, which is what `whisper_full` does internally. The
+encode it spends on window 0 is the one `whisper_full` would have spent on the same detection, so
+the decode and its cost are the same; the table below measures both. A decode whose detection could
+not run is left to `whisper_full` to detect for itself and reports no language, which the pin
+refuses; a given language was not detected and is not reported either. An
+English-only model has nothing to detect and would still be charged the encode; it is answered as
+English with probability 1 - certain by construction - and `whisper_full` is handed `en`, the
+convention whisper.cpp's own CLI applies. Prompt composition is untouched:
+`WhisperInitialPrompt` is still composed per utterance exactly as per file.
+
+`LiveDictationParityTests` holds the seam end to end: on `ggml-tiny.en.bin` the first utterance is
+asked for `auto`, reports `en` with certainty, and every decode after it - the tail included - is
+asked for `en`; an explicit language is asked for on every decode and never pinned over; and, opt-in
+on the turbo model, 36 s of synthesised Mandarin is detected on its first utterance, pinned, and
+the tail decoded without a second detection.
 
 ## Parity
 
@@ -182,6 +241,48 @@ is committed *while recording* and that nothing is lost across the cut. The Whis
 minimum is why it takes three clips: the VAD finds under 8 s of speech in the eleven-second
 clip, so the first pause is too early to cut at. Regenerate from History re-decodes the whole
 file and may differ at utterance boundaries; the raw text stored is what was pasted.
+
+`LiveDictationEngineParityTests` is the same claim for the other three engines, on the opt-in
+fixtures their integration tests document plus one of its own for Parakeet, and it skips rather
+than downloads when the weights are absent. Every case was run against the pinned FluidAudio
+0.15.4 on the synthesised fixtures; the numbers are what they measured, with the difference stated
+as a character error rate over letters and digits (`TranscriptDistance`):
+
+| Engine | Fixture | Cuts while recording | Live vs reference |
+| --- | --- | --- | --- |
+| SenseVoice-Small, `zh` | 36 s Mandarin | 1, forced by the 28 s cap into a 0.19-0.26 s gap | 0 characters differ from the whole-file decode; marker sentence kept |
+| SenseVoice-Small, `auto` | 7 s mixed English/Mandarin | 0 (one tail) | 0 characters differ; both languages kept |
+| Paraformer-large-zh | 36 s Mandarin | forced by the ~14 s cap | 0 characters differ; marker kept, no repeated tail |
+| Paraformer-large-zh | 22.6 s dense Mandarin, one unbroken VAD segment | 0 - the policy never cuts inside speech; the engine's own chunker splits the tail | 0 characters differ; marker kept |
+| Paraformer-large-zh | 7 s English | - | refused on the live path (`.fallback(.decodeFailed)`), then refused again by the whole-file decode: `unsupportedSpokenLanguage`, recording kept, exactly as before |
+| Parakeet v3 | 26 s English with 0.9 s pauses | one per sentence, at the pauses | 0 characters differ from the **script**; the whole-file decode is not a reference here (below) |
+| Whisper turbo, `auto` | 36 s Mandarin | 1, forced by the 28 s cap | pinned `zh` at p = 0.998; 0 characters differ from the script; the whole-file decode of the stitched clip omits the sentence before the marker and is not a reference either |
+
+Two of those rows are findings rather than confirmations. On the pinned FluidAudio, Parakeet's
+whole-file path windows anything over 15 s (`ASRConstants.maxModelSamples`, 240,000 samples) and
+merges the windows by token deduplication, and on the 26 s fixture that merge **drops a whole
+clause** - deterministically, across three runs, while every clip of 20 s or less kept it.
+`docs/upstream-issues.md` has the reproduction. The live path keeps the clause because each
+utterance is a sentence inside one window, and that is now what its budget guarantees:
+`LiveCutBudget.parakeet` is capped at one window less one encoder frame (14.92 s, read off the
+library's constants and pinned in `LiveCutPolicyTests`), so no utterance ever reaches the merge.
+Only a tail of unbroken speech longer than that can, since the policy never cuts inside speech,
+and the whole-file fallback hands FluidAudio the file whole as it always did. The Whisper row's
+whole-file loss is on this app's own whole-file lane: the 36 s clip is stitched to speech-only
+audio (`SpeechSegmenter.speechOnlySamples`) and decoded in whisper.cpp's 30 s windows, and the
+14-character sentence before the marker is missing from that decode on every run tried - five of
+five, `auto` and `zh` alike - while the same clip decoded untrimmed (timestamps on) carries it at
+`[27.5->30.3]`, across the window boundary. The live path's utterances each sit inside one window
+and keep it. Neither test holds the live path to a lossy reference; both hold it to the script.
+The whole-file lane itself is untouched here, deliberately: it is every release's path and not
+what this change is about.
+
+What `say` does not exercise is the **pause cut**: it leaves 0.17-0.26 s between sentences
+(measured with the bundled VAD on the Mandarin fixtures), under every engine's pause, so the
+Mandarin fixtures exercise only the cap-forced cut, and the Parakeet fixture carries explicit
+`[[slnc 900]]` marks to exercise the other. The pauses themselves - 0.6 s for the FluidAudio
+engines, 0.7 s for Whisper - were not tuned by this: a person leaves more between sentences than a
+synthesiser does, and a cut forced into a 0.19 s gap by the cap lost nothing on any fixture.
 
 ## What it costs, measured
 
@@ -203,17 +304,48 @@ pass that takes longer than `pollInterval` simply delays the next poll rather th
 (whisper.cpp's own `vad time` log line is *cumulative* across calls on one context, which is
 why it looks superlinear in a log.) Running the VAD over only the audio since the last pass
 would cut this to a constant but the model is stateful across a call, so the segments over a
-prefix are not the segments over the whole; it is a PR-D measurement, not a PR-C change.
+prefix are not the segments over the whole; it is a later measurement, not made yet.
 
 End to end on the same machine, Debug build, SenseVoice-Small, `jfk.wav` played twice through
 the speakers into the built-in microphone with the switch on: the line appeared during the
 recording, and the capsule showed "Inserted" 0.7 s after the stop key for a 32 s recording; a
 30 s silent recording reported "No speech detected" in 1.2 s. Neither run fell back.
 
+**The language pin**, Debug build, Apple M5, `ggml-large-v3-turbo` with the app's own parameters
+(beam 5, no timestamps, no prompt), `WhisperEngine` timed around one decode, best of three, each
+clip written out the way an utterance is (`LiveUtteranceFile`):
+
+| Clip | Detected | `auto`, detection by `whisper_full` | `auto`, detection by the reporting decode | Pinned |
+| --- | --- | --- | --- | --- |
+| `jfk.wav`, 11 s English | en, p = 0.971 | 1.75 s | 1.77 s | **1.17 s** |
+| first 3 s of it | en, p = 0.967 | 1.39 s | 1.38 s | **0.82 s** |
+| 8 s synthesised Mandarin | zh, p = 0.997 | 1.91 s | 1.89 s | **1.30 s** |
+| 3 s of it | zh, p = 0.994 | 1.52 s | 1.62 s | **0.95 s** |
+| 7 s synthesised Mandarin with English words | zh, p = 0.9955 | 1.65 s | 1.71 s | **1.08 s** |
+| 36 s synthesised Mandarin | zh, p = 0.998 | 4.66 s | 4.74 s | **4.05 s** |
+| SenseVoice model-card clips: zh, yue, en, ja, ko (5-7 s) | zh 0.977, zh 0.997, en 0.9996, ja 0.9992, ko 0.9986 | 1.43-1.77 s | 1.45-1.79 s | **0.88-1.19 s** |
+
+Three things the table says. Reading the probability costs nothing: the reporting decode is within
+noise of `whisper_full`'s own detection on every clip, because it spends the same encode. The pin
+saves **0.55-0.7 s per utterance** however long the utterance is, which is one encode of a 30 s
+window on this model - for a live dictation that is the tail decode after the key goes up, and
+every utterance before it. And every clip, including the mixed one and Cantonese (which the
+detector answers as `zh`), scored between 0.966 and 0.9996: `minimumConfidence` at 0.5 refuses
+nothing a clear utterance produces. The pinned decode returned the same text as the `auto` decode
+on every clip.
+
+Every utterance file is a fresh `whisper_state`, so the pin is the only context that carries from
+one utterance to the next: the typed prompt, the terms and the app vocabulary are composed per
+utterance exactly as per file (`WhisperInitialPrompt`), and no previously committed text is fed
+back as a prompt. That experiment - a rolling prompt of the last utterance's words - was left
+undone on purpose: the parity above found nothing at the cuts for it to fix, and it raises the
+repetition-loop risk the whisper.cpp default guards against.
+
 ## Rollback
 
 Everything is behind `liveTranscriptionEnabled` and one object. Removing the feature is
-deleting `OpenSuperWhisper/Live/LiveAudioTap.swift`, `LiveDictationSession.swift` and
-`LiveUtteranceFile.swift`, the `liveSession` wiring in `IndicatorViewModel`, `showLiveTranscript`
-on the capsule, `finishTranscribed` and the preference key. No schema, model-pack or CLI change
-exists to roll back.
+deleting `OpenSuperWhisper/Live/LiveAudioTap.swift`, `LiveDictationSession.swift`,
+`LiveLanguagePin.swift` and `LiveUtteranceFile.swift`, the `liveSession` wiring in
+`IndicatorViewModel`, `showLiveTranscript` on the capsule, `finishTranscribed` and the preference
+key. `DecodeLanguageReporting` and `RawDecode` can stay or go with it; the whole-file lane never
+reads them. No schema, model-pack or CLI change exists to roll back.

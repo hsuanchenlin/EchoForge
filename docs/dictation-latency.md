@@ -42,6 +42,34 @@ tested and all three came back negative:
 What *does* dominate is the engine decode and, when it is on, the style-rewriting stage. Both
 are the product's chosen quality, not overhead, and neither may be traded for a benchmark.
 
+## The live path: where the decode goes, and what one encode costs
+
+Live dictation (`docs/live-dictation.md`, off by default) does not make the decode cheaper; it
+moves it earlier, so the wait after the key goes up is the last utterance's decode rather than
+the recording's. What it can make cheaper is the one thing whisper.cpp does once per call rather
+than once per window: language detection on `auto`. Measured on `ggml-large-v3-turbo`, Apple M5,
+Debug build, `WhisperEngine` timed around one decode, best of three:
+
+| Utterance | `auto` | language pinned | saved |
+| --- | --- | --- | --- |
+| 3 s English (`jfk.wav`, first 3 s) | 1.38 s | 0.82 s | 0.56 s |
+| 11 s English (`jfk.wav`) | 1.77 s | 1.17 s | 0.60 s |
+| 8 s synthesised Mandarin | 1.89 s | 1.30 s | 0.59 s |
+| 36 s synthesised Mandarin | 4.74 s | 4.05 s | 0.69 s |
+
+The saving is one encode of a 30 s window on this model, ~0.6 s, and it is the same whatever the
+utterance holds - which is also why a short utterance costs as much as a long one, and why
+`LiveCutBudget.whisper` asks for 8 s of speech before it cuts. `LiveLanguagePin` takes that
+encode off every utterance after the first, the tail included: for a live Whisper dictation on
+`auto` the post-stop wait is a pinned tail decode, ~1.2 s for a sentence on this model, and the
+rewriting stage. Reading the detection's probability, which is what makes the pin safe, costs
+nothing measurable - the reporting decode spends the encode `whisper_full` would have spent on
+the same detection (the full table, with probabilities, is in `docs/live-dictation.md`).
+
+The FluidAudio engines have no such encode and nothing to pin; on them the live path's whole
+gain is the earlier decode. Their per-engine parity, and the one budget it changed, are in the
+same file.
+
 ## What was changed
 
 **The duration read now overlaps the transcription** rather than preceding it

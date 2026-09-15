@@ -654,9 +654,17 @@ class TranscriptionService: ObservableObject {
     /// of, whole-file work exactly as that work queues behind it. What it returns
     /// has been through no stage of `docs/text-post-processing.md`; `finish`
     /// is how it gets there.
-    func decodeRaw(url: URL, settings: Settings) async throws -> String {
-        try await runEngineTranscription(publishing: { $0 }) { engine in
-            try await engine.transcribeAudio(url: url, settings: settings)
+    ///
+    /// Beside the text it carries the language the decode ran in, from an
+    /// engine that can say (`DecodeLanguageReporting`), which is how a live
+    /// session learns what its first utterance was spoken in
+    /// (`LiveLanguagePin`). An engine that cannot say reports nil.
+    func decodeRaw(url: URL, settings: Settings) async throws -> RawDecode {
+        try await runEngineTranscription(publishing: { $0.text }) { engine in
+            if let reporting = engine as? DecodeLanguageReporting {
+                return try await reporting.transcribeAudioReportingLanguage(url: url, settings: settings)
+            }
+            return RawDecode(text: try await engine.transcribeAudio(url: url, settings: settings))
         }
     }
 

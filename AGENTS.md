@@ -926,6 +926,21 @@ path **before** its busy check: an utterance decode raises `isTranscribing` like
 does, and a dictation that decoded itself all along must not be queued as a file at the last
 moment - a session whose tap never started is the one exception, and takes the queue path.
 
+The language a live session decodes in is decided **once per session** (`LiveLanguagePin`): on
+`auto` the first utterance is detected, and if the engine is confident every later decode - the
+tail included - runs in that language with no detection, which is whisper's own once-per-file
+rule applied utterance by utterance and saves one encode (~0.6 s on turbo) per utterance. The pin
+reaches the `Settings` copy a decode is handed and nothing else - `session.settings`, the
+finish and the fallback still say `auto`, an explicit language is never touched, and no
+preference is ever written. `decodeRaw` returns `RawDecode` (text plus `DecodedLanguage`) for
+this; `DecodeLanguageReporting` is the engine-side seam and Whisper is its only conformer, which
+on `auto` runs whisper.cpp's detector itself so the probability survives, at the same encode
+`whisper_full` would have spent. `transcribeAudio`, the whole-file lane, calls the engine as it
+always did. Per-engine budgets are validated on the opt-in fixtures by
+`LiveDictationEngineParityTests`; the one it changed is Parakeet's cap, one FluidAudio window,
+because the pinned FluidAudio's window merge drops a clause on longer audio
+(`docs/upstream-issues.md`).
+
 `AudioRecorder.startRecording` hands back its session synchronously and then pays CoreAudio on
 its work queue, so a start can fail after the caller believes it is recording.
 `AudioRecorder.failedStart` is how it says so, and it names its session because five keys share

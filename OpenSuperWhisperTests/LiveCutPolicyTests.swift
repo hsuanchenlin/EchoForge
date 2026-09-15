@@ -253,6 +253,17 @@ final class LiveCutPolicyTests: XCTestCase {
         XCTAssertEqual(LiveCutBudget.preset(for: .fluidaudio), .parakeet)
     }
 
+    /// Parakeet's cap is one FluidAudio window: a file inside it is decoded in
+    /// one call, and a longer one goes through the stateless window merge that
+    /// drops words at a seam on the pinned version (`docs/upstream-issues.md`).
+    /// The numbers are the pinned 0.15.4's - 240,000 samples a window, 1,280
+    /// an encoder frame - so a bump that moves them says so here.
+    func testParakeetIsCappedAtOneFluidAudioWindow() {
+        XCTAssertEqual(LiveCutBudget.parakeet.maximumSamples, 240_000 - 1_280)
+        XCTAssertEqual(LiveCutBudget.parakeetWindowSeconds, 14.92, accuracy: 0.001)
+        XCTAssertLessThan(LiveCutBudget.parakeet.maximumSamples, 240_000, "strictly inside the single-call path")
+    }
+
     func testTheFluidAudioEnginesAffordFinerCuts() {
         for budget in [LiveCutBudget.parakeet, .senseVoiceSmall, .paraformerZh] {
             XCTAssertEqual(budget.minimumSpeechSamples, samples(3))
