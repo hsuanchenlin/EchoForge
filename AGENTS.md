@@ -907,7 +907,8 @@ Cancelling does **not** clear `transcriptionTask` or `isTranscribing` - those tw
 to "is the engine free", cancelling does not make it free, and clearing them let a press right
 after a cancel start a second transcription on a whisper context still inside `whisper_full`.
 
-**Live dictation** (`OpenSuperWhisper/Live/`, off by default behind `liveTranscriptionEnabled`)
+**Live dictation** (`OpenSuperWhisper/Live/`, on by default behind `liveTranscriptionEnabled` -
+a stored off still wins)
 moves the decode *earlier* rather than making it cheaper: `LiveDictationSession` taps the
 microphone beside the recorder (`LiveAudioTap`, a second client on the same device, pinned to
 the same `AudioDeviceID`), cuts utterances with `LiveCutPolicy`, decodes each through
