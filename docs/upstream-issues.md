@@ -11,27 +11,29 @@ code that works around them, not here.
 
 ## FluidAudio: SenseVoice decode reads fp16 logits through `NSNumber`
 
-**Status:** to be filed against <https://github.com/FluidInference/FluidAudio>. Not filed yet.
+**Status:** worked around in the app; fixed on upstream's main (`LogitsArgmax`,
+a vDSP per-frame argmax) but not in any tagged release through 0.15.5. Not filed
+separately - upstream already wrote the same fix.
 
 **Measured** on FluidAudio 0.15.4 (`b9d43724`, the pin this app carries), Apple M5:
-SenseVoice-Small runs at ~8x real time - about 3.4 s for a 28 s utterance - against Paraformer's
-~65x. The model is not the problem: the ANE encoder returns in ~0.09 s (~310x). About 97 % of the
-wall time is in `SenseVoiceManager.decode`, which falls to its `else` branch because the encoder
-emits **float16** `ctc_logits`, and then reads all ~11.9 M elements one boxed
-`logits[[0, t, v]].floatValue` at a time. The float32 branch immediately above it does the same
-work over a raw pointer.
+the encoder emits **float16** `ctc_logits`, and `SenseVoiceManager.decode` then
+reads all ~11.9 M elements of a 28 s utterance one boxed
+`logits[[0, t, v]].floatValue` at a time - ~97 % of the wall time, about 3.4 s
+for a 28 s utterance in a quiet process and ~20 s for a 36 s recording sampled
+in the shipped app, degrading catastrophically under memory pressure (the loop
+is pure allocation churn). The encoder itself returns in ~0.09 s.
 
-**Fix:** an fp16 fast path mirroring the existing float32 one.
+**What the app does:** owns the decode. `SenseVoiceCoreMLTranscriber`
+(`OpenSuperWhisper/Engines/SenseVoiceDecoding.swift`) runs the same three model
+stages and does the greedy CTC with a vDSP argmax over raw storage, the same fix
+upstream made. `SenseVoiceEngineIntegrationTests.testTheAppSideDecodeMatchesFluidAudiosByteForByte`
+pins its output against the pinned manager's, byte for byte, on the real
+encoder's tensors.
 
-**What the app does:** ships at the measured speed. 3.4 s for a 28-second thought is usable for
-record-then-transcribe dictation and still far faster than whisper-large; it is just not the
-"instant" the vendor's numbers imply. `SenseVoiceEngine` reports progress per chunk for exactly
-this reason. The app deliberately does **not** run the encoder and decode CTC itself - that would
-be ~40 lines and an ~8x win, at the price of owning a decoder that has to stay in step with
-upstream.
-
-**On a FluidAudio bump:** re-measure. If the fast path landed, SenseVoice should jump to roughly
-Paraformer's order of magnitude and the per-chunk progress becomes cosmetic rather than load-bearing.
+**On a FluidAudio bump:** if the tagged release contains `LogitsArgmax`, the
+app-side transcriber can be handed back to `SenseVoiceManager` - keep the parity
+test either way, flipping its reference to the new manager. If it does not, the
+app-side decode stays.
 
 ## FluidAudio: Paraformer returns raw `@@` BPE continuation markers instead of detokenising
 

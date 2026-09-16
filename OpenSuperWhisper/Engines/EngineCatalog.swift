@@ -285,8 +285,8 @@ enum EngineCatalog {
         summary: "The default for Chinese, and the one to use when you mix English into Mandarin. "
             + "Punctuates, and also handles Cantonese, Japanese and Korean.",
         outcome: "English and Chinese in one sentence, and Chinese on its own",
-        character: "About 8x real time, punctuated. The only engine here that transcribes both "
-            + "languages at once.",
+        character: "Faster than real time once the model is warm, punctuated. The only engine "
+            + "here that transcribes both languages at once.",
         attributionCredit: "SenseVoiceSmall by FunASR / FunAudioLLM",
         notes: [
             // The wording of this one matters. Punctuation and inverse text

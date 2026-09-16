@@ -1,4 +1,5 @@
 import AVFoundation
+import FluidAudio
 import XCTest
 @testable import OpenSuperWhisper
 
@@ -274,6 +275,62 @@ final class SenseVoiceEngineIntegrationTests: XCTestCase {
 
         XCTAssertTrue(text.contains("时间早上9点"), "auto-detect lost the Mandarin clip: \(text)")
         XCTAssertTrue(text.hasSuffix("。"), "auto-detect must still punctuate: \(text)")
+    }
+
+    // MARK: - The app-side decode
+
+    /// `SenseVoiceCoreMLTranscriber` exists because the pinned
+    /// `SenseVoiceManager` decodes fp16 logits through a boxed `NSNumber` per
+    /// element - the dominant cost of a warm transcription
+    /// (`docs/upstream-issues.md`). What must never drift is the *text*: the
+    /// two decodes are compared byte for byte on every fixture's chunks, over
+    /// the same loaded weights and the same tensors. Chunked because the long
+    /// fixture exceeds the model's 30 s single-call ceiling, which is exactly
+    /// the shape production hands the transcriber.
+    func testTheAppSideDecodeMatchesFluidAudiosByteForByte() async throws {
+        try skipUnlessFixturesExist()
+        let models = try await SenseVoiceEngine.loadFluidAudioModelWeights()
+        let chunkSource = AudioChunkSource()
+
+        let cases: [(file: String, language: SenseVoiceLanguage)] = [
+            ("sensevoice-long.wav", .zh),
+            ("sensevoice-itn.wav", .zh),
+            ("sensevoice-mixed.wav", .zh),
+            ("hf_zh.wav", .auto),
+            ("hf_en.wav", .en),
+        ]
+
+        for (name, language) in cases {
+            let chunks = try await chunkSource.chunks(
+                for: fixture(name), budget: .senseVoiceSmall)
+            XCTAssertFalse(chunks.isEmpty, "\(name) produced no chunks")
+
+            let upstream = SenseVoiceManager(
+                models: models, language: language.embedIndex,
+                textNorm: SenseVoiceEngine.textNorm)
+            let appSide = SenseVoiceCoreMLTranscriber(
+                models: models, language: language.embedIndex,
+                textNorm: SenseVoiceEngine.textNorm)
+
+            var upstreamTime: TimeInterval = 0
+            var appSideTime: TimeInterval = 0
+            for (index, chunk) in chunks.enumerated() {
+                var start = Date()
+                let expected = try await upstream.transcribe(audio: chunk.samples)
+                upstreamTime += Date().timeIntervalSince(start)
+                start = Date()
+                let actual = try await appSide.transcribe(audio: chunk.samples)
+                appSideTime += Date().timeIntervalSince(start)
+                XCTAssertEqual(
+                    actual, expected,
+                    "\(name) chunk \(index): the app-side decode changed the transcript")
+            }
+            print(
+                "SenseVoice decode parity \(name): \(chunks.count) chunks, "
+                    + "upstream \(String(format: "%.2f", upstreamTime))s, "
+                    + "app-side \(String(format: "%.2f", appSideTime))s"
+            )
+        }
     }
 
     // MARK: - Helpers

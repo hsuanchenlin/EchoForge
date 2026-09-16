@@ -39,8 +39,37 @@ tested and all three came back negative:
   `TranscriptionQueueBehaviourTests` pins that - and the whole hundred cost 3.3 ms end to end.
   A throttle would be complexity bought with nothing.
 
-What *does* dominate is the engine decode and, when it is on, the style-rewriting stage. Both
-are the product's chosen quality, not overhead, and neither may be traded for a benchmark.
+What *does* dominate is the engine decode and, when it is on, the style-rewriting stage. The
+rewriting stage is the product's chosen quality and may not be traded for a benchmark. The
+engine decode turned out to be something else for SenseVoice - an upstream defect, not a
+property of the model; see the next section.
+
+## The SenseVoice decode was the whole wait
+
+Measured September 2026, Apple M5, macOS 26.6, against a 36.0 s synthesised-Mandarin fixture
+(~100 words, `say -v Tingting`, the recipe in `SenseVoiceEngineIntegrationTests`), engine
+sensevoice, language auto:
+
+| Path | Warm | Cold |
+| --- | --- | --- |
+| Installed 0.9.6, file → settled row (3 runs) | 23-25 s | > 600 s (first use after hours idle, machine under load) |
+| Master, XCTest host, pre-fix | 6.99 s | 90.2 s (fresh process: ~85 s ANE compile, ~0.15 s warm load) |
+| Master, XCTest host, **post-fix** | **0.93 s** | compile unchanged |
+
+A stack sample of the shipped 0.9.6 mid-transcription put over 90 % of the warm wall time in
+`-[MLMultiArray objectForKeyedSubscript:]` and `NSNumber` allocation - FluidAudio 0.15.4's
+fp16 CTC decode, reading ~12 M logits one boxed number at a time. Under memory pressure that
+allocation churn is also why the cold/contended case ran to minutes rather than seconds. The
+fix owns the decode (`OpenSuperWhisper/Engines/SenseVoiceDecoding.swift`, a vDSP argmax - the
+same fix upstream later wrote as `LogitsArgmax`), and the same 36 s recording decodes in under
+a second; the parity test pins the output byte for byte against the pinned manager. The cold
+column is unchanged by it: the ~85 s Neural Engine compile after ANE cache eviction is CoreML's,
+and the decode fix neither causes nor cures it - but it is paid once per eviction, not once per
+dictation.
+
+For comparison on the same machine: whisper `large-v3-turbo` decodes the same 36 s fixture
+whole-file in ~4.7 s (the table below), so pre-fix SenseVoice - the engine chosen for Chinese
+speed - was the slowest path the app ships, warm or cold.
 
 ## The live path: where the decode goes, and what one encode costs
 
