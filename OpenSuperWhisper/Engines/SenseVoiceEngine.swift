@@ -54,11 +54,10 @@ protocol SenseVoiceTranscriberFactory {
 ///   empty transcript, never a padded call.
 /// - **Its punctuation is a decode-time flag that is off by default.** See
 ///   `textNorm` - this is the one-line, silent way to ship the wrong engine.
-/// - **Its decode is app-owned.** The pinned FluidAudio decodes fp16 logits one
-///   boxed `NSNumber` per element - over 90 % of a warm transcription's wall
-///   time (~20 s of a 36 s recording, sampled in the shipped app; far worse
-///   under memory pressure). `SenseVoiceCoreMLTranscriber` runs the same three
-///   model stages and decodes with a vDSP argmax instead
+/// - **Its decode is app-owned.** The pinned manager decodes fp16 logits through
+///   a boxed `NSNumber` per element, which dominates a transcription's wall time
+///   (see `docs/upstream-issues.md`). `SenseVoiceCoreMLTranscriber` runs the same
+///   three model stages and decodes with a vDSP argmax instead
 ///   (`SenseVoiceDecoding.swift`), the same fix upstream later made on main;
 ///   the integration tests pin the two outputs byte-for-byte. Progress is
 ///   still reported per chunk.

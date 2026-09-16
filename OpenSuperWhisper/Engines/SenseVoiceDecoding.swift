@@ -5,17 +5,11 @@ import Foundation
 
 /// Greedy CTC decode of SenseVoice's encoder output, owned by the app.
 ///
-/// Why this exists instead of `SenseVoiceManager.transcribe`: on the pinned
-/// FluidAudio 0.15.4 the encoder emits **float16** `ctc_logits`, and the
-/// manager's decode of those reads every one of the ~12 M elements of a 28 s
-/// utterance through `logits[[0, t, v]].floatValue` - a boxed `NSNumber`
-/// allocation per element. Sampled in the shipped app, that loop is over 90 %
-/// of a warm transcription's wall time (~20 s for a 36 s recording on an M5,
-/// worse under memory pressure, where the allocation churn degrades
-/// catastrophically). Upstream later fixed this exact spot on main with a
-/// vDSP argmax (`LogitsArgmax`); this is the same fix, kept byte-compatible
-/// with the pinned manager's output. `docs/upstream-issues.md` tracks when the
-/// app can hand this back.
+/// Why this exists instead of `SenseVoiceManager.transcribe`: the pinned manager
+/// decodes fp16 logits through a boxed `NSNumber` per element, which dominates a
+/// transcription's wall time (see `docs/upstream-issues.md`). This is the same
+/// vDSP argmax fix upstream later wrote on main, kept byte-compatible with the
+/// pinned manager's output.
 ///
 /// The decode semantics are the pinned manager's, exactly: per-frame argmax
 /// over the first `validFrames` frames, drop blank 0, collapse repeats
