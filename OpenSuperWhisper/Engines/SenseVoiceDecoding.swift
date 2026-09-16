@@ -158,12 +158,21 @@ final class SenseVoiceCoreMLTranscriber: SenseVoiceTranscribing {
         let speech = try MLMultiArray(
             shape: [1, bucket as NSNumber, dim as NSNumber], dataType: .float32)
         let speechPointer = speech.dataPointer.assumingMemoryBound(to: Float.self)
-        memset(speechPointer, 0, bucket * dim * MemoryLayout<Float>.size)
-        let count = t * dim
+        let dstStride = speech.strides[1].intValue
+        memset(speechPointer, 0, speech.strides[0].intValue * MemoryLayout<Float>.size)
+
+        let srcStride = features.strides[1].intValue
         if features.dataType == .float32 {
-            memcpy(speechPointer, features.dataPointer, count * MemoryLayout<Float>.size)
+            let srcPointer = features.dataPointer.assumingMemoryBound(to: Float.self)
+            for i in 0..<t {
+                memcpy(speechPointer + i * dstStride, srcPointer + i * srcStride, dim * MemoryLayout<Float>.size)
+            }
         } else {
-            for i in 0..<count { speechPointer[i] = features[i].floatValue }
+            for i in 0..<t {
+                for v in 0..<dim {
+                    speechPointer[i * dstStride + v] = features[i * srcStride + v].floatValue
+                }
+            }
         }
 
         let lengths = try MLMultiArray(shape: [1], dataType: .int32)
