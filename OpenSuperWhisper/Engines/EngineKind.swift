@@ -50,8 +50,9 @@ enum EngineKind: String, CaseIterable {
     /// SenseVoice wins the default because it punctuates - Paraformer's
     /// `vocab8404` has no punctuation at all, and the app has no second ML
     /// runtime to add it afterwards - and because it also handles Cantonese,
-    /// English, Japanese and Korean. It loses on raw Mandarin speed (~8x real
-    /// time against ~65x) and slightly on bare-character accuracy, which is what
+    /// English, Japanese and Korean. It still loses on raw Mandarin speed to
+    /// Paraformer (~65x real time) and slightly on bare-character accuracy, which
+    /// is what
     /// `chineseAccuracyAlternative` is for. The trade is a product decision, not
     /// a measurement, so it is stated here once rather than re-derived in each
     /// surface that has to pick an engine.

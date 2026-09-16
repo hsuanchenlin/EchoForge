@@ -1,16 +1,17 @@
 import Foundation
 import FluidAudio
 
-/// The single FluidAudio call this engine makes, behind a protocol.
+/// The single FluidAudio-backed transcription call this engine makes, behind a
+/// protocol.
 ///
 /// It exists so the chunking and joining loop - the part of this engine that can
 /// silently lose or mangle a user's words - is testable without 240 MB of
-/// downloaded weights. `SenseVoiceManager` is the only production conformer.
+/// downloaded weights. The production conformer is `SenseVoiceCoreMLTranscriber`
+/// (`SenseVoiceDecoding.swift`); `SenseVoiceManager` remains for the integration
+/// test that pins the app-side decode to upstream's output.
 protocol SenseVoiceTranscribing {
     func transcribe(audio: [Float]) async throws -> String
 }
-
-extension SenseVoiceManager: SenseVoiceTranscribing {}
 
 /// How the model is to be configured for one recording.
 ///
@@ -53,13 +54,13 @@ protocol SenseVoiceTranscriberFactory {
 ///   empty transcript, never a padded call.
 /// - **Its punctuation is a decode-time flag that is off by default.** See
 ///   `textNorm` - this is the one-line, silent way to ship the wrong engine.
-/// - **It is ~8x real time**, about 3.4 s for a 28 s utterance, against
-///   Paraformer's ~65x. The encoder itself is fast (~0.09 s); ~97 % of the wall
-///   time is FluidAudio's host-side CTC decode reading fp16 logits one boxed
-///   `NSNumber` at a time. That is an upstream defect with an obvious fix, and
-///   the app ships at the measured speed rather than owning a decoder of its own
-///   - see `docs/upstream-issues.md`. Progress is reported per chunk because at
-///   this speed a silent bar reads as a hang.
+/// - **Its decode is app-owned.** The pinned manager decodes fp16 logits through
+///   a boxed `NSNumber` per element, which dominates a transcription's wall time
+///   (see `docs/upstream-issues.md`). `SenseVoiceCoreMLTranscriber` runs the same
+///   three model stages and decodes with a vDSP argmax instead
+///   (`SenseVoiceDecoding.swift`), the same fix upstream later made on main;
+///   the integration tests pin the two outputs byte-for-byte. Progress is
+///   still reported per chunk.
 final class SenseVoiceEngine: TranscriptionEngine {
     var engineName: String { "SenseVoice" }
 
@@ -210,9 +211,8 @@ final class SenseVoiceEngine: TranscriptionEngine {
             )
         )
 
-        // Per chunk, because that is the only honest progress available:
-        // SenseVoiceManager exposes no progress stream, and one call is atomic
-        // from here - which at ~8x real time is several seconds of silence.
+        // Per chunk, because that is the only honest progress available: one
+        // transcriber call is atomic from here.
         // The pieces are joined by `CommittedTranscript`, which owns the seam
         // rule (Han-Han without a space, Latin-Latin with one) and drops a
         // chunk that decoded to nothing. Shared transcript post-processing
@@ -245,12 +245,18 @@ final class SenseVoiceEngine: TranscriptionEngine {
     /// initialiser's default argument.
     static func loadFluidAudioModels() async throws -> SenseVoiceTranscriberFactory {
         FluidAudioSenseVoiceFactory(
-            models: try await SenseVoiceModels.downloadAndLoad(
-                precision: precision,
-                progressHandler: { progress in
-                    Task { await modelLoadCoordinator.reportProgress(progress) }
-                }
-            )
+            models: try await loadFluidAudioModelWeights()
+        )
+    }
+
+    /// The raw loaded weights, exposed for the integration test that pins the
+    /// app-side decode against FluidAudio's own manager on the same tensors.
+    static func loadFluidAudioModelWeights() async throws -> SenseVoiceModels {
+        try await SenseVoiceModels.downloadAndLoad(
+            precision: precision,
+            progressHandler: { progress in
+                Task { await modelLoadCoordinator.reportProgress(progress) }
+            }
         )
     }
 
@@ -263,11 +269,15 @@ final class SenseVoiceEngine: TranscriptionEngine {
 }
 
 /// The production factory: one set of loaded weights, configured per recording.
+///
+/// Builds the app's own transcriber rather than FluidAudio's `SenseVoiceManager`
+/// because the pinned manager's fp16 decode is the transcription's dominant cost
+/// by an order of magnitude - see `SenseVoiceGreedyDecode`.
 private struct FluidAudioSenseVoiceFactory: SenseVoiceTranscriberFactory {
     let models: SenseVoiceModels
 
     func makeTranscriber(_ options: SenseVoiceModelOptions) -> SenseVoiceTranscribing {
-        SenseVoiceManager(
+        SenseVoiceCoreMLTranscriber(
             models: models,
             language: options.language.embedIndex,
             textNorm: options.textNorm

@@ -273,8 +273,8 @@ final class SenseVoiceEngineTests: XCTestCase {
 
     // MARK: - Progress
 
-    /// At ~8x real time a 175 s recording is most of a minute of decoding, so a
-    /// bar that only moves at the ends reads as a hang.
+    /// A long recording is several chunk decodes, so a bar that only moves at
+    /// the ends reads as a hang.
     func testProgressIsReportedPerChunkAndReachesOne() async throws {
         let (engine, _, factory) = makeEngine(
             samples: positionEncodedSamples(seconds: 175), segments: [segment(0, 175)]
