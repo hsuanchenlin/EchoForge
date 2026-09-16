@@ -1016,7 +1016,12 @@ and Screen Recording are conditional on the shortcut being used and must never g
 Screen Recording is not part of the polled check either (`docs/screen-context.md`). Accessibility is the one grant
 made entirely outside the app, with no completion handler to hang off the way microphone and Input
 Monitoring have; the file documents the triggers that stand in for one and why the obvious-looking
-`NSWorkspace` notification is not among them. Statuses are read through `PermissionStatusReading`
+`NSWorkspace` notification is not among them. Requesting it goes through the same seam:
+`requestAccessibilityPermissionOrOpenSystemPreferences` calls the prompt API
+(`AXIsProcessTrustedWithOptions`) before falling back to opening System Settings, because only
+the prompt call registers the bundle in the Accessibility trust list - an app sent straight to the
+pane has no switch to flip, which is the regression this path has shipped twice. Statuses are read
+through `PermissionStatusReading`
 so the refresh and transition logic is testable at all - `PermissionsManagerRefreshTests` pins it,
 and the real TCC calls are exactly what that seam leaves out.
 

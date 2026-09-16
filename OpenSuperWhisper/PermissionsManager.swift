@@ -24,6 +24,10 @@ protocol PermissionStatusReading {
     func isMicrophoneGranted() -> Bool
     func isAccessibilityGranted() -> Bool
     func isInputMonitoringGranted() -> Bool
+    /// Shows the native Accessibility prompt and registers this bundle in the
+    /// Accessibility trust list, so System Settings has a switch to flip.
+    /// Returns whether the process is already trusted.
+    func requestAccessibilityPrompt() -> Bool
 }
 
 struct SystemPermissionStatusReader: PermissionStatusReading {
@@ -37,6 +41,11 @@ struct SystemPermissionStatusReader: PermissionStatusReading {
 
     func isInputMonitoringGranted() -> Bool {
         IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
+    }
+
+    func requestAccessibilityPrompt() -> Bool {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
+        return AXIsProcessTrustedWithOptions(options as CFDictionary)
     }
 }
 
@@ -359,8 +368,19 @@ class PermissionsManager: ObservableObject {
         return granted
     }
 
+    /// Shows the native Accessibility prompt, falling back to System Settings.
+    ///
+    /// The prompt call is what registers this bundle in the Accessibility trust
+    /// list: without it the app never appears in System Settings at all, so a
+    /// user sent straight to the pane has no switch to flip. The trip to System
+    /// Settings stays as the fallback for a user who dismisses the prompt,
+    /// because macOS asks only once and a dismissed prompt leaves no way back.
     func requestAccessibilityPermissionOrOpenSystemPreferences() {
         if statusReader.isAccessibilityGranted() {
+            isAccessibilityPermissionGranted = true
+            return
+        }
+        if statusReader.requestAccessibilityPrompt() {
             isAccessibilityPermissionGranted = true
         } else {
             openSystemPreferences(for: .accessibility)
