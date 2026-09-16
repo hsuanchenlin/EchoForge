@@ -18,8 +18,9 @@ import XCTest
 /// `PermissionStatusReading` seam and through the in-process half of its refresh
 /// triggers - `NSApplication.didBecomeActiveNotification`, which is what
 /// "returned from System Settings" looks like. What stays uncovered is only
-/// `SystemPermissionStatusReader`'s three one-line system calls and the delivery
-/// of the distributed notification itself.
+/// `SystemPermissionStatusReader`'s four one-line system calls - three status
+/// reads and the Accessibility prompt request - and the delivery of the
+/// distributed notification itself.
 final class PermissionsManagerRefreshTests: XCTestCase {
     private var cancellables: Set<AnyCancellable> = []
 
@@ -197,8 +198,6 @@ private extension NSApplication {
     }
 }
 
-/// Statuses the test owns. Read on `PermissionsManager`'s background check queue
-/// and written from the test's main thread, hence the lock.
 /// Records the System Settings trips instead of making them, so a test can
 /// assert the fallback happened without opening System Settings on the
 /// developer's own desktop.
@@ -210,6 +209,8 @@ private final class SystemSettingsRecordingPermissionsManager: PermissionsManage
     }
 }
 
+/// Statuses the test owns. Read on `PermissionsManager`'s background check queue
+/// and written from the test's main thread, hence the lock.
 private final class FakePermissionStatusReader: PermissionStatusReading {
     private let lock = NSLock()
     private var _microphone: Bool
