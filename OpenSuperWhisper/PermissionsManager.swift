@@ -13,17 +13,23 @@ enum Permission {
     case screenRecording
 }
 
-/// The three TCC facts the permission UI reflects.
+/// The three TCC facts the permission UI reflects, plus the one request that
+/// registers the app for Accessibility.
 ///
 /// This exists as a protocol so the refresh and screen-transition logic can be
 /// tested: `AXIsProcessTrusted()`, `AVCaptureDevice.authorizationStatus(for:)`
-/// and `IOHIDCheckAccess` read the running process's real grants, and a test can
-/// neither grant nor revoke them. Behind this seam only the three one-line
+/// and `IOHIDCheckAccess` read the running process's real grants, which a test
+/// can neither grant nor revoke, and `AXIsProcessTrustedWithOptions` puts up a
+/// system dialog no test can answer. Behind this seam only the four one-line
 /// system calls in `SystemPermissionStatusReader` stay untested.
 protocol PermissionStatusReading {
     func isMicrophoneGranted() -> Bool
     func isAccessibilityGranted() -> Bool
     func isInputMonitoringGranted() -> Bool
+    /// Shows the native Accessibility prompt and registers this bundle in the
+    /// Accessibility trust list, so System Settings has a switch to flip.
+    /// Returns whether the process is already trusted.
+    func requestAccessibilityPrompt() -> Bool
 }
 
 struct SystemPermissionStatusReader: PermissionStatusReading {
@@ -37,6 +43,11 @@ struct SystemPermissionStatusReader: PermissionStatusReading {
 
     func isInputMonitoringGranted() -> Bool {
         IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) == kIOHIDAccessTypeGranted
+    }
+
+    func requestAccessibilityPrompt() -> Bool {
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
+        return AXIsProcessTrustedWithOptions(options as CFDictionary)
     }
 }
 
@@ -359,8 +370,22 @@ class PermissionsManager: ObservableObject {
         return granted
     }
 
+    /// Shows the native Accessibility prompt and opens System Settings beside it.
+    ///
+    /// The prompt call is what registers this bundle in the Accessibility trust
+    /// list: without it the app never appears in System Settings at all, so a
+    /// user sent straight to the pane has no switch to flip. The prompt is
+    /// asynchronous and `AXIsProcessTrustedWithOptions` answers only whether the
+    /// process is trusted right now, never whether a dialog was shown, so on a
+    /// first press System Settings opens alongside the prompt rather than after
+    /// it is answered. That trip is kept on every press because macOS asks only
+    /// once, and a dismissed prompt leaves no other way back to the switch.
     func requestAccessibilityPermissionOrOpenSystemPreferences() {
         if statusReader.isAccessibilityGranted() {
+            isAccessibilityPermissionGranted = true
+            return
+        }
+        if statusReader.requestAccessibilityPrompt() {
             isAccessibilityPermissionGranted = true
         } else {
             openSystemPreferences(for: .accessibility)

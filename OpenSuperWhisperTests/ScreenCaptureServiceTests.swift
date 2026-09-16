@@ -228,4 +228,5 @@ private struct GrantingStatusReader: PermissionStatusReading {
     func isMicrophoneGranted() -> Bool { true }
     func isAccessibilityGranted() -> Bool { true }
     func isInputMonitoringGranted() -> Bool { true }
+    func requestAccessibilityPrompt() -> Bool { true }
 }

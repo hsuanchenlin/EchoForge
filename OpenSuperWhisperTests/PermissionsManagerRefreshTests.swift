@@ -18,8 +18,9 @@ import XCTest
 /// `PermissionStatusReading` seam and through the in-process half of its refresh
 /// triggers - `NSApplication.didBecomeActiveNotification`, which is what
 /// "returned from System Settings" looks like. What stays uncovered is only
-/// `SystemPermissionStatusReader`'s three one-line system calls and the delivery
-/// of the distributed notification itself.
+/// `SystemPermissionStatusReader`'s four one-line system calls - three status
+/// reads and the Accessibility prompt request - and the delivery of the
+/// distributed notification itself.
 final class PermissionsManagerRefreshTests: XCTestCase {
     private var cancellables: Set<AnyCancellable> = []
 
@@ -118,6 +119,50 @@ final class PermissionsManagerRefreshTests: XCTestCase {
         XCTAssertFalse(manager.isMissingRequiredPermission)
     }
 
+    // MARK: - Requesting Accessibility shows the native prompt
+
+    /// The request path must call the prompt API, not just open System
+    /// Settings: only `AXIsProcessTrustedWithOptions` registers the bundle in
+    /// the Accessibility trust list, and an app that never registered has no
+    /// switch in System Settings for the user to flip.
+    func testRequestingAccessibilityShowsTheNativePromptWhenMissing() {
+        let reader = FakePermissionStatusReader(microphone: true, accessibility: false)
+        let manager = SystemSettingsRecordingPermissionsManager(statusReader: reader)
+
+        manager.requestAccessibilityPermissionOrOpenSystemPreferences()
+
+        XCTAssertEqual(reader.accessibilityPromptRequests, 1, "the native prompt has to be requested")
+        XCTAssertEqual(
+            manager.openedSystemSettings, [.accessibility],
+            "System Settings stays as the fallback while access is still missing"
+        )
+    }
+
+    func testRequestingAccessibilityDoesNotPromptWhenAlreadyGranted() {
+        let reader = FakePermissionStatusReader(microphone: true, accessibility: true)
+        let manager = SystemSettingsRecordingPermissionsManager(statusReader: reader)
+
+        manager.requestAccessibilityPermissionOrOpenSystemPreferences()
+
+        XCTAssertEqual(reader.accessibilityPromptRequests, 0)
+        XCTAssertTrue(manager.openedSystemSettings.isEmpty)
+        XCTAssertTrue(manager.isAccessibilityPermissionGranted)
+    }
+
+    /// The prompt answers whether the process is already trusted; a grant there
+    /// makes the System Settings trip unnecessary.
+    func testRequestingAccessibilitySkipsSystemSettingsWhenThePromptReportsGranted() {
+        let reader = FakePermissionStatusReader(microphone: true, accessibility: false)
+        reader.accessibilityPromptResult = true
+        let manager = SystemSettingsRecordingPermissionsManager(statusReader: reader)
+
+        manager.requestAccessibilityPermissionOrOpenSystemPreferences()
+
+        XCTAssertEqual(reader.accessibilityPromptRequests, 1)
+        XCTAssertTrue(manager.openedSystemSettings.isEmpty)
+        XCTAssertTrue(manager.isAccessibilityPermissionGranted)
+    }
+
     // MARK: - Helpers
 
     private func waitUntil(
@@ -153,6 +198,17 @@ private extension NSApplication {
     }
 }
 
+/// Records the System Settings trips instead of making them, so a test can
+/// assert the fallback happened without opening System Settings on the
+/// developer's own desktop.
+private final class SystemSettingsRecordingPermissionsManager: PermissionsManager {
+    private(set) var openedSystemSettings: [Permission] = []
+
+    override func openSystemPreferences(for permission: Permission) {
+        openedSystemSettings.append(permission)
+    }
+}
+
 /// Statuses the test owns. Read on `PermissionsManager`'s background check queue
 /// and written from the test's main thread, hence the lock.
 private final class FakePermissionStatusReader: PermissionStatusReading {
@@ -160,6 +216,10 @@ private final class FakePermissionStatusReader: PermissionStatusReading {
     private var _microphone: Bool
     private var _accessibility: Bool
     private var _inputMonitoring: Bool
+    private var _accessibilityPromptRequests = 0
+
+    /// What the fake prompt answers, as `AXIsProcessTrustedWithOptions` would.
+    var accessibilityPromptResult = false
 
     init(microphone: Bool, accessibility: Bool, inputMonitoring: Bool = true) {
         self._microphone = microphone
@@ -182,7 +242,16 @@ private final class FakePermissionStatusReader: PermissionStatusReading {
         set { lock.withLock { _inputMonitoring = newValue } }
     }
 
+    var accessibilityPromptRequests: Int {
+        lock.withLock { _accessibilityPromptRequests }
+    }
+
     func isMicrophoneGranted() -> Bool { microphone }
     func isAccessibilityGranted() -> Bool { accessibility }
     func isInputMonitoringGranted() -> Bool { inputMonitoring }
+
+    func requestAccessibilityPrompt() -> Bool {
+        lock.withLock { _accessibilityPromptRequests += 1 }
+        return accessibilityPromptResult
+    }
 }
