@@ -287,6 +287,13 @@ class AudioRecorder: NSObject, ObservableObject {
             _ = performStop(discard: true)
         }
 
+        // A temporary file, not a history recording: it is moved under the
+        // row's own name (`Recording.newRow`) or deleted when its session
+        // ends, and the sweep above goes by modification date, not by this
+        // name. Naming it by the second is safe here in a way it was not for
+        // history: the claim allows one recording at a time, and a kept one
+        // lasts at least `minimumRecordingDuration`, so the next start lands
+        // in a later second - a shorter one is deleted in `performStop`.
         let timestamp = Int(Date().timeIntervalSince1970)
         let fileURL = temporaryDirectory.appendingPathComponent("\(timestamp).wav")
         currentRecordingURL = fileURL

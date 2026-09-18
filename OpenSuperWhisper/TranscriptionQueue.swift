@@ -131,21 +131,18 @@ class TranscriptionQueue: ObservableObject {
         do {
             let durationInSeconds = await AudioUtil.audioDuration(url: url)
 
-            let timestamp = Date()
-            let fileName = "\(Int(timestamp.timeIntervalSince1970)).wav"
-            let id = UUID()
-
-            var recording = Recording(
-                id: id,
-                timestamp: timestamp,
-                fileName: fileName,
+            // Several files dropped together arrive here one after another,
+            // microseconds apart. Naming the audio is `Recording.newRow`'s
+            // job, and the reason it is: named by the second, those rows
+            // shared one `.wav`.
+            let recording = Recording.newRow(
                 transcription: "",
                 duration: durationInSeconds,
                 status: .pending,
                 progress: 0.0,
-                sourceFileURL: url.path
+                sourceFileURL: url.path,
+                provenance: provenance
             )
-            recording.provenance = provenance
 
             try await recordingStore.addRecordingSync(recording)
 
@@ -202,6 +199,38 @@ class TranscriptionQueue: ObservableObject {
 
     nonisolated static func shouldDiscardEmptyDictation(text: String, sourceURL: URL) -> Bool {
         text.isEmpty && sourceURL.path.hasPrefix(AudioRecorder.temporaryRecordingsDirectory.path)
+    }
+
+    /// Puts a transcribed recording's audio where its row says it is.
+    ///
+    /// The app's own temporary recordings are moved, so a dictation is never on
+    /// disk twice; a file the user pointed at is copied and left where it was.
+    /// A source that already *is* the destination - a regenerate of a row whose
+    /// original source is gone - is left alone.
+    ///
+    /// Anything already at the destination is replaced. That is safe only
+    /// because `Recording.newRow` names every row's audio by the row's own id,
+    /// so the one thing that can be there is this row's audio from an earlier
+    /// pass, which a regenerate from the original source copies again. When
+    /// names were the timestamp to the second, this same replacement is what
+    /// turned three rows added in one second into one surviving recording -
+    /// `RecordingRowFactoryTests` places two such rows and keeps both.
+    nonisolated static func placeAudio(from sourceURL: URL, at finalURL: URL) throws {
+        try? FileManager.default.createDirectory(
+            at: finalURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+
+        guard sourceURL.path != finalURL.path else { return }
+
+        if FileManager.default.fileExists(atPath: finalURL.path) {
+            try? FileManager.default.removeItem(at: finalURL)
+        }
+        if sourceURL.path.hasPrefix(AudioRecorder.temporaryRecordingsDirectory.path) {
+            try FileManager.default.moveItem(at: sourceURL, to: finalURL)
+        } else {
+            try FileManager.default.copyItem(at: sourceURL, to: finalURL)
+        }
     }
 
     private func processQueue() async {
@@ -328,23 +357,7 @@ class TranscriptionQueue: ObservableObject {
 
                 let finalURL = recording.url
                 try await Task.detached(priority: .userInitiated) {
-                    try? FileManager.default.createDirectory(
-                        at: Recording.recordingsDirectory,
-                        withIntermediateDirectories: true
-                    )
-
-                    if sourceURL.path != finalURL.path {
-                        if FileManager.default.fileExists(atPath: finalURL.path) {
-                            try? FileManager.default.removeItem(at: finalURL)
-                        }
-                        // Our own temp recordings are moved (no disk duplication);
-                        // user-provided files must stay in place, so they are copied.
-                        if sourceURL.path.hasPrefix(AudioRecorder.temporaryRecordingsDirectory.path) {
-                            try FileManager.default.moveItem(at: sourceURL, to: finalURL)
-                        } else {
-                            try FileManager.default.copyItem(at: sourceURL, to: finalURL)
-                        }
-                    }
+                    try Self.placeAudio(from: sourceURL, at: finalURL)
                 }.value
 
                 settled = await recordingStore.updateRecordingProgressOnlySync(

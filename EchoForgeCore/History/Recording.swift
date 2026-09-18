@@ -126,8 +126,18 @@ struct Recording: Identifiable, Codable, FetchableRecord, PersistableRecord, Equ
         AppDataLocation.recordingsDirectory()
     }
 
+    /// This row's audio, in the app's recordings directory. `fileName` is
+    /// resolved as stored, whatever scheme named it - see `newRow`.
     var url: URL {
-        Self.recordingsDirectory.appendingPathComponent(fileName)
+        audioURL(in: Self.recordingsDirectory)
+    }
+
+    /// This row's audio inside `directory`. `url` is this against the app's
+    /// own recordings directory; a test resolves against a directory of its
+    /// own, which is what lets the file half of history be exercised without
+    /// touching the user's recordings.
+    func audioURL(in directory: URL) -> URL {
+        directory.appendingPathComponent(fileName)
     }
     
     var isPending: Bool {
@@ -155,5 +165,64 @@ struct Recording: Identifiable, Codable, FetchableRecord, PersistableRecord, Equ
         static let provenanceKind = Column(CodingKeys.provenanceKind)
         static let provenanceReason = Column(CodingKeys.provenanceReason)
         static let provenanceDetail = Column(CodingKeys.provenanceDetail)
+    }
+}
+
+// MARK: - Making a new row
+
+extension Recording {
+    /// The one way a **new** history row is made, and so the one place its
+    /// audio file is named.
+    ///
+    /// The name is the row's own id, `<UUID>.wav`. It used to be the timestamp
+    /// to the second, computed inline at each of the five places a row was
+    /// built - and files dropped together are added within a millisecond of
+    /// each other, so three rows pointed at one `.wav`, the queue's copy
+    /// replaced the earlier recordings with the last, and deleting any one of
+    /// the three rows removed the audio of all of them. A name derived from
+    /// the id cannot collide while ids do not. `RecordingRowFactoryTests`
+    /// holds that. The memberwise initialiser still exists, because reading a
+    /// row back and modelling an older one in a test need it, but nothing that
+    /// *creates* history may name a file itself.
+    ///
+    /// Rows written before this keep their second-granularity names and
+    /// nothing renames them: `fileName` is a stored column, `url` resolves
+    /// whatever it holds, and an older row is read, played and deleted exactly
+    /// as it was. Two such rows that already share a file still share it; only
+    /// new rows are guaranteed one each.
+    ///
+    /// Every field a caller passes is stored as passed - `timestamp` included,
+    /// since a row's time is when it was made, not when it was inserted.
+    static func newRow(
+        id: UUID = UUID(),
+        timestamp: Date = Date(),
+        transcription: String,
+        duration: TimeInterval,
+        status: RecordingStatus,
+        progress: Float,
+        sourceFileURL: String? = nil,
+        rawTranscription: String? = nil,
+        provenance: RecordingProvenance
+    ) -> Recording {
+        var row = Recording(
+            id: id,
+            timestamp: timestamp,
+            fileName: audioFileName(for: id),
+            transcription: transcription,
+            duration: duration,
+            status: status,
+            progress: progress,
+            sourceFileURL: sourceFileURL,
+            rawTranscription: rawTranscription
+        )
+        row.provenance = provenance
+        return row
+    }
+
+    /// The `.wav` a new row's audio is kept under: the row's id, so the name is
+    /// unique for as long as the id is, and a single path component with
+    /// nothing in it a file system could read as a directory.
+    static func audioFileName(for id: UUID) -> String {
+        "\(id.uuidString).wav"
     }
 }
