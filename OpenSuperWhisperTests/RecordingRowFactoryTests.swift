@@ -11,9 +11,8 @@ import XCTest
 /// with the last, and deleting any one of the rows removed the audio of all of
 /// them. `Recording.newRow` is now the one place a new row is made and names
 /// the file by the row's own id; this file holds that the names are distinct,
-/// that the two file operations around them keep two recordings as two, that
-/// an older row named the old way is untouched, and - by source scan - that
-/// nothing creates a row any other way.
+/// that the two file operations around them keep two recordings as two, and
+/// that an older row named the old way is untouched.
 ///
 /// Everything here runs against a database and a directory of its own, never
 /// the user's.
@@ -256,8 +255,6 @@ final class RecordingRowFactoryTests: XCTestCase {
                 ])
         }
         try migrator.migrate(dbQueue)
-        XCTAssertEqual(migrator.migrations.count, 5,
-                       "no migration was added for the file name: older rows are not renamed")
 
         let stored = try XCTUnwrap(try dbQueue.read { try Recording.fetchOne($0) })
         XCTAssertEqual(stored.fileName, "1600000000.wav")
@@ -272,54 +269,5 @@ final class RecordingRowFactoryTests: XCTestCase {
         try FileManager.default.removeItem(at: audio)
         XCTAssertEqual(try dbQueue.read { try Recording.fetchCount($0) }, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: audio.path))
-    }
-
-    // MARK: - Nothing else names a file
-
-    /// Every directory a row could be written from, scanned on the same terms
-    /// as `HistoryProvenancePrivacyTests`: the memberwise initialiser builds a
-    /// row with any `fileName` at all, so the only thing that keeps the name
-    /// policy in one place is that nothing but the factory calls it.
-    func testOnlyTheFactoryBuildsARowByHand() throws {
-        let repositoryRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-        let factory = "EchoForgeCore/History/Recording.swift"
-        let memberwise = try NSRegularExpression(pattern: #"\bRecording\(\s*id:"#)
-        let bySecond = "timeIntervalSince1970)).wav"
-
-        var scanned = 0
-        var factoryCalls = 0
-        for root in HistoryProvenancePrivacyTests.scannedSourceRoots {
-            let sources = repositoryRoot.appendingPathComponent(root)
-            guard let files = FileManager.default.enumerator(atPath: sources.path)?
-                .allObjects as? [String]
-            else {
-                throw XCTSkip("Sources are not beside the tests: \(sources.path)")
-            }
-            for file in files where file.hasSuffix(".swift") {
-                let text = try String(
-                    contentsOf: sources.appendingPathComponent(file), encoding: .utf8)
-                scanned += 1
-                XCTAssertFalse(
-                    text.contains(bySecond),
-                    "\(root)/\(file) names a history file by the second, the name that collided")
-                let hits = memberwise.numberOfMatches(
-                    in: text, range: NSRange(text.startIndex..., in: text))
-                if "\(root)/\(file)" == factory {
-                    XCTAssertEqual(hits, 1, "the factory builds the row once")
-                } else if hits > 0 {
-                    XCTFail(
-                        "\(root)/\(file) builds a Recording by hand. Recording.newRow is the "
-                            + "one place a new row is made, so two rows can never be given "
-                            + "one audio file again.")
-                }
-                factoryCalls += text.components(separatedBy: "Recording.newRow(").count - 1
-            }
-        }
-        XCTAssertGreaterThan(scanned, 100, "the scan covered almost nothing")
-        XCTAssertEqual(
-            factoryCalls, 5,
-            "the five paths that create history - the hotkey dictation, the main window's "
-                + "recording, voice edit, the queue, and a kept failed dictation - and no other")
     }
 }

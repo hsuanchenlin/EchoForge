@@ -808,7 +808,7 @@ A new row is made in **one** place, `Recording.newRow` (`EchoForgeCore/History/R
 which names its audio by the row's own id, `<UUID>.wav`, and takes the provenance as a required
 parameter. The five paths that create history - hotkey dictation, the main window's record
 button, voice edit, the queue and a kept failed dictation - all go through it, and nothing else
-may build a `Recording` by hand: `RecordingRowFactoryTests` scans for one. The name used to be
+may build a `Recording` by hand; `RecordingRowFactoryTests` holds the names apart. The name used to be
 the timestamp to the second, computed inline at each of those sites, so several files dropped
 together became distinct rows pointing at one `.wav` - the queue's copy (`TranscriptionQueue.placeAudio`,
 which still replaces whatever is at the destination, now safely) kept only the last one, and

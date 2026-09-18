@@ -181,9 +181,8 @@ extension Recording {
     /// replaced the earlier recordings with the last, and deleting any one of
     /// the three rows removed the audio of all of them. A name derived from
     /// the id cannot collide while ids do not. `RecordingRowFactoryTests`
-    /// holds that, and a source scan there keeps every new row coming through
-    /// here: the memberwise initialiser still exists, because reading a row
-    /// back and modelling an older one in a test need it, but nothing that
+    /// holds that. The memberwise initialiser still exists, because reading a
+    /// row back and modelling an older one in a test need it, but nothing that
     /// *creates* history may name a file itself.
     ///
     /// Rows written before this keep their second-granularity names and
