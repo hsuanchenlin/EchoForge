@@ -804,6 +804,19 @@ panel offers Markdown and plain text and nothing else, and the format is never t
 trust: `TranscriptExport.destination(for:chosenFormat:)` reconciles the control with the
 name the user typed, so the extension and the body cannot disagree.
 
+A new row is made in **one** place, `Recording.newRow` (`EchoForgeCore/History/Recording.swift`),
+which names its audio by the row's own id, `<UUID>.wav`, and takes the provenance as a required
+parameter. The five paths that create history - hotkey dictation, the main window's record
+button, voice edit, the queue and a kept failed dictation - all go through it, and nothing else
+may build a `Recording` by hand: `RecordingRowFactoryTests` scans for one. The name used to be
+the timestamp to the second, computed inline at each of those sites, so several files dropped
+together became distinct rows pointing at one `.wav` - the queue's copy (`TranscriptionQueue.placeAudio`,
+which still replaces whatever is at the destination, now safely) kept only the last one, and
+deleting any of the rows removed the audio of all of them. Rows written before that keep their
+old names and are never renamed: `fileName` is resolved as stored, so the old and new schemes
+coexist in one directory and there is no migration for it. The recorder's temporary file is not
+a history recording and keeps its second name; `AudioRecorder` says why that one cannot collide.
+
 `terms.json` beside it is the second store: the personal terms dictionary, deliberately a plain
 hand-editable file outside the database because it has a different lifecycle and must not be
 touched by the recordings retention policy. See `docs/personal-terms.md`.

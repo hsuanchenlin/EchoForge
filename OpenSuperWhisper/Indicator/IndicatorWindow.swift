@@ -577,30 +577,23 @@ class IndicatorViewModel: ObservableObject {
                             instruction: text, audioURL: tempURL, duration: duration)
                         return
                     } else {
-                        let timestamp = Date()
-                        let fileName = "\(Int(timestamp.timeIntervalSince1970)).wav"
-                        let recordingId = UUID()
-                        var newRecording = Recording(
-                            id: recordingId,
-                            timestamp: timestamp,
-                            fileName: fileName,
+                        let newRecording = Recording.newRow(
                             transcription: text,
                             duration: duration,
                             status: .completed,
                             progress: 1.0,
-                            sourceFileURL: nil,
                             // What the engine heard, kept only when
                             // post-processing changed it. History shows it next
                             // to the text the app used, so a rewrite is never
                             // the only surviving copy of what was said.
-                            rawTranscription: styled.originalWorthKeeping
+                            rawTranscription: styled.originalWorthKeeping,
+                            // Written with the words rather than after them, so a
+                            // row is never briefly indistinguishable from an
+                            // ordinary dictation - and so a quit or a crash between
+                            // here and the browser leaves a record saying nothing
+                            // was opened, which is the true thing to have recorded.
+                            provenance: styled.intent.provenance
                         )
-                        // Written with the words rather than after them, so a
-                        // row is never briefly indistinguishable from an
-                        // ordinary dictation - and so a quit or a crash between
-                        // here and the browser leaves a record saying nothing
-                        // was opened, which is the true thing to have recorded.
-                        newRecording.provenance = styled.intent.provenance
 
                         try recorder.moveTemporaryRecording(from: tempURL, to: newRecording.url)
                         
@@ -627,7 +620,7 @@ class IndicatorViewModel: ObservableObject {
                             // the kept-recording failures take.
                             if await self.runOpenLatestVideo(
                                 command,
-                                storedAs: recordingId,
+                                storedAs: newRecording.id,
                                 isPickerEnabled: settings.youTubeChannelPicker
                             ) {
                                 return
@@ -640,7 +633,7 @@ class IndicatorViewModel: ObservableObject {
                             // into it.
                             self.result = nil
                             await self.recordingStore.updateProvenance(
-                                recordingId,
+                                newRecording.id,
                                 to: .youTubeCommandNotOpened(
                                     reason: .notRecognised,
                                     message: "That capture was not read as a channel name, so nothing was opened."
@@ -817,22 +810,15 @@ class IndicatorViewModel: ObservableObject {
             terms: PersonalTermsStore.shared.activeTerms
         )
 
-        let timestamp = Date()
-        let fileName = "\(Int(timestamp.timeIntervalSince1970)).wav"
-        let recordingId = UUID()
         let rewritten = styled.final
-        var newRecording = Recording(
-            id: recordingId,
-            timestamp: timestamp,
-            fileName: fileName,
+        let newRecording = Recording.newRow(
             transcription: rewritten,
             duration: duration,
             status: .completed,
             progress: 1.0,
-            sourceFileURL: nil,
-            rawTranscription: capture.text == rewritten ? nil : capture.text
+            rawTranscription: capture.text == rewritten ? nil : capture.text,
+            provenance: .selectionEdit(instruction: instruction)
         )
-        newRecording.provenance = .selectionEdit(instruction: instruction)
 
         do {
             try recorder.moveTemporaryRecording(from: audioURL, to: newRecording.url)

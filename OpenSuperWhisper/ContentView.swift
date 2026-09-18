@@ -384,21 +384,14 @@ class ContentViewModel: ObservableObject {
                         try? FileManager.default.removeItem(at: tempURL)
                         print("No speech detected, dictation discarded")
                     } else {
-                        let timestamp = Date()
-                        let fileName = "\(Int(timestamp.timeIntervalSince1970)).wav"
-                        let recordingId = UUID()
-                        var newRecording = Recording(
-                            id: recordingId,
-                            timestamp: timestamp,
-                            fileName: fileName,
+                        let newRecording = Recording.newRow(
                             transcription: text,
                             duration: duration,
                             status: .completed,
                             progress: 1.0,
-                            sourceFileURL: nil,
-                            rawTranscription: styled.originalWorthKeeping
+                            rawTranscription: styled.originalWorthKeeping,
+                            provenance: .dictation
                         )
-                        newRecording.provenance = .dictation
 
                         try recorder.moveTemporaryRecording(from: tempURL, to: newRecording.url)
 

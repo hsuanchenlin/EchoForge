@@ -11,56 +11,65 @@ import XCTest
 /// produced `.dictation` for a failed press and "Older recording" for a
 /// successful one. The paths that build these rows run a live recorder and a
 /// loaded engine and end at the real store, so the invariant is held where it
-/// lives: at the construction sites themselves.
+/// lives: at the construction site.
+///
+/// There is one now. `Recording.newRow` is the only way a new row is made
+/// (`RecordingRowFactoryTests` scans for any other), and it takes the
+/// provenance as a parameter with no default - so a caller that has not
+/// decided what a row is does not compile, rather than storing a row that
+/// says it is older than it is. What this file holds is that the parameter
+/// stays required and that the factory writes it, in the source, because a
+/// default of `.unknown` or `.dictation` added for convenience would put the
+/// main-window bug back without failing anything else.
 final class HistoryProvenanceCoverageTests: XCTestCase {
 
-    func testEveryStoredRecordingConstructionAssignsAProvenance() throws {
+    func testTheFactoryRequiresAProvenanceAndStoresIt() throws {
         let repositoryRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
-        var files: [(root: String, path: String)] = []
-        for root in HistoryProvenancePrivacyTests.scannedSourceRoots {
-            let sources = repositoryRoot.appendingPathComponent(root)
-            guard let found = FileManager.default.enumerator(atPath: sources.path)?
-                .allObjects as? [String]
-            else {
-                throw XCTSkip("Sources are not beside the tests: \(sources.path)")
-            }
-            files.append(contentsOf: found.map { (root, $0) })
-        }
+        let text = try String(
+            contentsOf: repositoryRoot.appendingPathComponent("EchoForgeCore/History/Recording.swift"),
+            encoding: .utf8)
 
-        var constructions = 0
-        for (root, relative) in files where relative.hasSuffix(".swift") {
-            let file = "\(root)/\(relative)"
-            let text = try String(
-                contentsOf: repositoryRoot.appendingPathComponent(file), encoding: .utf8)
-            var cursor = text.startIndex
-            while let construction = text.range(
-                of: "= Recording(", range: cursor..<text.endIndex)
-            {
-                constructions += 1
-                cursor = construction.upperBound
-                guard let store = text.range(
-                    of: "addRecording", range: cursor..<text.endIndex)
-                else {
-                    XCTFail(
-                        "\(file) constructs a Recording that nothing after it stores. "
-                            + "If it is stored another way, teach this scan that way "
-                            + "rather than letting rows reach history unscanned.")
-                    continue
-                }
-                XCTAssertTrue(
-                    text[construction.upperBound..<store.lowerBound]
-                        .contains(".provenance ="),
-                    "\(file) stores a Recording without assigning its provenance. "
-                        + "A NULL kind reads back as .unknown and is shown as "
-                        + "'Older recording', which asserts the row predates the "
-                        + "feature - assign the kind before the row is stored.")
-            }
-        }
+        let signatureStart = try XCTUnwrap(
+            text.range(of: "static func newRow("), "Recording.newRow is the row factory")
+        let signatureEnd = try XCTUnwrap(
+            text.range(of: ") -> Recording {", range: signatureStart.upperBound..<text.endIndex))
+        let signature = text[signatureStart.upperBound..<signatureEnd.lowerBound]
 
-        XCTAssertGreaterThanOrEqual(
-            constructions, 4,
-            "The scan found fewer Recording construction sites than exist today, "
-                + "so it is no longer scanning what it thinks it is.")
+        let provenance = try XCTUnwrap(
+            signature.range(of: "provenance: RecordingProvenance"),
+            "the factory takes the row's provenance")
+        let rest = signature[provenance.upperBound...]
+        let toNextParameter = rest.prefix { $0 != "," && $0 != "\n" }
+        XCTAssertFalse(
+            toNextParameter.contains("="),
+            "provenance must have no default: a caller that has not decided what a row "
+                + "is must not compile, or a fresh row reads back as 'Older recording'")
+
+        let body = text[signatureEnd.upperBound...]
+        let construction = try XCTUnwrap(body.range(of: "= Recording("))
+        let stored = body[construction.upperBound...]
+        XCTAssertTrue(
+            stored.contains("row.provenance = provenance"),
+            "the factory writes the provenance it was given onto the row")
+    }
+
+    /// The other half of "held at the construction site": every fresh row is
+    /// stored with what it was given, and a `nil` kind is not among the
+    /// options.
+    func testARowFromTheFactoryNeverReadsBackAsAnOlderRecording() {
+        let kinds: [RecordingProvenance] = [
+            .dictation, .fileTranscription, .ask,
+            .youTubeCommandOpened(summary: "Opened the newest video"),
+            .selectionEdit(instruction: "make it formal"),
+        ]
+        for kind in kinds {
+            let row = Recording.newRow(
+                transcription: "", duration: 1, status: .completed, progress: 1,
+                provenance: kind)
+            XCTAssertEqual(row.provenance, kind)
+            XCTAssertNotNil(row.provenanceKind, "a fresh row's kind is written, never NULL")
+            XCTAssertNotEqual(row.provenance.kind, .unknown)
+        }
     }
 }

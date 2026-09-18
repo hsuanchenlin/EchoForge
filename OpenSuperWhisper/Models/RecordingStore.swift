@@ -151,18 +151,13 @@ class RecordingStore: ObservableObject {
         temporaryURL: URL, duration: TimeInterval, reason: String,
         provenance: RecordingProvenance = .dictation
     ) -> Recording? {
-        let timestamp = Date()
-        var recording = Recording(
-            id: UUID(),
-            timestamp: timestamp,
-            fileName: "\(Int(timestamp.timeIntervalSince1970)).wav",
+        let recording = Recording.newRow(
             transcription: reason,
             duration: duration,
             status: .failed,
             progress: 0.0,
-            sourceFileURL: nil
+            provenance: provenance
         )
-        recording.provenance = provenance
 
         do {
             try AudioRecorder.shared.moveTemporaryRecording(from: temporaryURL, to: recording.url)
