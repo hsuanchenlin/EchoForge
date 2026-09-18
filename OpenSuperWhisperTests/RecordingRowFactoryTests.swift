@@ -237,12 +237,17 @@ final class RecordingRowFactoryTests: XCTestCase {
     // MARK: - Older rows
 
     /// A row written before the factory keeps the name it was written with.
-    /// Nothing migrates or renames it: it is read back, its audio is found where
-    /// it always was, and it is deleted the same way.
+    /// Nothing migrates or renames it: the row is written into a database at
+    /// the schema it was made under, every later migration runs over it, and
+    /// it is read back, its audio is found where it always was, and it is
+    /// deleted the same way.
     func testARowNamedBeforeTheFactoryStillResolvesAndIsStillDeletable() throws {
+        let legacy = try DatabaseQueue(path: root.appendingPathComponent("legacy.sqlite").path)
         let migrator = RecordingStore.makeMigrator()
+        try migrator.migrate(legacy, upTo: "v2_add_status")
+
         let id = UUID()
-        try dbQueue.write { db in
+        try legacy.write { db in
             try db.execute(
                 sql: """
                     INSERT INTO recordings
@@ -254,9 +259,10 @@ final class RecordingRowFactoryTests: XCTestCase {
                     "an older dictation", 4.0, "completed", 1.0,
                 ])
         }
-        try migrator.migrate(dbQueue)
+        try migrator.migrate(legacy)
 
-        let stored = try XCTUnwrap(try dbQueue.read { try Recording.fetchOne($0) })
+        let stored = try XCTUnwrap(try legacy.read { try Recording.fetchOne($0) })
+        XCTAssertEqual(stored.id, id)
         XCTAssertEqual(stored.fileName, "1600000000.wav")
         XCTAssertEqual(stored.url, Recording.recordingsDirectory.appendingPathComponent("1600000000.wav"))
 
@@ -265,9 +271,9 @@ final class RecordingRowFactoryTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: audio), Data(repeating: 9, count: 16),
                        "its audio is found under the old name")
 
-        try dbQueue.write { _ = try stored.delete($0) }
+        try legacy.write { _ = try stored.delete($0) }
         try FileManager.default.removeItem(at: audio)
-        XCTAssertEqual(try dbQueue.read { try Recording.fetchCount($0) }, 0)
+        XCTAssertEqual(try legacy.read { try Recording.fetchCount($0) }, 0)
         XCTAssertFalse(FileManager.default.fileExists(atPath: audio.path))
     }
 }
