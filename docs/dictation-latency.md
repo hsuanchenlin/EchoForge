@@ -162,7 +162,7 @@ only a write that failed does not, and such a row is written out once and then l
   load that throws or a frame cancelled mid-load gives the engine back rather than holding
   every later transcription for the life of the process. `TranscriptionSerializationTests`
   stands a second caller inside the load and asserts that it waits, that a cancel during the
-  load reaches the frame, that a failed load releases it, and that a dozen concurrent callers
+  load stops that frame, that a failed load releases it, and that a dozen concurrent callers
   never overlap.
 - **The queue always stops being busy.** `isProcessing` gates
   `IndicatorViewModel.isTranscriptionBusy`, which refuses to start a dictation at all, so a loop

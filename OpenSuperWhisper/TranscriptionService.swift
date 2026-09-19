@@ -131,20 +131,18 @@ class TranscriptionService: ObservableObject {
     @MainActor
     private final class TranscriptionFrame {
         private var cancelTask: (() -> Void)?
-        private var cancelled = false
         private var finished = false
         private var waiters: [CheckedContinuation<Void, Never>] = []
 
         /// Hands the frame its work, once `prepare` has produced what the work
         /// needs. A cancel that arrived while the frame was still preparing
-        /// reaches the task here, so it never starts.
+        /// has already tagged its generation, and the work checks that before
+        /// it starts.
         func bind<Result>(_ task: Task<Result, Error>) {
             cancelTask = { task.cancel() }
-            if cancelled { task.cancel() }
         }
 
         func cancel() {
-            cancelled = true
             cancelTask?()
         }
 
