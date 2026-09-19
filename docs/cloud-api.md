@@ -166,8 +166,20 @@ These are the load-bearing ones. Each is pinned by a test.
   instructions" is refused and you keep your own words. See
   `docs/style-rewriting.md`.
 - **The key never reaches a log.** It appears in one place, the `Authorization`
-  header, and everything printed or stored goes through `CloudRedaction` first,
-  including provider error messages that quote it back.
+  header (`CloudCredentialStore` keeps it in the Keychain and nowhere else), and
+  everything printed or stored goes through `CloudRedaction` first, including
+  provider error messages that quote it back. A source scan in `CloudPrivacyTests`
+  holds both.
+- **Consent is its own state.** Transcription's on/off is `selectedEngine == .cloud`
+  and there is deliberately no second preference beside it; translation, which
+  has no engine, gets `cloudTranslationEnabled`. `CloudConsent` is separate from
+  both, because "the toggle was on" and "the person agreed" are different states.
+- **Two features and no more.** Every other model feature - rewriting, correction,
+  Ask, screen queries, voice edit, YouTube channel-name matching - has **no**
+  cloud path, enforced by `OnDeviceModelFeature.cloudFeature` returning `nil`
+  rather than by convention. A failed cloud dictation keeps the recording
+  (`DictationFailureOutcome`), because every one of those failures is transient
+  or fixable.
 
 ---
 

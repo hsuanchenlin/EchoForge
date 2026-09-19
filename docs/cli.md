@@ -80,8 +80,8 @@ the same command would resolve differently on two Macs and differently on one
 Mac over time.
 
 The bundle on disk is called `EchoForge.app` even though the product is called
-Kongweh; that split is the release identity, and the naming section of
-`AGENTS.md` says why.
+Kongweh; that split is the release identity, and
+[app-identity.md](app-identity.md) says why.
 
 `--app` is for a build you have not installed yet. Three rules apply to it:
 
@@ -384,5 +384,34 @@ it verifies, one size down.
   printing it, so every command, failure and exit code is reachable from a test;
   `main.swift` is the only thing that prints.
 - `EchoForgeCore/` - the code the app and the tool share, so there is one
-  updater, one schema and one set of preference keys rather than two. `AGENTS.md`
-  has the boundary.
+  updater, one schema and one set of preference keys rather than two.
+  `RecordingStore` stays in the app - it is what migrates and writes - and
+  forwards to `RecordingSchema`, which the tool opens **read-only** and never
+  migrates.
+
+## The boundary
+
+Four things are absolute, and each exists because the tool is a second process
+that is not the app:
+
+- **The tool adds no security rule to the update path and skips none.**
+  `UpdateManifest`, `UpdateChecker` and `UpdateInstaller` are the app's
+  ([updates.md](updates.md)), `--yes` skips the confirmation and nothing else,
+  and there is no `--force`. Three values that default to `Bundle.main` are
+  injected, because `Bundle.main` in the tool is the tool - left alone, the
+  installer compares the downloaded Kongweh against the tool's own identity and
+  refuses every genuine release.
+- **`AppDataLocation` names the data directory with a constant**, not with
+  `Bundle.main`: asking each process for its own identity gives a different
+  answer in each, and every one but the app's points at a directory with none of
+  the user's recordings in it - which looks like an empty history rather than a
+  bug.
+- **Unavailable is never reported as false.** Live recording state is reported
+  as unavailable with the reason, because it exists only inside the running app
+  and answering it would mean adding a permanently-listening surface to an app
+  that deliberately has none.
+- **Everything outside the tool goes through `CLIEnvironment`**, so no test can
+  start the app on a developer's desktop, replace the copy in `/Applications` or
+  reach GitHub; `CLISeamTests` scans the sources to keep that true, along with
+  the rules that nothing there opens the Keychain, writes to the database, or
+  implements a second downloader.

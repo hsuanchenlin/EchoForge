@@ -91,6 +91,48 @@ can reach it:
 Until that credential exists, [install.md](install.md) stays the single home for
 the Gatekeeper workarounds and the README must not grow a second copy of them.
 
+### Publishing
+
+Publishing is the last step and it happens **on `master`**, not on the release branch. Every
+tag points at the squashed release commit the release PR produced, so the GitHub release -
+name `EchoForge X.Y.Z`, body the per-release notes file verbatim, assets `EchoForge.dmg` and
+`EchoForge.dmg.sha256` - is created only after that PR is merged.
+
+- **Notes** live in `docs/release-notes/vX.Y.Z.md` and are what the release body is created
+  from. **Version bumps** go in `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in
+  `OpenSuperWhisper.xcodeproj/project.pbxproj`, which carry them once per target and
+  configuration - keep all of them in step, the way `make_release.sh` does.
+  `OpenSuperWhisperTests/ReleaseVersionTests.swift` pins that: the two settings agree across
+  every target and configuration, and the version the app reports has notes carrying its
+  number, the Gatekeeper workaround and the `UpdateManifest.assetName` a release publishes.
+  It also reads the whole notes directory - every file is headed with the version its own
+  name declares, and the newest version with notes is the one this build reports - so notes
+  written for a version nobody bumped to, or a bump that did not move past the last release,
+  fail at test time rather than at publish time.
+- **The tag** carried a `v` through `v0.8.5` and has been **bare `X.Y.Z`** since: 0.9.1
+  dropped it off convention, and 0.9.2, 0.9.3 and 0.9.4 kept it dropped, so bare is now the
+  convention rather than the accident it started as. The updater reads either, because
+  `AppVersion` tolerates a tag with no `v`. 0.9.1's other two departures did not stick - it
+  was named `Kongweh 0.9.1` with a hand-written body, and 0.9.2 onward are `EchoForge X.Y.Z`
+  with the notes file verbatim.
+- **The assets** are the pair from one `Scripts/build_release.sh` run and are never rebuilt
+  between hashing and upload, for the reason measured above; that run leaves them in the
+  **repository root**, not in `build/`, which is the derived-data directory it deletes on
+  every invocation.
+- **Older releases and tags** are never edited, replaced or force-updated.
+
+Since 0.9.5 a release also carries **one more asset**,
+`echoforge-X.Y.Z-darwin-arm64.tar.gz`, which is the command-line tool and is what the
+Homebrew formula at `hsuanchenlin/homebrew-tap` (`brew install hsuanchenlin/tap/echoforge`)
+downloads. It is not produced by `Scripts/build_release.sh` and there is no script for it
+yet, so it is built and uploaded by hand - and the formula's `version`, `url` and `sha256`
+live in that other repository and have to be moved there, or `brew install` goes on
+installing the previous release. It changes nothing about the DMG: the disk image still
+contains the app and nothing else, which is what `Scripts/verify_release_package.sh`
+verifies. [cli.md](cli.md) is the tool's own story.
+
+The in-app updater that consumes these assets is described in [updates.md](updates.md).
+
 ### Signing mode decides hardened runtime
 
 They are not independent settings, and getting this wrong is what shipped an unopenable
@@ -126,4 +168,7 @@ libraries dyld mapped and exit before it touches any of the operator's data
 
 `Scripts/tests/verify_release_package_test.sh` tests the verifier itself against synthesised
 bundles broken in each of those ways, including v0.3.0's defect; `ReleasePackagingTests`
-runs it as part of the normal test suite.
+runs it as part of the normal test suite. That script must never start a fixture that cannot
+start: such a bundle is killed by SIGABRT and macOS answers with a crash report and a "quit
+unexpectedly" dialog on every test run, so its unlaunchable cases are asserted off the
+signature and verified with `--no-launch` instead, and the script's header says how.

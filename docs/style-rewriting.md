@@ -67,6 +67,10 @@ by the guard, timed out, the model failed, the transcript too long - and so does
 `.unavailable` on a spoken `Translate to …`, which is something the user asked
 for on this dictation and did not get.
 
+`ReadyToSendDefaultsTests` pins this default together with the capsule's
+([capsule-hud.md](capsule-hud.md)), including the half that makes them safe: a
+default fills in for an unset key and never overwrites a stored answer.
+
 ## Why there is a guard
 
 A language model asked to restyle dictated speech will, given real input,
