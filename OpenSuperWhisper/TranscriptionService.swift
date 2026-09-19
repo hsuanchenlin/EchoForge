@@ -183,10 +183,11 @@ class TranscriptionService: ObservableObject {
     /// The same device `loadGeneration` is, and for the same reason: a
     /// transcription's teardown runs a main-queue hop after the work ends, by
     /// which time a *different* transcription may own this object. Without the
-    /// check, a cancelled one's teardown cleared the live one's task box and
-    /// published `isTranscribing = false` over it - and the next press then read
-    /// an idle service and started a second transcription on an engine that was
-    /// still inside the first.
+    /// check, a cancelled one's teardown published `isTranscribing = false`
+    /// over the live one - and the next press then read an idle service and
+    /// started a second transcription on an engine that was still inside the
+    /// first. The frame needs no such check: `runTranscription` releases it
+    /// synchronously in its `defer`, by identity, before that hop.
     private var transcriptionGeneration = 0
 
     /// The generation `cancelTranscription` last stopped, or nil if none has
