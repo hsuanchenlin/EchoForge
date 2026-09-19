@@ -139,7 +139,9 @@ only a write that failed does not, and such a row is written out once and then l
   five keys share one recorder and `@Published` replays. Every surface that takes the microphone
   subscribes to it - the dictation card, the Ask panel and the main window's record button,
   which had only `isRecording` going false to go on and never sees that at all when the start
-  found no audio input.
+  found no audio input. `FailedRecordingStart.ends(_:)` is the whole subscription rule, and a
+  source scan in `FailedRecordingStartTests` keeps every surface that takes the microphone
+  watching it.
 - **Cancelling a transcription now cancels it, and only it.** `cancelTranscription` used to
   raise a shared `isCancelled` flag and drop it again inside one synchronous main-actor call,
   so every check of it in the running task read `false` and an engine that answered a moment

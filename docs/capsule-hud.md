@@ -324,6 +324,11 @@ dictation does is paste into whatever app the user was typing in, so a HUD that
 took focus on its way up would change the target of the paste it is reporting on.
 The cancel button still works - mouse events do not require key status.
 
+The same holds for every HUD panel in the app (`EngineSwitchHUD` too): `.nonactivatingPanel`,
+`canBecomeKey` and `canBecomeMain` false, `ignoresMouseEvents` except while a cancel button is
+up, and `constrainFrameRect` returning its argument - AppKit otherwise pulls the panel down
+until its transparent shadow margin fits on screen, which lands every placement 16 pt low.
+
 `ignoresMouseEvents` is on except while the capsule is polishing. A HUD that
 swallowed clicks for the whole recording would take the top strip of the screen
 away from the app underneath it.
