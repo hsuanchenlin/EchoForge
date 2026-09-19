@@ -151,6 +151,19 @@ only a write that failed does not, and such a row is written out once and then l
   it cancelled, on the same whisper context. Both are generation-scoped now
   (`transcriptionGeneration`, `cancelledGeneration`): a transcription's teardown may publish
   only over its own generation, and one dictation's cancellation cannot reach the next.
+- **The engine is reserved before it is loaded, not after.** The handle the serialization loop
+  waits on used to be a box around the work task, stored only once that task existed - and
+  between the loop and the task sits the engine load, a detached task the frame suspends on.
+  A second caller arriving during that suspension found no task, passed the loop, and ran
+  beside the first on the same engine: an utterance decode from a live session beside a queued
+  file, or the queue's first item at launch beside the first dictation. `runTranscription` now
+  reserves a `TranscriptionFrame` synchronously with the generation bump, before `prepare` can
+  suspend, binds the work task to it once prepared, and releases it in its own `defer` - so a
+  load that throws or a frame cancelled mid-load gives the engine back rather than holding
+  every later transcription for the life of the process. `TranscriptionSerializationTests`
+  stands a second caller inside the load and asserts that it waits, that a cancel during the
+  load stops that frame, that a failed load releases it, and that a dozen concurrent callers
+  never overlap.
 - **The queue always stops being busy.** `isProcessing` gates
   `IndicatorViewModel.isTranscriptionBusy`, which refuses to start a dictation at all, so a loop
   that does not return is not a stuck row - it is an app that no longer dictates. The flag now

@@ -108,21 +108,62 @@ class TranscriptionService: ObservableObject {
     /// retry path. Cleared when a new attempt starts.
     @Published private(set) var preparationFailure: String?
 
-    /// The transcription in flight, held by identity so the serialisation loop
-    /// in `runTranscription` can tell "the one I waited on" from "the one that
-    /// replaced it".
+    /// The transcription in flight: what the serialisation loop in
+    /// `runTranscription` waits on, and what `cancelTranscription` cancels.
+    ///
+    /// A frame, not a task: it is created and stored *before* the frame's
+    /// `prepare` step suspends, when there is no task yet, and released in the
+    /// frame's own `defer`, so it spans the engine load as well as the work.
+    /// It used to be a box around the work task alone, stored only once the
+    /// task existed - and the engine load before it is a suspension point, so
+    /// a second caller arriving during the load saw no task, passed the
+    /// serialisation loop, and both ran on the engine at once: an utterance
+    /// decode from a live session beside a queued file, or a queued file beside
+    /// the first dictation of the session. `TranscriptionSerializationTests`
+    /// holds the window shut.
     ///
     /// Type-erased because two shapes of work run inside one frame - a decode
     /// that returns the engine's raw text and a full transcription that returns
     /// a `StyledTranscript` - and the loop and `cancelTranscription` need only
-    /// to wait on either and to cancel either.
-    private final class TranscriptionTaskBox {
-        let cancel: () -> Void
-        let waitUntilFinished: () async -> Void
+    /// to wait on either and to cancel either. Main-actor isolated like the
+    /// service that owns it, which is what lets it keep its waiters without a
+    /// lock.
+    @MainActor
+    private final class TranscriptionFrame {
+        private var cancelTask: (() -> Void)?
+        private var finished = false
+        private var waiters: [CheckedContinuation<Void, Never>] = []
 
-        init<Result>(_ task: Task<Result, Error>) {
-            cancel = { task.cancel() }
-            waitUntilFinished = { _ = try? await task.value }
+        /// Hands the frame its work, once `prepare` has produced what the work
+        /// needs. A cancel that arrived while the frame was still preparing
+        /// has already tagged its generation, and the work checks that before
+        /// it starts.
+        func bind<Result>(_ task: Task<Result, Error>) {
+            cancelTask = { task.cancel() }
+        }
+
+        func cancel() {
+            cancelTask?()
+        }
+
+        /// Lets every caller queued behind this frame go. Called from the
+        /// frame's `defer`, so it runs whether `prepare` threw, the work threw
+        /// or was cancelled, or it returned - a frame that was reserved is
+        /// always released, and nobody waits on it for ever.
+        func finish() {
+            finished = true
+            let released = waiters
+            waiters = []
+            for waiter in released { waiter.resume() }
+        }
+
+        /// Returns once `finish` has run. A waiter whose own task is cancelled
+        /// keeps waiting, as it always has: letting it through early would put
+        /// it on the engine beside the frame it was waiting for, and the work
+        /// it runs next checks cancellation itself.
+        func waitUntilFinished() async {
+            guard !finished else { return }
+            await withCheckedContinuation { waiters.append($0) }
         }
     }
 
@@ -135,17 +176,18 @@ class TranscriptionService: ObservableObject {
     /// superseded, and a live session can tell the engine under it is not the
     /// one it started on even when the kind is.
     private(set) var loadGeneration = 0
-    private var transcriptionTask: TranscriptionTaskBox? = nil
+    private var transcriptionTask: TranscriptionFrame? = nil
 
     /// Which transcription the published state belongs to.
     ///
     /// The same device `loadGeneration` is, and for the same reason: a
     /// transcription's teardown runs a main-queue hop after the work ends, by
     /// which time a *different* transcription may own this object. Without the
-    /// check, a cancelled one's teardown cleared the live one's task box and
-    /// published `isTranscribing = false` over it - and the next press then read
-    /// an idle service and started a second transcription on an engine that was
-    /// still inside the first.
+    /// check, a cancelled one's teardown published `isTranscribing = false`
+    /// over the live one - and the next press then read an idle service and
+    /// started a second transcription on an engine that was still inside the
+    /// first. The frame needs no such check: `runTranscription` releases it
+    /// synchronously in its `defer`, by identity, before that hop.
     private var transcriptionGeneration = 0
 
     /// The generation `cancelTranscription` last stopped, or nil if none has
@@ -190,9 +232,12 @@ class TranscriptionService: ObservableObject {
     /// The same kind of seam as `availabilityOverride`, and it exists for the
     /// same reason: the decisions this class makes *around* a transcription -
     /// what cancelling leaves in flight, which teardown is allowed to clear the
-    /// published state - are the part worth asserting, and every one of them
-    /// sits behind a several-hundred-megabyte download otherwise. Production
-    /// never sets it.
+    /// published state, whether two callers can reach the engine at once -
+    /// are the part worth asserting, and every one of them sits behind a
+    /// several-hundred-megabyte download otherwise. It is initialised once
+    /// before its first transcription, as a real engine is, so a stub can be
+    /// made to take as long to load as a real one does. Production never sets
+    /// it.
     var engineOverride: TranscriptionEngine?
 
     func reserveEngineForRemoval(
@@ -254,19 +299,18 @@ class TranscriptionService: ObservableObject {
     /// while the first is still inside `whisper_full`, which is exactly what the
     /// serialization loop in `runTranscription` exists to prevent and exactly
     /// what clearing them here allowed - cancel, press again, two transcriptions
-    /// on one context. The cancelled work's own teardown clears them when it
-    /// actually unwinds, and that teardown is generation-checked so it can only
-    /// ever clear its own.
+    /// on one context. The cancelled frame's own `defer` clears them when it
+    /// actually unwinds, and the published half of that teardown is
+    /// generation-checked so it can only ever clear its own.
     func cancelTranscription() {
         currentSegment = ""
         partialTranscript = nil
         progress = 0.0
 
-        // `isTranscribing` spans the whole of `runTranscription`, including the
-        // engine load before the task exists, so it - rather than the task box -
-        // is what says whether there is anything to cancel. With nothing in
-        // flight, raising the flag would only mute the next transcription's
-        // progress until it reset it.
+        // `isTranscribing` spans the whole of `runTranscription`, as the frame
+        // does, so either says whether there is anything to cancel. With
+        // nothing in flight, raising the flag would only mute the next
+        // transcription's progress until it reset it.
         guard isTranscribing else { return }
 
         cancelledGeneration = transcriptionGeneration
@@ -548,7 +592,19 @@ class TranscriptionService: ObservableObject {
     // MARK: - Transcribing
 
     private func engineForTranscription() async throws -> TranscriptionEngine {
-        if let engineOverride { return engineOverride }
+        if let engineOverride {
+            // Loaded the way a real engine is - once, before its first use,
+            // and off the main actor - rather than handed over as it is, so
+            // that a stub whose `initialize` waits can stand in the window a
+            // real load opens, which is the window the serialisation frame is
+            // there to shut. `currentEngine` is the same "already loaded"
+            // memory the real path keeps.
+            if currentEngine !== engineOverride {
+                try await engineOverride.initialize()
+                currentEngine = engineOverride
+            }
+            return engineOverride
+        }
         // Checked here rather than left to `initialize()` to fail: this is the
         // one point every transcription passes through, and the difference
         // between "nothing is set up" and "the engine did not load" is the
@@ -724,16 +780,22 @@ class TranscriptionService: ObservableObject {
     }
 
     /// The frame every transcription runs in: waits for the engine to be free,
-    /// takes the next generation, publishes the in-flight state, runs
-    /// `prepare` on the main actor and then `work` on a detached task that is
-    /// cancelled with this object, and takes the state down again when - and
-    /// only when - that work has actually unwound.
+    /// takes the next generation, publishes the in-flight state, reserves the
+    /// engine, runs `prepare` on the main actor and then `work` on a detached
+    /// task that is cancelled with this object, and takes the state down again
+    /// when - and only when - that work has actually unwound.
     ///
     /// `publishing` names what `transcribedText` shows for a result, since the
     /// frame does not know whether it ran a decode or a full transcription.
     /// `prepare` is what the work needs resolved inside the frame - the engine,
     /// for a decode; nothing, for post-processing alone - and runs after the
     /// generation is taken so a load that throws still tears its own frame down.
+    ///
+    /// The reservation is taken *before* `prepare`, not after it, and that
+    /// order is the whole guarantee. `prepare` suspends - loading an engine is
+    /// a detached task - and every caller that reaches the loop while it is
+    /// suspended must find the frame already held, or it runs its work beside
+    /// this one on the same engine.
     private func runTranscription<Context, Result: Sendable>(
         publishing text: @escaping @Sendable (Result) -> String,
         preparing prepare: @MainActor (_ generation: Int) async throws -> Context,
@@ -741,12 +803,12 @@ class TranscriptionService: ObservableObject {
     ) async throws -> Result {
         // Serialize access to the engine: a whisper context must not process
         // two transcriptions concurrently (indicator flow and queue flow can
-        // both reach this point due to async busy checks).
+        // both reach this point due to async busy checks). A released frame
+        // has already cleared itself, so after the wait this either finds
+        // nothing or finds the frame of whoever was queued ahead and got in
+        // first, and waits on that one in turn.
         while let existing = transcriptionTask {
             await existing.waitUntilFinished()
-            if transcriptionTask === existing {
-                transcriptionTask = nil
-            }
         }
 
         // Bumped **after** the wait above, not before it: the transcription this
@@ -754,6 +816,12 @@ class TranscriptionService: ObservableObject {
         // teardown may publish.
         transcriptionGeneration += 1
         let generation = transcriptionGeneration
+
+        // Reserved here, synchronously with the bump, before anything below
+        // can suspend. From this line until the `defer` runs, every other
+        // caller waits.
+        let frame = TranscriptionFrame()
+        transcriptionTask = frame
 
         progress = 0.0
         conversionProgress = 0.0
@@ -767,6 +835,18 @@ class TranscriptionService: ObservableObject {
         partialTranscript = nil
 
         defer {
+            // The reservation is given back synchronously, on every exit - a
+            // `prepare` that threw, a load that was cancelled, work that
+            // failed - because a frame that stayed reserved would hold every
+            // later transcription for the life of the process. Nobody can
+            // have replaced it while it was held, since the loop above does
+            // not pass a held frame; the identity check only keeps that true
+            // by construction rather than by assumption.
+            frame.finish()
+            if transcriptionTask === frame {
+                transcriptionTask = nil
+            }
+
             Task { @MainActor in
                 // Only the transcription that is still the current one may take
                 // the published state down with it. See `transcriptionGeneration`.
@@ -778,7 +858,6 @@ class TranscriptionService: ObservableObject {
                 if !self.isCancelled(generation) {
                     self.progress = 1.0
                 }
-                self.transcriptionTask = nil
             }
         }
 
@@ -820,7 +899,7 @@ class TranscriptionService: ObservableObject {
             return result
         }
 
-        transcriptionTask = TranscriptionTaskBox(task)
+        frame.bind(task)
 
         do {
             return try await task.value

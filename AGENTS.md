@@ -169,6 +169,11 @@ has the measurement and the test that pins it.
 - **The microphone is owned.** `RecordingSessionClaim` grants one session at a time, callers
   name the session they stop, and every surface that records watches
   `AudioRecorder.failedStart`. (`docs/ask-panel.md`, `docs/dictation-latency.md`)
+- **The engine is owned too, from before it loads.** Every transcription - dictation, live
+  utterance decode, queued file, post-processing alone - runs inside `runTranscription`, which
+  reserves its `TranscriptionFrame` synchronously with the generation bump, before the engine
+  load can suspend, and releases it in its own `defer`. Nothing else waits on, clears or
+  bypasses that frame. (`docs/dictation-latency.md`)
 - **HUDs never take focus.** Dictation ends by pasting into the app the user was in; only the
   Ask panel and the channel picker may activate, and they do it with
   `activate(ignoringOtherApps:)`. (`docs/capsule-hud.md`, `docs/ask-panel.md`)
