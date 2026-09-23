@@ -87,10 +87,6 @@ final class DictationSession: ObservableObject {
     /// back to the user as one: they know what they did.
     private(set) var didCancelWorkInFlight = false
 
-    /// When the capture began, or nil when this session never took the
-    /// microphone. The card's Esc confirmation is measured from it.
-    private(set) var recordingStartedAt: Date?
-
     /// Whether this session holds the microphone right now.
     var isCapturing: Bool { recordingSession != nil }
 
@@ -108,10 +104,6 @@ final class DictationSession: ObservableObject {
     private let selectionEditor: DictationSelectionEditing
     private let measurement: DictationAudioMeasuring
     private let makeLiveSession: LiveDictationFactory
-    /// nil means the production runner, which is built on first use rather
-    /// than at every session - it opens a `URLSession` and a picker presenter,
-    /// and almost no dictation is a YouTube command.
-    private let youTubeRunner: YouTubeCommandRunner?
 
     // MARK: - What it holds while it runs
 
@@ -147,7 +139,6 @@ final class DictationSession: ObservableObject {
         asking: DictationAsking = AskPanelPresentation(),
         selectionEditor: DictationSelectionEditing = SelectionEditRewriting(),
         measurement: DictationAudioMeasuring = AudioFileMeasurement(),
-        youTubeRunner: YouTubeCommandRunner? = nil,
         makeLiveSession: @escaping LiveDictationFactory = DictationSession.makeLiveDictationSession
     ) {
         self.purpose = purpose
@@ -161,7 +152,6 @@ final class DictationSession: ObservableObject {
         self.asking = asking
         self.selectionEditor = selectionEditor
         self.measurement = measurement
-        self.youTubeRunner = youTubeRunner
         self.makeLiveSession = makeLiveSession
 
         // Both sinks describe **this** session and no other, which is what
@@ -233,7 +223,6 @@ final class DictationSession: ObservableObject {
         recordingSession = claimed
         startLiveSessionIfEligible(for: claimed)
 
-        recordingStartedAt = Date()
         phase = .recording
     }
 
@@ -292,7 +281,6 @@ final class DictationSession: ObservableObject {
             endLiveSession(session)
         }
         recordingSession = nil
-        recordingStartedAt = nil
         end(with: reason.notice)
     }
 
@@ -604,7 +592,7 @@ final class DictationSession: ObservableObject {
         // the picker can be left on screen for as long as the user likes, and a
         // quit while it is up has to leave a row saying a choice was offered and
         // nothing was opened.
-        let outcome = await (youTubeRunner ?? Self.liveYouTubeRunner).run(
+        let outcome = await Self.liveYouTubeRunner.run(
             command,
             isPickerEnabled: isPickerEnabled,
             // The transcription has finished; what is left is the user's answer.
@@ -749,7 +737,6 @@ final class DictationSession: ObservableObject {
     /// Lets go of everything this session was following. It is over either way;
     /// this stops it holding subscriptions until it is deallocated.
     func cleanup() {
-        recordingStartedAt = nil
         cancellables.removeAll()
         liveSessionCancellable = nil
     }

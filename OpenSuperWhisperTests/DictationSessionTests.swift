@@ -191,6 +191,31 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
         XCTAssertEqual(session.phase, .recording)
     }
 
+    /// The Ask panel opens the microphone and updates `AudioRecorder` state; a dictation
+    /// that was refused must not wake up and blink when the panel connects, nor can
+    /// a cancel/stop on the refused session tear down the panel's capture.
+    func testARefusedDictation_ignoresAnotherSessionsRecordingState() async {
+        recorder.refusesToStart = true
+        let session = makeSession()
+        session.start()
+        
+        XCTAssertEqual(session.phase, .ended(.busy(.startRefused)))
+        
+        // Another surface connects and records.
+        recorder.connecting.send(true)
+        recorder.recording.send(true)
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        
+        XCTAssertEqual(session.phase, .ended(.busy(.startRefused)))
+        
+        // Stopping a refused session has no side effects.
+        session.cancel()
+        session.stop()
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        
+        XCTAssertEqual(session.phase, .ended(.busy(.startRefused)))
+    }
+
     func testAVoiceEditPressWithNothingToEdit_neverTakesTheMicrophone() {
         let session = makeSession(purpose: .selectionEdit)
 
@@ -476,6 +501,8 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
         await waitForEnd(session)
 
         XCTAssertEqual(endedNotice(session), .commandFailed("Target app unavailable"))
+        XCTAssertEqual(history.addedSync.first?.transcription, "Shorter.",
+                       "persistence happens before the paste so it survives the failure")
         XCTAssertNil(session.result)
     }
 

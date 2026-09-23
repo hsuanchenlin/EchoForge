@@ -400,34 +400,6 @@ final class AskVoiceShortcutTests: XCTestCase {
         )
     }
 
-    /// The indicator only ever adopts recording state it actually owns.
-    ///
-    /// `AudioRecorder` publishes to every subscriber and `@Published` replays
-    /// its current value, while `prepare()` builds the view model *before* the
-    /// press claims anything. A dictation refused because the Ask panel held
-    /// the microphone was therefore handed that panel's `isRecording` a runloop
-    /// turn later, repainted itself as a blinking recording, and let the next
-    /// press decode the user's question into their document.
-    func testARefusedDictationNeverAdoptsAnotherSessionsRecordingState() throws {
-        let session = try Self.source(of: "OpenSuperWhisper/Dictation/DictationSession.swift")
-        let sinks = try XCTUnwrap(
-            session.range(of: "recorder.isConnectingPublisher").map { session[$0.lowerBound...] })
-        let body = String(sinks.prefix(1400))
-
-        XCTAssertEqual(
-            body.components(separatedBy: "self.recordingSession != nil").count - 1, 2,
-            "both sinks have to be gated, or the refused card still blinks"
-        )
-        XCTAssertTrue(
-            try Self.body(of: "func cancel() {", in: session)
-                .contains("guard let session = recordingSession else"),
-            "Esc on a refused dictation used to cancel the Ask panel's question"
-        )
-        XCTAssertTrue(
-            try Self.body(of: "func stop() {", in: session)
-                .contains("guard let session = recordingSession else"))
-    }
-
     func testShortcutRefusesAnActiveDictationBeforePresentingOrCapturingTheScreen() throws {
         let controller = try Self.source(of: "OpenSuperWhisper/Ask/AskPanelWindowController.swift")
 

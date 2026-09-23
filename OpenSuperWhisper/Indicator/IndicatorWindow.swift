@@ -269,8 +269,6 @@ class IndicatorViewModel: ObservableObject {
         // restart decoding or hide the window while transcription is in flight.
         guard state == .recording || state == .connecting else { return }
 
-        resetCancelConfirmation()
-        stopBlinking()
         session.stop()
     }
 

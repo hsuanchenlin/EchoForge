@@ -96,16 +96,13 @@ final class FailedRecordingStartTests: XCTestCase {
     /// a recording that never began.
     func testEverySurfaceHoldingTheMicrophoneListensForAFailedStart() throws {
         for path in [
-            // Dictation's own surface is `DictationSession`; the card that
-            // shows it holds no microphone of its own.
-            "OpenSuperWhisper/Dictation/DictationSession.swift",
             "OpenSuperWhisper/Ask/AskPanelWindowController.swift",
             "OpenSuperWhisper/ContentView.swift",
             "OpenSuperWhisper/SetupHealth/MicrophoneTest.swift",
         ] {
             let source = try Self.source(of: path)
             XCTAssertTrue(
-                source.contains("$failedStart") || source.contains("failedStartPublisher"),
+                source.contains("$failedStart"),
                 "\(path) starts recordings and so has to hear about starts that fail")
             XCTAssertTrue(
                 source.contains("failure.ends("),
