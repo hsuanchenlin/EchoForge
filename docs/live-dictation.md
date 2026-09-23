@@ -9,7 +9,7 @@ touched.
 
 `OpenSuperWhisper/Live/` is the whole implementation. `LiveCutPolicy` and `CommittedTranscript`
 are the pure half - where an utterance ends and how the pieces join - and this file is about
-the other half: `LiveAudioTap`, `LiveDictationSession`, and how `IndicatorViewModel` and the
+the other half: `LiveAudioTap`, `LiveDictationSession`, and how `DictationSession` and the
 capsule use them.
 
 The name has an older sense in these docs and in `Settings`: *live dictation* there is a
@@ -65,7 +65,7 @@ a tap that stopped is the same fallback as one that never started. Unifying both
 one engine is a later change with its own risk.
 
 **`LiveDictationSession`** owns the tap, the buffer, the poll, the policy, the joined text and
-its state, and `IndicatorViewModel` sees `start`, `finish`, `cancel` and one published
+its state, and `DictationSession` sees `start`, `finish`, `cancel` and one published
 `transcript`. Every `pollInterval` (0.5 s) it snapshots the uncommitted buffer, runs the VAD
 off the main actor, and asks `LiveCutPolicy.cut`. A `.commit` is written out by
 `LiveUtteranceFile` - the recorder's own format, so the engine sees the same quantisation a
@@ -73,7 +73,7 @@ whole-file decode would - and decoded through `TranscriptionService.decodeRaw`, 
 same serialised, cancellable frame every other transcription runs in. So an utterance decode
 queues behind a file-drop transcription and ahead of the next one exactly as a file does, and
 `isTranscribing` is true while it runs - which is why the busy check in
-`IndicatorViewModel.startDecoding` is skipped for a live session (below).
+`DictationSession.stop` is skipped for a live session (below).
 
 `finish` keeps listening for the recorder's own stop tail (`AudioRecorder.stopTailDuration`, so
 the end of the last word reaches both paths), stops the tap, lets the poll finish the step it is
@@ -101,8 +101,8 @@ dictation pressed during the rewrite of live-decoded text must wait its turn exa
 pressed during a whole-file dictation's rewrite does, and the capsule must show that rewrite
 as work in flight.
 
-**The capsule** follows the session through `IndicatorViewModel.liveTranscript`, republished
-from the session, and `CapsuleHUDViewModel.showLiveTranscript` accepts it while recording as
+**The capsule** follows the session through `DictationSession.liveTranscript`, republished
+by `IndicatorViewModel`, and `CapsuleHUDViewModel.showLiveTranscript` accepts it while recording as
 well as during the decode. Once the live line has shown, the global
 `TranscriptionService.partialTranscript` is ignored for the rest of the session: the tail
 decode reaches that publisher too, as a fresh decode of one short piece, and letting it through
@@ -128,8 +128,8 @@ fail; it can only make one slower than it would have been.
 | The engine changed between the last poll and the key going up | `.failed(.engineChanged)` from `finish`, before the tail is decoded - the same check the poll makes |
 | The tail holds speech the VAD found but less than the budget's tail minimum (a one-word dictation, a short last word after a pause) | `.failed(.tailBelowMinimum)` from `finish`, with or without utterances already committed; the line is cleared and the WAV is decoded whole, which keeps every segment the VAD reports. A tail with no detected speech is silence and is dropped, not a fallback |
 | Esc / cancel while recording | Buffer, committed text, tap and WAV all discarded; nothing pasted, no row |
-| `AudioRecorder.failedStart` for this session | The view model ends the live session with the capture that never started (`endLiveSession`); a tap still opening when that lands is stopped the moment it comes up |
-| Cancel button after the key went up (tail decode, finish, or a fallback's whole-file decode) | Nothing on the engine is interrupted: the work runs to its end and `IndicatorViewModel.transcribe` refuses its result because `didCancelWorkInFlight` is set - nothing pasted, no row, WAV discarded (below) |
+| `AudioRecorder.failedStart` for this session | The dictation session ends the live session with the capture that never started (`endLiveSession`); a tap still opening when that lands is stopped the moment it comes up |
+| Cancel button after the key went up (tail decode, finish, or a fallback's whole-file decode) | Nothing on the engine is interrupted: the work runs to its end and `DictationSession.transcribe` refuses its result because `didCancelWorkInFlight` is set - nothing pasted, no row, WAV discarded (below) |
 | App quits mid-recording | As today: temp WAV survives 24 h, no row; an utterance file left behind is swept with it |
 
 In every fallback the session publishes `transcript = nil` before anything else
@@ -142,7 +142,7 @@ finishes and its words are dropped. The engine is busy for that utterance's deco
 dictation pressed inside it is refused as busy, honestly.
 
 The capsule's cancel button after the key has gone up is the same rule one step later. On the
-live path `IndicatorViewModel.cancelWorkInFlight` sets `didCancelWorkInFlight` and does **not**
+live path `DictationSession.cancelWorkInFlight` sets `didCancelWorkInFlight` and does **not**
 call `cancelTranscription`: the busy check was skipped for this dictation, so the frame in flight
 may be a dropped file's that the tail decode or the finish is waiting behind, and stopping that
 would cancel somebody else's work. The tail decode, the finish or a fallback's whole-file decode
@@ -154,7 +154,7 @@ decode exactly as it always did.
 
 ## The busy check
 
-`IndicatorViewModel.startDecoding` used to ask `isTranscriptionBusy` before anything else and
+`DictationSession.stop` used to ask `isTranscriptionBusy` before anything else and
 queue the audio as a file if the engine was in use. A live session's own utterance decode
 raises `isTranscribing` exactly like a queue item does, so that check has to come **after** the
 live path: with a session, `finish` is awaited and the busy check is skipped; without one, the
@@ -348,6 +348,6 @@ repetition-loop risk the whisper.cpp default guards against.
 Everything is behind `liveTranscriptionEnabled` and one object. Removing the feature is
 deleting `OpenSuperWhisper/Live/LiveAudioTap.swift`, `LiveDictationSession.swift`,
 `LiveLanguagePin.swift` and `LiveUtteranceFile.swift`, the `liveSession` wiring in
-`IndicatorViewModel`, `showLiveTranscript` on the capsule, `finishTranscribed` and the preference
+`DictationSession`, `showLiveTranscript` on the capsule, `finishTranscribed` and the preference
 key. `DecodeLanguageReporting` and `RawDecode` can stay or go with it; the whole-file lane never
 reads them. No schema, model-pack or CLI change exists to roll back.

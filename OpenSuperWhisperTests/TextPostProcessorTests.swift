@@ -406,7 +406,7 @@ final class TextPostProcessorTests: XCTestCase {
 
         for sample in ["Hello world.", "Hello world", "我們明天開會。", ""] {
             XCTAssertEqual(
-                IndicatorViewModel.applyPostProcessing(sample),
+                DictationSession.applyPostProcessing(sample),
                 TextPostProcessor.prepareForInsertion(sample),
                 "diverged for \(sample.isEmpty ? "<empty>" : sample)"
             )

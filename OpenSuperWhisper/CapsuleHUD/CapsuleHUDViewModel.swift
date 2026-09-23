@@ -241,7 +241,7 @@ final class CapsuleHUDViewModel: ObservableObject {
 
     /// Whether the first Esc press is being visibly acknowledged.
     ///
-    /// The session's own state machine (`IndicatorViewModel.isConfirmingCancel`)
+    /// The card's own confirmation step (`IndicatorViewModel.isConfirmingCancel`)
     /// decides; the capsule only mirrors it, so the pill can show the same
     /// "Press Esc to cancel" step the card shows instead of letting the first
     /// Esc look dead.

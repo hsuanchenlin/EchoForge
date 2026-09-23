@@ -325,7 +325,7 @@ final class EngineConfigurationTests: XCTestCase {
     func testDictationFailure_missingEngine_keepsTheAudioAndReportsIt() {
         XCTAssertEqual(
             DictationFailureOutcome.forError(TranscriptionError.engineNotConfigured),
-            .keep(reason: EngineConfiguration.unavailableMessage, indicatorState: .noEngine)
+            .keep(reason: EngineConfiguration.unavailableMessage, notice: .noEngine)
         )
     }
 

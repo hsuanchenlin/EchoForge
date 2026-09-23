@@ -642,7 +642,7 @@ final class AskPanelWindowController {
                 await self.viewModel.voiceCaptureDidProduce(styled.final)
             } catch {
                 self.viewModel.voiceCaptureDidFail(
-                    IndicatorViewModel.failureMessage(for: error)
+                    DictationSession.failureMessage(for: error)
                 )
             }
         }

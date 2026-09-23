@@ -225,7 +225,7 @@ final class ParaformerLanguageGuardTests: XCTestCase {
             outcome,
             .keep(
                 reason: ParaformerLanguageGuard.message,
-                indicatorState: .wrongLanguage(ParaformerLanguageGuard.shortMessage)))
+                notice: .wrongLanguage(ParaformerLanguageGuard.shortMessage)))
     }
 
     /// It must not be mistaken for "no engine set up". Every setting is correct
@@ -238,7 +238,7 @@ final class ParaformerLanguageGuardTests: XCTestCase {
         XCTAssertNotEqual(
             outcome,
             .keep(
-                reason: EngineConfiguration.unavailableMessage, indicatorState: .noEngine))
+                reason: EngineConfiguration.unavailableMessage, notice: .noEngine))
     }
 
     /// The failures that still discard, so this case cannot quietly become the

@@ -50,7 +50,7 @@ final class TranscriptionCancellationTests: XCTestCase {
 
     /// Cancelling does not make the engine free, so it must not say that it has.
     ///
-    /// `isTranscribing` is what `IndicatorViewModel.isTranscriptionBusy` reads
+    /// `isTranscribing` is what `DictationSession.isTranscriptionBusy` reads
     /// to decide whether a press may start a dictation, and a whisper context
     /// must not be handed a second recording while the first is still inside
     /// `whisper_full`.

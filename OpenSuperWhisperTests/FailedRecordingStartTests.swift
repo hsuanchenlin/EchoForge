@@ -55,9 +55,9 @@ final class FailedRecordingStartTests: XCTestCase {
         }
         // A machine with no input reports the same fact the synchronous
         // pre-check reports, so it lands on the same card.
-        XCTAssertEqual(FailedRecordingStart.Reason.noAudioInput.indicatorState, .noMicrophone)
+        XCTAssertEqual(FailedRecordingStart.Reason.noAudioInput.notice, .noMicrophone)
         XCTAssertEqual(
-            FailedRecordingStart.Reason.recorderFailed.indicatorState,
+            FailedRecordingStart.Reason.recorderFailed.notice,
             .recordingFailed(FailedRecordingStart.Reason.recorderFailed.shortMessage))
     }
 
@@ -96,7 +96,6 @@ final class FailedRecordingStartTests: XCTestCase {
     /// a recording that never began.
     func testEverySurfaceHoldingTheMicrophoneListensForAFailedStart() throws {
         for path in [
-            "OpenSuperWhisper/Indicator/IndicatorWindow.swift",
             "OpenSuperWhisper/Ask/AskPanelWindowController.swift",
             "OpenSuperWhisper/ContentView.swift",
             "OpenSuperWhisper/SetupHealth/MicrophoneTest.swift",

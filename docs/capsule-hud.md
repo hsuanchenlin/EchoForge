@@ -34,7 +34,7 @@ IndicatorWindowManager.prepare()          reads capsuleHUDEnabled ONCE
                           .beginSession(for: vm)       the capsule
         │
         ▼
-IndicatorViewModel.startRecording()       the dictation itself, unchanged
+DictationSession.start()                  the dictation itself, unchanged
         │
         ▼
 IndicatorWindowManager.presentWindow(for:nearPoint:)
@@ -145,12 +145,12 @@ which is the tallest the pill gets (`maximumCapsuleHeight`) and the slot the
 engine-switch pill clears. `CapsuleHUDRenderTests` draws both appearances with
 the line, and both lines together.
 
-The Esc cancel-confirmation is the session's, not the capsule's:
-`IndicatorViewModel` runs the same state machine for both overlays and the
+The Esc cancel-confirmation is the card's, not the capsule's:
+`IndicatorViewModel` runs that one timer for both overlays and the
 capsule only mirrors `isConfirmingCancel`, swapping the meter for "Press Esc to
 cancel" over the card's own `CancelConfirmationBar` countdown.
 
-`DictationResult` (in `Indicator/IndicatorWindow.swift`) is what the outcome is
+`DictationResult` (in `Dictation/DictationPhase.swift`) is what the outcome is
 read from. The card never needed it - it decodes, hides, and says nothing either
 way - but a HUD has to tell a silent recording and a failed transcription apart
 from a successful one. `.inserted` carries `StyleRewriteStatus.explanation` when
@@ -192,7 +192,7 @@ When the style is chosen by the app being dictated into rather than in Settings
 (`docs/app-aware-style.md`), the chip names the matched style - that is where a
 user finds out that this dictation is going to be `Casual` and not `Concise`.
 Both the chip and the pipeline resolve against the same
-`IndicatorViewModel.dictationTarget`, captured once when the session started, so
+`DictationSession.dictationTarget`, captured once when the session started, so
 they cannot disagree about which app it was.
 
 **A spoken command is the one thing the chip cannot know at `beginSession`.**

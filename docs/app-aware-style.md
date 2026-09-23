@@ -82,7 +82,7 @@ style since removed) resolves to the chosen style, and says so in its
 
 ## When the app is read
 
-Once, when the dictation session starts - `IndicatorViewModel.dictationTarget`,
+Once, when the dictation session starts - `DictationSession.dictationTarget`,
 captured in its initializer. Not again at decode time: the text is going into
 whatever the user was typing in when they pressed the shortcut, and by the time
 the audio stops the frontmost app may be something they alt-tabbed to while

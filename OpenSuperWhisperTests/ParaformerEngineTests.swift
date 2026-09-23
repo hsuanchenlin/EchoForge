@@ -365,7 +365,7 @@ final class ParaformerEngineTests: XCTestCase {
                 DictationFailureOutcome.forError(error),
                 .keep(
                     reason: ParaformerLanguageGuard.message,
-                    indicatorState: .wrongLanguage(ParaformerLanguageGuard.shortMessage)))
+                    notice: .wrongLanguage(ParaformerLanguageGuard.shortMessage)))
         }
     }
 

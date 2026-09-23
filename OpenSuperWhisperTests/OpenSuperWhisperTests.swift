@@ -1338,74 +1338,74 @@ final class AddSpaceAfterSentenceTests: IsolatedPreferencesTestCase {
     }
     
     func testApplyPostProcessing_addsSpaceWhenEndsWithPeriod() {
-        let result = IndicatorViewModel.applyPostProcessing("Hello world.")
+        let result = DictationSession.applyPostProcessing("Hello world.")
         XCTAssertEqual(result, "Hello world. ")
     }
     
     func testApplyPostProcessing_noSpaceWhenNoPeriod() {
-        let result = IndicatorViewModel.applyPostProcessing("Hello world")
+        let result = DictationSession.applyPostProcessing("Hello world")
         XCTAssertEqual(result, "Hello world")
     }
     
     func testApplyPostProcessing_noSpaceWhenDisabled() {
         AppPreferences.shared.addSpaceAfterSentence = false
-        let result = IndicatorViewModel.applyPostProcessing("Hello world.")
+        let result = DictationSession.applyPostProcessing("Hello world.")
         XCTAssertEqual(result, "Hello world.")
     }
     
     func testApplyPostProcessing_emptyString() {
-        let result = IndicatorViewModel.applyPostProcessing("")
+        let result = DictationSession.applyPostProcessing("")
         XCTAssertEqual(result, "")
     }
     
     func testApplyPostProcessing_onlyPeriod() {
-        let result = IndicatorViewModel.applyPostProcessing(".")
+        let result = DictationSession.applyPostProcessing(".")
         XCTAssertEqual(result, ". ")
     }
     
     func testApplyPostProcessing_endsWithQuestionMark() {
-        let result = IndicatorViewModel.applyPostProcessing("How are you?")
+        let result = DictationSession.applyPostProcessing("How are you?")
         XCTAssertEqual(result, "How are you? ")
     }
     
     func testApplyPostProcessing_endsWithExclamationMark() {
-        let result = IndicatorViewModel.applyPostProcessing("Wow!")
+        let result = DictationSession.applyPostProcessing("Wow!")
         XCTAssertEqual(result, "Wow! ")
     }
     
     func testApplyPostProcessing_endsWithComma() {
-        let result = IndicatorViewModel.applyPostProcessing("First,")
+        let result = DictationSession.applyPostProcessing("First,")
         XCTAssertEqual(result, "First, ")
     }
     
     func testApplyPostProcessing_endsWithColon() {
-        let result = IndicatorViewModel.applyPostProcessing("Note:")
+        let result = DictationSession.applyPostProcessing("Note:")
         XCTAssertEqual(result, "Note: ")
     }
     
     func testApplyPostProcessing_endsWithSemicolon() {
-        let result = IndicatorViewModel.applyPostProcessing("Done;")
+        let result = DictationSession.applyPostProcessing("Done;")
         XCTAssertEqual(result, "Done; ")
     }
     
     func testApplyPostProcessing_endsWithEllipsis() {
-        let result = IndicatorViewModel.applyPostProcessing("Well...")
+        let result = DictationSession.applyPostProcessing("Well...")
         XCTAssertEqual(result, "Well... ")
     }
     
     func testApplyPostProcessing_multipleSentences() {
-        let result = IndicatorViewModel.applyPostProcessing("First sentence. Second sentence.")
+        let result = DictationSession.applyPostProcessing("First sentence. Second sentence.")
         XCTAssertEqual(result, "First sentence. Second sentence. ")
     }
     
     func testApplyPostProcessing_endsWithLetterNoSpace() {
-        let result = IndicatorViewModel.applyPostProcessing("No punctuation here")
+        let result = DictationSession.applyPostProcessing("No punctuation here")
         XCTAssertEqual(result, "No punctuation here")
     }
     
     func testApplyPostProcessing_defaultPreferenceIsEnabled() {
         PreferenceStore.defaults.removeObject(forKey: "addSpaceAfterSentence")
-        let result = IndicatorViewModel.applyPostProcessing("Test.")
+        let result = DictationSession.applyPostProcessing("Test.")
         XCTAssertEqual(result, "Test. ")
     }
 }
@@ -1623,7 +1623,7 @@ final class NoMicrophoneGuardTests: XCTestCase {
 
             XCTAssertTrue(viewModel.state == .noMicrophone,
                           "Indicator should show the no-microphone state instead of a fake 'recording' state")
-            XCTAssertFalse(viewModel.recorder.isRecording,
+            XCTAssertFalse(AudioRecorder.shared.isRecording,
                            "Recorder must not be recording when there is no microphone")
 
             viewModel.cleanup()

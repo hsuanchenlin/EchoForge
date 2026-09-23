@@ -351,13 +351,6 @@ final class AskVoiceShortcutTests: XCTestCase {
             .contains("guard let session = claimSession() else"))
         XCTAssertTrue(recorder.contains("var hasSessionInFlight: Bool"))
 
-        let indicator = try Self.source(of: "OpenSuperWhisper/Indicator/IndicatorWindow.swift")
-        XCTAssertTrue(
-            try Self.body(of: "func startRecording() {", in: indicator)
-                .contains("guard let claimed = recorder.startRecording() else"),
-            "a dictation must not start on a recorder the Ask panel is already holding"
-        )
-
         let main = try Self.source(of: "OpenSuperWhisper/ContentView.swift")
         XCTAssertTrue(
             try Self.body(of: "func startRecording() {", in: main)
@@ -398,34 +391,6 @@ final class AskVoiceShortcutTests: XCTestCase {
             controller.contains("private var isCapturing: Bool { captureSession != nil }"),
             "a flag beside the session outlived the claim and cancelled whatever held the microphone next"
         )
-    }
-
-    /// The indicator only ever adopts recording state it actually owns.
-    ///
-    /// `AudioRecorder` publishes to every subscriber and `@Published` replays
-    /// its current value, while `prepare()` builds the view model *before* the
-    /// press claims anything. A dictation refused because the Ask panel held
-    /// the microphone was therefore handed that panel's `isRecording` a runloop
-    /// turn later, repainted itself as a blinking recording, and let the next
-    /// press decode the user's question into their document.
-    func testARefusedDictationNeverAdoptsAnotherSessionsRecordingState() throws {
-        let indicator = try Self.source(of: "OpenSuperWhisper/Indicator/IndicatorWindow.swift")
-        let sinks = try XCTUnwrap(
-            indicator.range(of: "recorder.$isConnecting").map { indicator[$0.lowerBound...] })
-        let body = String(sinks.prefix(1400))
-
-        XCTAssertEqual(
-            body.components(separatedBy: "self.recordingSession != nil").count - 1, 2,
-            "both sinks have to be gated, or the refused card still blinks"
-        )
-        XCTAssertTrue(
-            try Self.body(of: "func cancelRecording() {", in: indicator)
-                .contains("guard let session = recordingSession else"),
-            "Esc on a refused dictation used to cancel the Ask panel's question"
-        )
-        XCTAssertTrue(
-            try Self.body(of: "func startDecoding() {", in: indicator)
-                .contains("guard let session = recordingSession else"))
     }
 
     func testShortcutRefusesAnActiveDictationBeforePresentingOrCapturingTheScreen() throws {

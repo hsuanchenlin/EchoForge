@@ -113,6 +113,7 @@ here, it is authoritative over this file.
 | Model licences and attribution | `Engines/EngineCatalog.swift` | `docs/speech-model-attribution.md` |
 | FluidAudio defects shipped around | `Engines/SenseVoiceDecoding.swift` and others | `docs/upstream-issues.md` |
 | English + Chinese in one utterance | `EngineKind.bilingualDictation` | `docs/bilingual-dictation.md` |
+| One dictation, press to paste | `OpenSuperWhisper/Dictation/` | `docs/dictation-session.md` |
 | Live dictation | `OpenSuperWhisper/Live/` | `docs/live-dictation.md` |
 | Latency measurements, the queue | `TranscriptionQueue*.swift`, `TranscriptionService.swift` | `docs/dictation-latency.md` |
 | File transcription queue | `FileDropHandler.swift`, `TranscriptionQueue.swift` | `docs/file-transcription.md` |
