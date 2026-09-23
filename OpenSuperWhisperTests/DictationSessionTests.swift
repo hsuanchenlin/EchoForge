@@ -130,12 +130,19 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
     }
 
     func testStartWhileTheMicrophoneIsHeld_refusesRatherThanSeizingIt() {
-        recorder.refusesToStart = true
-        let session = makeSession()
+        let first = makeSession()
+        let second = makeSession()
 
-        session.start()
+        first.start()
+        second.start()
 
-        XCTAssertEqual(session.phase, .ended(.busy(.startRefused)))
+        XCTAssertEqual(first.phase, .recording)
+        XCTAssertEqual(second.phase, .ended(.busy(.startRefused)))
+        XCTAssertTrue(first.isCapturing)
+        XCTAssertFalse(second.isCapturing)
+        XCTAssertEqual(recorder.startedSessions.count, 1)
+        XCTAssertTrue(recorder.stoppedSessions.isEmpty)
+        XCTAssertTrue(recorder.cancelledSessions.isEmpty)
     }
 
     func testStart_claimsTheMicrophoneAndStartsTheLiveDecoder() async {

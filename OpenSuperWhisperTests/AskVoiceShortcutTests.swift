@@ -351,13 +351,6 @@ final class AskVoiceShortcutTests: XCTestCase {
             .contains("guard let session = claimSession() else"))
         XCTAssertTrue(recorder.contains("var hasSessionInFlight: Bool"))
 
-        let dictation = try Self.source(of: "OpenSuperWhisper/Dictation/DictationSession.swift")
-        XCTAssertTrue(
-            try Self.body(of: "func start() {", in: dictation)
-                .contains("guard let claimed = recorder.startRecording() else"),
-            "a dictation must not start on a recorder the Ask panel is already holding"
-        )
-
         let main = try Self.source(of: "OpenSuperWhisper/ContentView.swift")
         XCTAssertTrue(
             try Self.body(of: "func startRecording() {", in: main)
