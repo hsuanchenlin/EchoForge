@@ -205,21 +205,21 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
         recorder.refusesToStart = true
         let session = makeSession()
         session.start()
-        
+
         XCTAssertEqual(session.phase, .ended(.busy(.startRefused)))
-        
+
         // Another surface connects and records.
         recorder.connecting.send(true)
         recorder.recording.send(true)
         try? await Task.sleep(nanoseconds: 20_000_000)
-        
+
         XCTAssertEqual(session.phase, .ended(.busy(.startRefused)))
-        
+
         // Stopping a refused session has no side effects.
         session.cancel()
         session.stop()
         try? await Task.sleep(nanoseconds: 20_000_000)
-        
+
         XCTAssertEqual(session.phase, .ended(.busy(.startRefused)))
     }
 
