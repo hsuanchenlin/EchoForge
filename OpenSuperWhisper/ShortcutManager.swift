@@ -87,10 +87,13 @@ extension KeyboardShortcuts.Name {
 class ShortcutManager {
     static let shared = ShortcutManager()
 
-    private var activeVm: IndicatorViewModel?
-    /// Which key started the session `activeVm` belongs to, so a second press
-    /// stops the session it actually started and a double-press has to be two
-    /// presses of the same key.
+    /// The dictation in flight, if there is one. Asked rather than kept: the
+    /// answer belongs to `DictationSessionRegistry`, where every surface that
+    /// can start or stop a dictation reads the same one.
+    private let registry = DictationSessionRegistry.shared
+    /// Which key started the session in flight, so a second press stops the
+    /// session it actually started and a double-press has to be two presses of
+    /// the same key.
     private var activePurpose: DictationPurpose = .dictation
     private var pendingPressPurpose: DictationPurpose = .dictation
     private var holdWorkItem: DispatchWorkItem?
@@ -147,7 +150,7 @@ class ShortcutManager {
     }
     
     @objc private func indicatorWindowDidHide() {
-        activeVm = nil
+        registry.clear()
         holdMode = false
     }
     
@@ -214,8 +217,9 @@ class ShortcutManager {
 
         KeyboardShortcuts.onKeyUp(for: .escape) { [weak self] in
             Task { @MainActor in
-                if self?.activeVm != nil, IndicatorWindowManager.shared.requestCancel() {
-                    self?.activeVm = nil
+                guard let self else { return }
+                if self.registry.current != nil, IndicatorWindowManager.shared.requestCancel() {
+                    self.registry.clear()
                 }
             }
         }
@@ -303,7 +307,7 @@ class ShortcutManager {
     /// describe how a *key* behaves, and a menu item is not a key.
     private func beginOrEndSession(purpose: DictationPurpose) {
         Task { @MainActor in
-            if self.activeVm == nil {
+            if self.registry.current == nil {
                 // A voice edit has to know what it is rewriting before the
                 // overlay is drawn, so the HUD can say "Editing Selection..."
                 // rather than "Recording...". AX is capped at 0.25 s per call;
@@ -330,7 +334,7 @@ class ShortcutManager {
                     return
                 }
                 vm.startRecording()
-                self.activeVm = vm
+                self.registry.adopt(vm.session)
                 self.activePurpose = purpose
 
                 let cursorPosition = FocusUtils.getCurrentCursorPosition()
@@ -340,7 +344,7 @@ class ShortcutManager {
                 IndicatorWindowManager.shared.presentWindow(for: vm, nearPoint: indicatorPoint)
             } else if !self.holdMode {
                 IndicatorWindowManager.shared.stopRecording()
-                self.activeVm = nil
+                self.registry.clear()
             }
         }
     }
@@ -405,7 +409,7 @@ class ShortcutManager {
 
         // Require a double-tap only when starting a new recording. Once recording is
         // active, a single press stops it so the user isn't forced to double-tap again.
-        if AppPreferences.shared.doublePressToTrigger && activeVm == nil {
+        if AppPreferences.shared.doublePressToTrigger && registry.current == nil {
             let now = CFAbsoluteTimeGetCurrent()
             let threshold = NSEvent.doubleClickInterval
             // Two presses of *different* keys are not a double-press: ⌥` then
@@ -424,7 +428,7 @@ class ShortcutManager {
         pressConsumed = true
 
         let holdToRecordEnabled = AppPreferences.shared.holdToRecord
-        let isStartingRecording = activeVm == nil
+        let isStartingRecording = registry.current == nil
 
         beginOrEndSession(purpose: purpose)
 
@@ -480,9 +484,9 @@ class ShortcutManager {
         let holdToRecordEnabled = AppPreferences.shared.holdToRecord
 
         Task { @MainActor in
-            if holdToRecordEnabled && self.holdMode && self.activeVm != nil {
+            if holdToRecordEnabled && self.holdMode && self.registry.current != nil {
                 IndicatorWindowManager.shared.stopRecording()
-                self.activeVm = nil
+                self.registry.clear()
             }
             self.holdMode = false
         }

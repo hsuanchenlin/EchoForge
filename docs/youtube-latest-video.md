@@ -25,7 +25,7 @@ feature's safety story rather than an ergonomic preference:
   channel name (`YouTubeCommandRouter`), it never reaches the rewriting stage,
   the Ask panel, the snippet expander or the translator, and there is no path
   from it back into the user's document. `SpokenIntentOutcome.insertsText` is
-  false for it and `IndicatorViewModel` refuses to paste on that purpose besides.
+  false for it and `DictationSession` refuses to paste on that purpose besides.
 
 `DictationPurpose` is where that split is written down, and it is carried on
 `Settings` rather than read from preferences, so the decision belongs to the

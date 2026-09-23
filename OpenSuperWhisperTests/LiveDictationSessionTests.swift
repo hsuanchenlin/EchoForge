@@ -7,7 +7,7 @@ import XCTest
 /// decoder that answers on cue and a VAD that reads silence off the samples -
 /// no microphone, no model, no timer.
 ///
-/// What is held here is the session's contract with `IndicatorViewModel`:
+/// What is held here is the session's contract with `DictationSession`:
 /// utterances are decoded in order and joined; every failure on the live path
 /// is a `.fallback` with the capsule line already cleared - including a tap
 /// that was not up yet, or stopped, when the key went up, a reload of the same

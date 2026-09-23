@@ -131,7 +131,7 @@ enum LiveDictationEligibility {
 /// Decodes a dictation while it is still being recorded.
 ///
 /// It owns the tap, the buffer, the poll, the cut policy, the joined
-/// transcript and its own state, and `IndicatorViewModel` sees three calls and
+/// transcript and its own state, and `DictationSession` sees three calls and
 /// one published value: `start`, `finish`, `cancel`, and `transcript`. Every
 /// half-second it reads the uncommitted audio with the VAD, asks
 /// `LiveCutPolicy` whether an utterance has ended, and if one has, writes it

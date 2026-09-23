@@ -102,7 +102,7 @@ same file.
 ## What was changed
 
 **The duration read now overlaps the transcription** rather than preceding it
-(`IndicatorViewModel.startDecoding`). Its answer is not needed until a row is written, so
+(`DictationSession.stop`). Its answer is not needed until a row is written, so
 there is no reason to pay even 0.21 ms before the engine can start. The bigger version of
 this fix - returning the duration from `AudioRecorder.stopRecording`, which already computes
 it as `recorder.currentTime` and throws it away, so the file is never reopened at all - was
@@ -165,7 +165,7 @@ only a write that failed does not, and such a row is written out once and then l
   load stops that frame, that a failed load releases it, and that a dozen concurrent callers
   never overlap.
 - **The queue always stops being busy.** `isProcessing` gates
-  `IndicatorViewModel.isTranscriptionBusy`, which refuses to start a dictation at all, so a loop
+  `DictationSession.isTranscriptionBusy`, which refuses to start a dictation at all, so a loop
   that does not return is not a stuck row - it is an app that no longer dictates. The flag now
   comes down in a `defer`, the loop has a bounded escape when a row will not leave the pending
   set, and the cancelled-id set is cleared rather than growing for the life of the process.

@@ -351,9 +351,9 @@ final class AskVoiceShortcutTests: XCTestCase {
             .contains("guard let session = claimSession() else"))
         XCTAssertTrue(recorder.contains("var hasSessionInFlight: Bool"))
 
-        let indicator = try Self.source(of: "OpenSuperWhisper/Indicator/IndicatorWindow.swift")
+        let dictation = try Self.source(of: "OpenSuperWhisper/Dictation/DictationSession.swift")
         XCTAssertTrue(
-            try Self.body(of: "func startRecording() {", in: indicator)
+            try Self.body(of: "func start() {", in: dictation)
                 .contains("guard let claimed = recorder.startRecording() else"),
             "a dictation must not start on a recorder the Ask panel is already holding"
         )
@@ -409,9 +409,9 @@ final class AskVoiceShortcutTests: XCTestCase {
     /// turn later, repainted itself as a blinking recording, and let the next
     /// press decode the user's question into their document.
     func testARefusedDictationNeverAdoptsAnotherSessionsRecordingState() throws {
-        let indicator = try Self.source(of: "OpenSuperWhisper/Indicator/IndicatorWindow.swift")
+        let session = try Self.source(of: "OpenSuperWhisper/Dictation/DictationSession.swift")
         let sinks = try XCTUnwrap(
-            indicator.range(of: "recorder.$isConnecting").map { indicator[$0.lowerBound...] })
+            session.range(of: "recorder.isConnectingPublisher").map { session[$0.lowerBound...] })
         let body = String(sinks.prefix(1400))
 
         XCTAssertEqual(
@@ -419,12 +419,12 @@ final class AskVoiceShortcutTests: XCTestCase {
             "both sinks have to be gated, or the refused card still blinks"
         )
         XCTAssertTrue(
-            try Self.body(of: "func cancelRecording() {", in: indicator)
+            try Self.body(of: "func cancel() {", in: session)
                 .contains("guard let session = recordingSession else"),
             "Esc on a refused dictation used to cancel the Ask panel's question"
         )
         XCTAssertTrue(
-            try Self.body(of: "func startDecoding() {", in: indicator)
+            try Self.body(of: "func stop() {", in: session)
                 .contains("guard let session = recordingSession else"))
     }
 

@@ -75,7 +75,7 @@ final class TranscriptionQueueBehaviourTests: XCTestCase {
     }
 
     /// A queue that never stops being busy is not a stuck row: `isProcessing`
-    /// gates `IndicatorViewModel.isTranscriptionBusy`, which refuses to start a
+    /// gates `DictationSession.isTranscriptionBusy`, which refuses to start a
     /// dictation at all.
     func testTheBusyFlagComesDownHoweverTheLoopEnds() throws {
         let body = try Self.body(of: "func startProcessingQueue() {", in: try queue)

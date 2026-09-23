@@ -79,7 +79,7 @@ class TranscriptionQueue: ObservableObject {
             guard let self else { return }
             // In a `defer` so the queue stops being busy however the loop ends,
             // including a cancellation of this task. `isProcessing` gates
-            // `IndicatorViewModel.isTranscriptionBusy`, which refuses to start a
+            // `DictationSession.isTranscriptionBusy`, which refuses to start a
             // dictation at all - so a queue left busy is not a stuck row, it is
             // an app that no longer dictates.
             defer {
@@ -123,7 +123,7 @@ class TranscriptionQueue: ObservableObject {
     ///   open-with and a file the user pointed at are `.fileTranscription`; the
     ///   one caller with something else to say is the live session whose audio
     ///   was queued because the engine was busy
-    ///   (`IndicatorViewModel.queuedProvenance`). Nothing here routes a spoken
+    ///   (`RecordingProvenance.queued(for:)`). Nothing here routes a spoken
     ///   intent, so nothing queued can become a command however it is worded.
     func addFileToQueue(
         url: URL, provenance: RecordingProvenance = .fileTranscription

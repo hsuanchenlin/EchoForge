@@ -19,7 +19,7 @@ For one release it was not: ⌥A reached `present()` and stopped, which put an
 idle card on screen with an **Ask by voice** button the user had to find with
 the mouse. Every other listening path in the app reaches a call that starts a
 capture on the same press - `startVoiceFollowUp` here, `startScreenQuery` for
-⌥S, `IndicatorViewModel.startRecording` for the two dictation keys - and this
+⌥S, `DictationSession.start` for the two dictation keys - and this
 one reached none of them. That is the shape to check first if it ever looks
 broken again: a panel that appears is not a panel that is recording.
 
@@ -182,7 +182,7 @@ them forgets. The claim is **synchronous**, which the published `isRecording` an
 `isConnecting` are not - those are set on the main queue after the recorder's
 work queue has paid its CoreAudio round-trips, so a press landing inside that
 window read an idle recorder. Each caller only chooses the wording:
-`IndicatorViewModel` shows its ordinary `.startRefused` message, the panel shows
+`DictationSession` shows its ordinary `.startRefused` message, the panel shows
 `voiceCaptureRefusal`'s sentence.
 
 **Ending a recording names the session it means.** `stopRecording` and
