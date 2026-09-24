@@ -53,6 +53,11 @@ enum RecordingState: Equatable {
     /// "that was not Mandarin", and the fix is another engine.
     case wrongLanguage(String)
 
+    /// The engine did not answer inside its deadline; the decode was stopped
+    /// and the recording kept. No reason is carried because there is exactly
+    /// one thing to say and it is two words long.
+    case transcriptionTimedOut
+
     /// A spoken command that was understood and could not be carried out: an
     /// unknown channel, a feed that could not be read, a browser that is not
     /// installed. Nothing was inserted and nothing was opened, which is why it
@@ -93,6 +98,7 @@ extension RecordingState {
         case .recordingFailed(let reason): self = .recordingFailed(reason)
         case .noEngine: self = .noEngine
         case .cloudFailed(let reason): self = .cloudFailed(reason)
+        case .transcriptionTimedOut: self = .transcriptionTimedOut
         case .wrongLanguage(let reason): self = .wrongLanguage(reason)
         case .commandFailed(let reason): self = .commandFailed(reason)
         }
@@ -269,6 +275,11 @@ class IndicatorViewModel: ObservableObject {
         // restart decoding or hide the window while transcription is in flight.
         guard state == .recording || state == .connecting else { return }
 
+        // The confirmation belongs only to the capture being stopped. Clear it
+        // at the stop boundary rather than waiting for the session's decoding
+        // phase, since a failed or synthetic recorder may end without entering
+        // that phase.
+        resetCancelConfirmation()
         session.stop()
     }
 
@@ -511,6 +522,21 @@ struct IndicatorWindow: View {
                     // Kept to the same one line as the case above; the sentence
                     // naming the fix is on the recording that was just kept.
                     Text(reason)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.orange)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            case .transcriptionTimedOut:
+                HStack(spacing: 8) {
+                    Image(systemName: "clock.badge.exclamationmark")
+                        .foregroundColor(.orange)
+                        .frame(width: 24)
+
+                    // Two words, as with the cases around it; the sentence
+                    // naming the fix is on the recording that was just kept.
+                    Text("Timed out")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(.orange)
                         .lineLimit(1)
