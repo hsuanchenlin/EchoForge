@@ -173,8 +173,9 @@ has the measurement and the test that pins it.
 - **The engine is owned too, from before it loads.** Every transcription - dictation, live
   utterance decode, queued file, post-processing alone - runs inside `runTranscription`, which
   reserves its `TranscriptionFrame` synchronously with the generation bump, before the engine
-  load can suspend, and releases it in its own `defer`. Nothing else waits on, clears or
-  bypasses that frame. (`docs/dictation-latency.md`)
+  load can suspend, and releases it in its own `defer`. Engine load and decode are hard-deadlined;
+  a decode timeout drops the suspect engine before releasing the frame. Nothing else waits on,
+  clears or bypasses that frame. (`docs/dictation-latency.md`)
 - **HUDs never take focus.** Dictation ends by pasting into the app the user was in; only the
   Ask panel and the channel picker may activate, and they do it with
   `activate(ignoringOtherApps:)`. (`docs/capsule-hud.md`, `docs/ask-panel.md`)

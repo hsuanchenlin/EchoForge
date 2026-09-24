@@ -555,6 +555,9 @@ final class CapsuleHUDViewModel: ObservableObject {
         // pill's words and the sentence separately, and this is the pill's.
         case .commandFailed(let reason):
             fail(reason)
+        // Two words, like the card; the kept recording carries the sentence.
+        case .transcriptionTimedOut:
+            fail("Timed out")
         // Not a failure and not a finished session: the words were read and
         // the user is being asked which of their channels they meant. The pill
         // says that rather than "Transcribing…", which would claim work that

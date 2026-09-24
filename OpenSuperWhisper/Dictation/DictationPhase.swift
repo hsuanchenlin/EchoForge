@@ -68,6 +68,14 @@ enum DictationNotice: Equatable {
     /// have worked a minute later.
     case cloudFailed(String)
 
+    /// The engine did not answer inside its deadline and the decode was stopped.
+    ///
+    /// Its own case for the same reason `cloudFailed` is: nothing is wrong with
+    /// the setup, the audio was kept, and the fix is to try again - so the words
+    /// are "timed out", not a sentence that sends the user to a pane where
+    /// everything is correct.
+    case transcriptionTimedOut
+
     /// The engine refused the language that was spoken.
     case wrongLanguage(String)
 
@@ -104,6 +112,15 @@ enum DictationFailureOutcome: Equatable {
             return .keep(
                 reason: cloud.errorDescription ?? cloud.shortMessage,
                 notice: .cloudFailed(cloud.shortMessage)
+            )
+        }
+        // A timeout is transient in the same way a cloud failure is: the engine
+        // was stopped, not disproven, and the recording transcribes on a retry.
+        // Deleting it would be the app punishing the user for its own hang.
+        if let transcription = error as? TranscriptionError, transcription == .processingTimedOut {
+            return .keep(
+                reason: transcription.errorDescription ?? "Transcription timed out.",
+                notice: .transcriptionTimedOut
             )
         }
         // The audio is good and a different engine transcribes it, so deleting

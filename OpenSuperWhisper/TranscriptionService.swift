@@ -240,6 +240,43 @@ class TranscriptionService: ObservableObject {
     /// it.
     var engineOverride: TranscriptionEngine?
 
+    /// How long one decode may take per second of audio, and the least a decode
+    /// of any length may take, before it is declared hung.
+    ///
+    /// The budget scales with the recording because the legitimate cost does:
+    /// the slowest warm decode this app has measured is well under realtime
+    /// (`docs/dictation-latency.md`), so ten times the audio's length is far
+    /// above any decode that is still working and far below the user's patience
+    /// for one that is not. The floor keeps a two-second utterance from being
+    /// declared hung twenty seconds in - a loaded machine or a first decode
+    /// after a cold start costs that without anything being wrong.
+    nonisolated static let decodeTimeoutFactor: TimeInterval = 10
+    nonisolated static let decodeTimeoutFloor: TimeInterval = 120
+
+    /// How long an engine load may take before it is declared hung.
+    ///
+    /// A cold load is a one-time Neural Engine compile measured at ~85 s, paid
+    /// again after every ANE cache eviction; under load it has been observed
+    /// past ten minutes. Fifteen minutes is above every load that still ends
+    /// and below "the dictation key stopped answering", which is what a
+    /// deadlocked load looks like from the keyboard: the frame is held, and
+    /// every transcription queues behind it for the life of the process.
+    nonisolated static let loadTimeout: TimeInterval = 900
+
+    /// What one decode of `seconds` of audio may take. Pure, so the shape the
+    /// tests pin is the shape production runs.
+    nonisolated static func decodeTimeoutBudget(forAudioDuration seconds: TimeInterval) -> TimeInterval {
+        max(decodeTimeoutFloor, seconds * decodeTimeoutFactor)
+    }
+
+    /// Test seams for the two deadlines above, the same kind of seam as
+    /// `engineOverride`: the decisions around a timed-out transcription - that
+    /// the frame is released, that the engine is dropped, that the failure is
+    /// clean - are worth asserting without spending fifteen minutes per test.
+    /// Production never sets them.
+    var decodeTimeoutOverride: TimeInterval?
+    var loadTimeoutOverride: TimeInterval?
+
     func reserveEngineForRemoval(
         _ engine: EngineKind
     ) -> EngineWeightUseCoordinator.RemovalReservationResult {
@@ -693,10 +730,13 @@ class TranscriptionService: ObservableObject {
     /// then must still wait its turn, so the frame is not allowed to end at the
     /// engine.
     func transcribeAudio(url: URL, settings: Settings) async throws -> StyledTranscript {
-        try await runEngineTranscription(publishing: { $0.final }) { engine in
-            let raw = try await engine.transcribeAudio(url: url, settings: settings)
+        let timeoutOverride = decodeTimeoutOverride
+        return try await runEngineTranscription(publishing: { $0.final }) { engine in
+            let raw = try await self.decodeWithDeadline(
+                engine: engine, url: url, settings: settings,
+                timeoutOverride: timeoutOverride, reporting: false)
             try Task.checkCancellation()
-            return await Self.finish(raw: raw, settings: settings)
+            return await Self.finish(raw: raw.text, settings: settings)
         }
     }
 
@@ -716,12 +756,71 @@ class TranscriptionService: ObservableObject {
     /// session learns what its first utterance was spoken in
     /// (`LiveLanguagePin`). An engine that cannot say reports nil.
     func decodeRaw(url: URL, settings: Settings) async throws -> RawDecode {
-        try await runEngineTranscription(publishing: { $0.text }) { engine in
-            if let reporting = engine as? DecodeLanguageReporting {
-                return try await reporting.transcribeAudioReportingLanguage(url: url, settings: settings)
-            }
-            return RawDecode(text: try await engine.transcribeAudio(url: url, settings: settings))
+        let timeoutOverride = decodeTimeoutOverride
+        return try await runEngineTranscription(publishing: { $0.text }) { engine in
+            try await self.decodeWithDeadline(
+                engine: engine, url: url, settings: settings,
+                timeoutOverride: timeoutOverride, reporting: true)
         }
+    }
+
+    /// One engine decode, bounded so a hung engine fails the transcription
+    /// instead of holding the serialisation frame - and with it every later
+    /// transcription - for the life of the process.
+    ///
+    /// The budget scales with the audio's length (`decodeTimeoutBudget`), which
+    /// is why the duration is read here rather than by the caller: off the main
+    /// actor, inside the work that already suspends, and only when no test has
+    /// pinned the budget.
+    ///
+    /// The deadline is `AsyncDeadline`, the same hard bound the rewriting stage
+    /// and the Ask panel use, and for the same reason: the decode is a closed
+    /// call (`whisper_full`, a CoreML prediction) whose cooperation cannot be
+    /// assumed. A decode that outlives its budget loses the race; the loser is
+    /// cancelled and abandoned, and `engineDeadlineExceeded` decides what that
+    /// leaves behind.
+    nonisolated private func decodeWithDeadline(
+        engine: TranscriptionEngine,
+        url: URL,
+        settings: Settings,
+        timeoutOverride: TimeInterval?,
+        reporting: Bool
+    ) async throws -> RawDecode {
+        let budget: TimeInterval
+        if let timeoutOverride {
+            budget = timeoutOverride
+        } else {
+            budget = Self.decodeTimeoutBudget(forAudioDuration: await AudioUtil.audioDuration(url: url))
+        }
+        do {
+            return try await AsyncDeadline.run(budget: budget) {
+                if reporting, let reporter = engine as? DecodeLanguageReporting {
+                    return try await reporter.transcribeAudioReportingLanguage(url: url, settings: settings)
+                }
+                return RawDecode(text: try await engine.transcribeAudio(url: url, settings: settings))
+            }
+        } catch is AsyncDeadline.Exceeded {
+            await self.engineDeadlineExceeded(engine, budget: budget)
+            throw TranscriptionError.processingTimedOut
+        }
+    }
+
+    /// What a decode that outlived its budget leaves behind.
+    ///
+    /// The engine is told to cancel: whisper's abort flag unwinds `whisper_full`
+    /// at its next check rather than letting it run to its end beside the next
+    /// transcription. And the engine is then dropped, because a decode that
+    /// ignored its deadline is not trusted with the next recording: the caller
+    /// after this one loads a fresh engine rather than racing a decode that may
+    /// still be inside the old one's context. The abandoned task holds its own
+    /// reference, so the old engine lives exactly as long as its stuck decode
+    /// and is never deallocated under it.
+    private func engineDeadlineExceeded(_ engine: TranscriptionEngine, budget: TimeInterval) {
+        print("Transcription exceeded its \(budget)s deadline; engine cancelled and unloaded: \(engine.engineName)")
+        engine.cancelTranscription()
+        guard currentEngine === engine else { return }
+        currentEngine = nil
+        currentEngineKind = nil
     }
 
     /// Runs the post-processing pipeline over a transcript that was decoded
@@ -768,15 +867,44 @@ class TranscriptionService: ObservableObject {
         publishing text: @escaping @Sendable (Result) -> String,
         _ work: @escaping @Sendable (TranscriptionEngine) async throws -> Result
     ) async throws -> Result {
-        try await runTranscription(
+        let loadTimeout = loadTimeoutOverride ?? Self.loadTimeout
+        return try await runTranscription(
             publishing: text,
             preparing: { generation in
-                let engine = try await self.engineForTranscription()
+                let engine = try await self.engineForTranscription(within: loadTimeout)
                 self.observeProgress(of: engine)
                 self.observePartialTranscripts(of: engine, generation: generation)
                 return engine
             },
             work)
+    }
+
+    /// The engine, loaded if need be, with the load itself bounded.
+    ///
+    /// A load that never returns - a CoreML compile deadlocked, a coordinator
+    /// wedge - used to hold the frame for the life of the process, which is
+    /// "the dictation key stopped answering". The bound turns it into a clean
+    /// failure: the frame's `defer` gives the engine slot back and the next
+    /// transcription tries the load again. A load that completes after its
+    /// deadline still lands as `currentEngine` - the answer arrived, merely
+    /// late - so nothing about a slow-but-alive load is wasted.
+    private func engineForTranscription(within budget: TimeInterval) async throws -> TranscriptionEngine {
+        do {
+            return try await AsyncDeadline.run(budget: budget) {
+                EngineBox(engine: try await self.engineForTranscription())
+            }.engine
+        } catch is AsyncDeadline.Exceeded {
+            print("Engine load exceeded its \(budget)s deadline")
+            throw TranscriptionError.processingTimedOut
+        }
+    }
+
+    /// `AsyncDeadline` hands its result across a task boundary, so the result
+    /// must be `Sendable`; an engine is a class the protocol deliberately does
+    /// not so constrain. The box asserts what holds here: the reference crosses
+    /// between two main-actor hops and is never shared with the decode itself.
+    private struct EngineBox: @unchecked Sendable {
+        let engine: TranscriptionEngine
     }
 
     /// The frame every transcription runs in: waits for the engine to be free,
@@ -945,6 +1073,17 @@ enum TranscriptionError: LocalizedError, Equatable {
     /// failure path only needs a sentence and a two-word form of it.
     case unsupportedSpokenLanguage(message: String, shortMessage: String)
 
+    /// The engine - or its load - outlived the time a transcription of this
+    /// audio may take (`decodeTimeoutBudget`, `loadTimeout`).
+    ///
+    /// Its own case because it says nothing about the audio and nothing about
+    /// the setup: the decode was stopped, not disproven, and the same recording
+    /// transcribes on a retry once the engine is reloaded. `DictationFailureOutcome`
+    /// therefore keeps the audio, as it does for a cloud failure - the one
+    /// thing a timeout must never be is indistinguishable from the app having
+    /// hung, which is the failure it exists to retire.
+    case processingTimedOut
+
     /// `LocalizedError` so the failure reaches the user as an instruction
     /// rather than as "OpenSuperWhisper.TranscriptionError error 0" - the queue
     /// has always shown `localizedDescription` on a failed recording, which
@@ -959,6 +1098,8 @@ enum TranscriptionError: LocalizedError, Equatable {
             return "The audio could not be read."
         case .processingFailed:
             return "The audio could not be transcribed."
+        case .processingTimedOut:
+            return "Transcription took too long and was stopped. Your recording was kept - regenerate it from History to try again."
         case .unsupportedSpokenLanguage(let message, _):
             return message
         }

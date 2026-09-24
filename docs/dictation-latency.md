@@ -99,6 +99,38 @@ The FluidAudio engines have no such encode and nothing to pin; on them the live 
 gain is the earlier decode. Their per-engine parity, and the one budget it changed, are in the
 same file.
 
+## A slow engine is bounded
+
+Every engine load and decode runs inside the same `TranscriptionService` frame, so an engine
+call that never returns used to own that frame forever. Later dictations, live utterances and
+queued files all waited behind it. Cancellation was not a sufficient bound: Whisper can be
+inside `whisper_full`, and the FluidAudio engines can be inside an atomic CoreML prediction,
+where task cancellation is not observed until the call returns.
+
+The two waits now use `AsyncDeadline`, whose result does not depend on the losing operation
+cooperating with cancellation:
+
+- A load has 900 s. The limit is above the observed cold Neural Engine compile under pressure,
+  but finite when model loading or its coordinator is deadlocked.
+- A decode has `max(120 s, 10 x audio duration)`. The floor leaves room for a loaded machine and
+  first-use overhead on short dictations; the factor keeps long file transcription proportional
+  to the work it legitimately has to do.
+
+A decode that exceeds its deadline is cancelled through the engine adapter, the engine instance
+is discarded, and the frame is released. The next caller loads a fresh instance rather than
+sharing state with work that may still be stuck in the old one. A load timeout also releases the
+frame and lets the next caller retry. Both paths return `processingTimedOut`; dictation keeps the
+recording and tells the user it timed out, so History can regenerate it. There is no automatic
+engine fallback because changing engines can change language support and output semantics without
+the user choosing that tradeoff.
+
+`TranscriptionLatencyAndTimeoutTests` is the regression harness. Its non-cooperative stub engines
+reproduce permanently hung load and decode calls, then prove the deadline releases the frame,
+queued and concurrent callers resolve, and a retry reloads instead of reusing the suspect engine.
+It also generates 5 s, 30 s and 60 s 16 kHz audio fixtures and measures the whole service path
+against proportional decode work. The timing assertions are intentionally loose enough for CI;
+they detect a serialization wedge or pathological pipeline overhead, not ordinary machine speed.
+
 ## What was changed
 
 **The duration read now overlaps the transcription** rather than preceding it
