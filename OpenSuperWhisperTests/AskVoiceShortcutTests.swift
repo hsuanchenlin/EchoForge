@@ -358,10 +358,10 @@ final class AskVoiceShortcutTests: XCTestCase {
     func testTheRecorderRefusesASecondSessionSoNeitherKeyCanSeizeTheOther() throws {
         let recorder = try Self.source(of: "OpenSuperWhisper/AudioRecorder.swift")
         XCTAssertTrue(
-            recorder.contains("func startRecording() -> RecordingSession?"),
+            recorder.contains("func startRecording() -> RecordingCapture?"),
             "a start that cannot refuse cannot be asked to"
         )
-        XCTAssertTrue(try Self.body(of: "func startRecording() -> RecordingSession? {", in: recorder)
+        XCTAssertTrue(try Self.body(of: "func startRecording() -> RecordingCapture? {", in: recorder)
             .contains("guard let session = claimSession() else"))
         XCTAssertTrue(recorder.contains("var hasSessionInFlight: Bool"))
 

@@ -3,10 +3,9 @@ import Foundation
 /// Where one dictation has got to.
 ///
 /// This is the session's own account of itself, and the only thing a surface
-/// following a dictation has to read: `IndicatorViewModel` derives the card's
-/// `RecordingState` from it, and the capsule follows that in turn. It is
-/// deliberately shorter than `RecordingState` - the cases here are the stages
-/// of the *work*, and every way a session can stop early is one `.ended`
+/// following a dictation has to read. The card draws it, and the capsule
+/// follows it through `CapsuleHUDViewModel.follow(_:)`. The cases here are the
+/// stages of the *work*, and every way a session can stop early is one `.ended`
 /// carrying the line the user still has to be shown.
 ///
 /// Nothing here says how long a message stays on screen. That is a property of
@@ -51,7 +50,7 @@ enum DictationNotice: Equatable {
     /// different place and means something different: `.noMicrophone` is the
     /// synchronous refusal before anything was claimed, while this is a start
     /// that was accepted, drawn as a recording, and then failed on the
-    /// recorder's work queue (`AudioRecorder.failedStart`). Until it existed the
+    /// recorder's work queue (`RecordingCapture.started()`). Until it existed the
     /// card blinked "Recording..." over a microphone that never started and then
     /// vanished without a word.
     case recordingFailed(String)
@@ -171,6 +170,27 @@ enum DictationResult: Equatable {
     case noSpeech
     /// It failed for a reason worth telling the user.
     case failed(String)
+}
+
+extension DictationNotice {
+    /// The one line the capsule pill holds for this notice.
+    ///
+    /// The two busy paths look alike on the card ("Processing...") but only one
+    /// kept the audio, so the pill says so. Everything else is already the short
+    /// form written for both overlays.
+    var capsuleLine: String {
+        switch self {
+        case .busy(.audioQueued): return "Still transcribing - queued"
+        case .busy(.startRefused): return "Busy - try again in a moment"
+        case .noMicrophone: return "No microphone"
+        case .recordingFailed(let reason): return reason
+        case .noEngine: return "No engine set up"
+        case .cloudFailed(let reason): return reason
+        case .transcriptionTimedOut: return "Timed out"
+        case .wrongLanguage(let reason): return reason
+        case .commandFailed(let reason): return reason
+        }
+    }
 }
 
 extension FailedRecordingStart.Reason {

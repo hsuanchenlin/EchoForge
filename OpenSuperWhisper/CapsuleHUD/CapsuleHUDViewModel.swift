@@ -21,7 +21,7 @@ enum CapsuleHUDState: Equatable {
     /// the user's answer, not the app's work. Its own state rather than a
     /// `polishing` label, which would claim the engine is still running for as
     /// long as the picker waits - the exact lie
-    /// `RecordingState.awaitingChannelChoice` exists to retire - and rather
+    /// `DictationPhase.awaitingChannelChoice` exists to retire - and rather
     /// than an error, because nothing has failed: the session ends on whatever
     /// they choose.
     case awaitingChannelChoice
@@ -509,14 +509,16 @@ final class CapsuleHUDViewModel: ObservableObject {
 
     // MARK: - Driving it from a dictation
 
-    /// Follows the indicator's own state, which is the app's single account of
+    /// Follows the session's own phase, which is the app's single account of
     /// where a dictation has got to.
     ///
-    /// Mapped rather than mirrored: `.busy`, `.noMicrophone` and `.noEngine` are
-    /// three different sentences the user needs and the card already shows all
-    /// three in the same warning styling, so the capsule shows them the same way.
-    func follow(_ recordingState: RecordingState) {
-        switch recordingState {
+    /// `.ended` is the one place a session finishes: a notice becomes the error
+    /// badge, and a silent end (`nil`) is the outcome `result` already recorded.
+    /// Mapped rather than mirrored: the two busy paths, no microphone and no
+    /// engine are different sentences the user needs, and the card already shows
+    /// all of them, so the capsule shows them the same way.
+    func follow(_ phase: DictationPhase, result: DictationResult? = nil) {
+        switch phase {
         case .idle:
             break
         case .connecting:
@@ -525,46 +527,14 @@ final class CapsuleHUDViewModel: ObservableObject {
             beginRecording()
         case .decoding:
             beginPolishing(.transcribing)
-        // The two busy paths look alike but only one kept the audio: a stop
-        // while busy queues the recording, a start while busy refuses it, and
-        // "queued" for the refused start would promise words that are never
-        // going to arrive.
-        case .busy(.audioQueued):
-            fail("Still transcribing - queued")
-        case .busy(.startRefused):
-            fail("Busy - try again in a moment")
-        case .noMicrophone:
-            fail("No microphone")
-        // Short by construction, like the three below it: the wording is
-        // `FailedRecordingStart.Reason.shortMessage`, written for this pill and
-        // for the card.
-        case .recordingFailed(let reason):
-            fail(reason)
-        case .noEngine:
-            fail(CapsuleHUDViewModel.noEngineMessage)
-        // Already short by construction - `CloudRequestError.shortMessage` is
-        // written for these two overlays - so it is shown as it stands rather
-        // than replaced with a generic line that says less.
-        case .cloudFailed(let reason):
-            fail(reason)
-        // Short by construction too - `ParaformerLanguageGuard.shortMessage` is
-        // written for these two overlays.
-        case .wrongLanguage(let reason):
-            fail(reason)
-        // Short by construction as well - `YouTubeLatestVideoReport` carries the
-        // pill's words and the sentence separately, and this is the pill's.
-        case .commandFailed(let reason):
-            fail(reason)
-        // Two words, like the card; the kept recording carries the sentence.
-        case .transcriptionTimedOut:
-            fail("Timed out")
-        // Not a failure and not a finished session: the words were read and
-        // the user is being asked which of their channels they meant. The pill
-        // says that rather than "Transcribing…", which would claim work that
-        // has finished - the same boundary the card draws, since the two are
-        // presentations of one session.
         case .awaitingChannelChoice:
             beginAwaitingChannelChoice()
+        case .ended(let notice):
+            if let notice {
+                fail(notice.capsuleLine)
+            } else {
+                finish(result: result)
+            }
         }
     }
 

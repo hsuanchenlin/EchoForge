@@ -16,7 +16,7 @@ import Foundation
 // MARK: - The microphone
 
 @MainActor
-final class FakeDictationRecorder: DictationRecording {
+final class FakeDictationRecorder: DictationRecording, RecordingCaptureControlling {
     /// Real claims, so the session's "name the session you are stopping" rule
     /// is exercised rather than stubbed out. `RecordingSession` has no public
     /// initialiser precisely so nothing can fake one.
@@ -30,28 +30,17 @@ final class FakeDictationRecorder: DictationRecording {
     var moveError: Error?
 
     private(set) var startedSessions: [RecordingSession] = []
+    private(set) var startedCaptures: [RecordingCapture] = []
     private(set) var stoppedSessions: [RecordingSession] = []
     private(set) var cancelledSessions: [RecordingSession] = []
     private(set) var moves: [(from: URL, to: URL)] = []
 
-    let connecting = CurrentValueSubject<Bool, Never>(false)
-    let recording = CurrentValueSubject<Bool, Never>(false)
-    let failure = CurrentValueSubject<FailedRecordingStart?, Never>(nil)
-
-    nonisolated var isConnectingPublisher: AnyPublisher<Bool, Never> {
-        connecting.eraseToAnyPublisher()
-    }
-    nonisolated var isRecordingPublisher: AnyPublisher<Bool, Never> {
-        recording.eraseToAnyPublisher()
-    }
-    nonisolated var failedStartPublisher: AnyPublisher<FailedRecordingStart?, Never> {
-        failure.eraseToAnyPublisher()
-    }
-
-    func startRecording() -> RecordingSession? {
+    func startRecording() -> RecordingCapture? {
         guard !refusesToStart, let session = claim.claim() else { return nil }
+        let capture = RecordingCapture(session: session, controller: self)
         startedSessions.append(session)
-        return session
+        startedCaptures.append(capture)
+        return capture
     }
 
     func stopRecording(_ session: RecordingSession) async -> URL? {
@@ -72,9 +61,19 @@ final class FakeDictationRecorder: DictationRecording {
 
     /// Reports a start that was accepted and then failed on the work queue.
     func failStart(reason: FailedRecordingStart.Reason) {
-        guard let session = startedSessions.last else { return }
-        _ = claim.release(session)
-        failure.send(FailedRecordingStart(session: session, reason: reason))
+        guard let capture = startedCaptures.last else { return }
+        _ = claim.release(capture.session)
+        capture.completeStart(.failure(reason))
+    }
+
+    /// Paints this capture as connecting, the way a Bluetooth headset does.
+    func sendConnecting(_ isConnecting: Bool = true) {
+        startedCaptures.last?.noteConnecting(isConnecting)
+    }
+
+    /// Paints this capture as recording, and resolves its start as success.
+    func sendRecording(_ isRecording: Bool = true) {
+        startedCaptures.last?.noteRecording(isRecording)
     }
 }
 

@@ -75,17 +75,15 @@ final class RecordingSessionClaim {
 /// A recording start that failed after its session had already been handed to
 /// the caller.
 ///
-/// It carries the session rather than being a bare flag because the recorder is
-/// shared by five keys and `@Published` replays: a subscriber has to be able to
-/// tell "my recording never started" from "somebody else's did not", and only
-/// the session says which. See `AudioRecorder.failedStart`.
-struct FailedRecordingStart: Equatable {
-    let session: RecordingSession
-
+/// Namespace for the two reasons a capture's `started()` can fail. Identity
+/// lives on `RecordingCapture` itself: a surface that holds a capture hears
+/// only that capture's result, so there is no session-tagged published failure
+/// to gate.
+enum FailedRecordingStart {
     /// Why the microphone never opened. Two cases because they are two
     /// sentences to the user: one is a machine with no input device, the other
     /// is an input device that refused.
-    enum Reason: Equatable {
+    enum Reason: Error, Equatable {
         /// `MicrophoneService` had no active input by the time the work queue
         /// got there - unplugged between the press and the start, or never
         /// there.
@@ -94,8 +92,6 @@ struct FailedRecordingStart: Equatable {
         /// `AVAudioRecorder` threw: the device is present and would not record.
         case recorderFailed
     }
-
-    let reason: Reason
 }
 
 extension FailedRecordingStart.Reason {
@@ -119,17 +115,4 @@ extension FailedRecordingStart.Reason {
     }
 }
 
-extension FailedRecordingStart {
-    /// Whether this failure ends `session`'s recording.
-    ///
-    /// The whole subscription rule in one predicate. `AudioRecorder.failedStart`
-    /// is `@Published`, so a subscriber is replayed whatever failure happens to
-    /// be sitting there when it appears, and five keys share the recorder, so
-    /// the failure it sees may belong to somebody else's capture. A surface may
-    /// act only on the one naming the session it is actually holding - and on
-    /// none at all when it holds nothing.
-    func ends(_ session: RecordingSession?) -> Bool {
-        guard let session else { return false }
-        return self.session == session
-    }
-}
+

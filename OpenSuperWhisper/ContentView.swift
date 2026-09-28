@@ -13,7 +13,7 @@ import UniformTypeIdentifiers
 
 @MainActor
 class ContentViewModel: ObservableObject {
-    @Published var state: RecordingState = .idle
+    @Published var state: DictationPhase = .idle
     @Published var isBlinking = false
     @Published var recorder: AudioRecorder = .shared
     @Published var transcriptionService = TranscriptionService.shared
@@ -57,7 +57,7 @@ class ContentViewModel: ObservableObject {
     ///
     /// A banner rather than the two-second message the dictation card shows: a
     /// window the user is looking at can hold the sentence until the next press
-    /// clears it. See `AudioRecorder.failedStart`.
+    /// clears it. See `RecordingCapture.started()`.
     @Published var recordingStartFailure: String?
 
     private var currentPage = 0

@@ -181,23 +181,21 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
         XCTAssertNil(session.liveTranscript)
     }
 
-    /// A failure belonging to somebody else's capture - ⌥A's, say - must not end
-    /// a dictation. `AudioRecorder.failedStart` is replayed to every subscriber.
+    /// A failure belonging to somebody else's capture - ⌥A's, say - cannot end
+    /// a dictation. Each capture carries its own start result, so there is no
+    /// shared published failure to subscribe to or gate.
     func testAnotherSessionsFailedStart_isIgnored() async {
         let session = makeSession()
         session.start()
 
-        // A session that is not this one. Claims number from one per
-        // `RecordingSessionClaim`, so the second of a separate claim's is the
-        // one that cannot collide with the recording in flight.
-        let otherClaim = RecordingSessionClaim()
-        let first = otherClaim.claim()!
-        otherClaim.release(first)
-        let other = otherClaim.claim()!
-        recorder.failure.send(FailedRecordingStart(session: other, reason: .noAudioInput))
+        let otherRecorder = FakeDictationRecorder()
+        let other = otherRecorder.startRecording()
+        otherRecorder.failStart(reason: .noAudioInput)
         try? await Task.sleep(nanoseconds: 20_000_000)
 
+        XCTAssertNotNil(other)
         XCTAssertEqual(session.phase, .recording)
+        XCTAssertTrue(session.isCapturing)
     }
 
     /// The Ask panel opens the microphone and updates `AudioRecorder` state; a dictation
@@ -210,9 +208,12 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
 
         XCTAssertEqual(session.phase, .ended(.busy(.startRefused)))
 
-        // Another surface connects and records.
-        recorder.connecting.send(true)
-        recorder.recording.send(true)
+        // Another surface connects and records on a capture this session
+        // does not hold.
+        let other = FakeDictationRecorder()
+        _ = other.startRecording()
+        other.sendConnecting(true)
+        other.sendRecording(true)
         try? await Task.sleep(nanoseconds: 20_000_000)
 
         XCTAssertEqual(session.phase, .ended(.busy(.startRefused)))

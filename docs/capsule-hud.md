@@ -150,13 +150,15 @@ The Esc cancel-confirmation is the card's, not the capsule's:
 capsule only mirrors `isConfirmingCancel`, swapping the meter for "Press Esc to
 cancel" over the card's own `CancelConfirmationBar` countdown.
 
-`DictationResult` (in `Dictation/DictationPhase.swift`) is what the outcome is
-read from. The card never needed it - it decodes, hides, and says nothing either
-way - but a HUD has to tell a silent recording and a failed transcription apart
-from a successful one. `.inserted` carries `StyleRewriteStatus.explanation` when
-a promised rewrite kept the original - refused by the guard, timed out, failed -
-and the capsule tells that story as the `.error` badge; the text itself is
-inserted and stored exactly as a plain success is.
+`CapsuleHUDViewModel.follow(_:)` takes the session's `DictationPhase`. A notice
+on `.ended` is the error badge; a silent `.ended(nil)` is the outcome
+`DictationResult` already recorded. The card never needed that result - it
+decodes, hides, and says nothing either way - but a HUD has to tell a silent
+recording and a failed transcription apart from a successful one. `.inserted`
+carries `StyleRewriteStatus.explanation` when a promised rewrite kept the
+original - refused by the guard, timed out, failed - and the capsule tells that
+story as the `.error` badge; the text itself is inserted and stored exactly as a
+plain success is.
 
 ## The mode chip
 
