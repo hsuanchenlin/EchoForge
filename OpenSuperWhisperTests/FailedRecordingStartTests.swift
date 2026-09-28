@@ -89,25 +89,38 @@ final class FailedRecordingStartTests: XCTestCase {
     }
 
     /// Every surface that takes the microphone listens for it - the dictation
-    /// card, the Ask panel, the main window's record button, which claims the
-    /// same shared recorder and had nothing but `isRecording` going false to go
-    /// on, and Setup Health's five-second microphone test. That never happens on
-    /// a start that found no audio input, so the window sat on a session naming
-    /// a recording that never began.
+    /// card, the Ask panel and the main window's record button, all through
+    /// `DictationSession` now rather than three copies of the same
+    /// subscription, and Setup Health's five-second microphone test, which
+    /// takes the microphone on its own and is not a dictation. That never
+    /// happens on a start that found no audio input, so a window used to sit
+    /// on a session naming a recording that never began.
     func testEverySurfaceHoldingTheMicrophoneListensForAFailedStart() throws {
+        let session = try Self.source(of: "OpenSuperWhisper/Dictation/DictationSession.swift")
+        XCTAssertTrue(
+            session.contains("failedStartPublisher"),
+            "every dictation - the hotkey path, the main window, the Ask panel's follow-up - has to hear about starts that fail")
+        XCTAssertTrue(
+            session.contains("failure.ends("),
+            "a dictation must act only on its own session's failure")
+
         for path in [
             "OpenSuperWhisper/Ask/AskPanelWindowController.swift",
             "OpenSuperWhisper/ContentView.swift",
-            "OpenSuperWhisper/SetupHealth/MicrophoneTest.swift",
         ] {
             let source = try Self.source(of: path)
             XCTAssertTrue(
-                source.contains("$failedStart"),
-                "\(path) starts recordings and so has to hear about starts that fail")
-            XCTAssertTrue(
-                source.contains("failure.ends("),
-                "\(path) must act only on its own session's failure")
+                source.contains("DictationSession("),
+                "\(path) takes the microphone through DictationSession, which is what now listens for a failed start")
         }
+
+        let microphoneTest = try Self.source(of: "OpenSuperWhisper/SetupHealth/MicrophoneTest.swift")
+        XCTAssertTrue(
+            microphoneTest.contains("$failedStart"),
+            "Setup Health records on its own, outside any DictationSession, and so still listens directly")
+        XCTAssertTrue(
+            microphoneTest.contains("failure.ends("),
+            "Setup Health must act only on its own session's failure")
     }
 
     private static func body(of signature: String, in source: String) throws -> String {

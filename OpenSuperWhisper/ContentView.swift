@@ -74,54 +74,19 @@ class ContentViewModel: ObservableObject {
     private var recordingStartTime: Date?
     private var durationTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
-    
+
+    /// The dictation this window's record button is driving, or nil between
+    /// presses. `DictationSession` is the whole of the orchestration now - the
+    /// microphone claim, the busy rule, the transcription, the failure rule -
+    /// and this only follows its phase to run the button's own timers and
+    /// registers it with `DictationSessionRegistry`, the one answer to "is a
+    /// dictation running" every other surface already asks. See
+    /// `docs/dictation-session.md`.
+    private var session: DictationSession?
+    private var sessionCancellables = Set<AnyCancellable>()
+    private let registry = DictationSessionRegistry.shared
+
     init() {
-        // Gated on this window's own claim, the way the mini indicator's are.
-        // `AudioRecorder` publishes to every subscriber, so an ungated sink drew
-        // this window as recording - blinking dot, running duration - for the
-        // Ask panel's question or a hotkey dictation it had nothing to do with.
-        recorder.$isConnecting
-            .receive(on: RunLoop.main)
-            .sink { [weak self] isConnecting in
-                guard let self = self, self.recordingSession != nil else { return }
-                if isConnecting && self.state != .decoding {
-                    self.state = .connecting
-                    self.stopBlinking()
-                    self.stopDurationTimer()
-                    self.recordingDuration = 0
-                }
-            }
-            .store(in: &cancellables)
-
-        recorder.$isRecording
-            .receive(on: RunLoop.main)
-            .sink { [weak self] isRecording in
-                guard let self = self, self.recordingSession != nil else { return }
-                if isRecording && self.state != .decoding {
-                    self.state = .recording
-                    self.startBlinking()
-                    self.startDurationTimerIfNeeded()
-                }
-            }
-            .store(in: &cancellables)
-
-        // The third thing the recorder can say, and this window takes the
-        // microphone too. It is what ends a session whose start failed, and the
-        // sink above deliberately no longer guesses at that from `isRecording`
-        // going false: a start that found no audio input never publishes a
-        // recording state at all - so the window went on holding a session
-        // naming a recording that never began, and the next press decoded it
-        // into a silent hide - while the one that does publish it arrives
-        // before the report and left the user with no idea why the recording
-        // had stopped.
-        recorder.$failedStart
-            .receive(on: RunLoop.main)
-            .sink { [weak self] failure in
-                guard let self, let failure, failure.ends(self.recordingSession) else { return }
-                self.recordingSessionDidFailToStart(failure.reason)
-            }
-            .store(in: &cancellables)
-
         transcriptionService.$isEngineConfigured
             .receive(on: RunLoop.main)
             .sink { [weak self] isConfigured in
@@ -309,138 +274,110 @@ class ContentViewModel: ObservableObject {
         recordings.removeAll()
     }
 
-    /// The microphone claim this window holds, or nil when it holds none.
-    private var recordingSession: RecordingSession?
-
     /// Whether **this window** is recording - not whether the microphone is
     /// busy. The record button branches on it, so reading the shared
     /// `recorder.isRecording` drew it as recording while the Ask panel was
     /// listening, and a press then decoded the panel's question as a dictation.
     var isRecording: Bool {
-        recordingSession != nil
+        session?.isCapturing ?? false
     }
 
     func startRecording() {
+        // Checked here, synchronously and silently, rather than left to
+        // `DictationSession.start()`'s own refusal: a machine with no
+        // microphone at all is not a press this window has anything to say
+        // about, and it never has - the banner below is for a claim that was
+        // accepted and then failed, not for one that was never attempted.
         guard microphoneService.getActiveMicrophone() != nil else { return }
-        // Same claim the mini indicator makes, and for the same reason: this
-        // button reaches the one shared recorder, so it must not take a session
-        // the Ask panel or a hotkey dictation is already holding. Refused, it
-        // leaves the window exactly as it was rather than showing a recording
-        // state over nothing.
-        guard let claimed = recorder.startRecording() else { return }
-        recordingSession = claimed
-        recordingStartFailure = nil
 
-        if microphoneService.isActiveMicrophoneRequiresConnection() {
+        let newSession = DictationSession(
+            delivery: .historyOnly,
+            history: OptimisticHistory(onAdd: { [weak self] recording in
+                self?.recordingWasAdded(recording)
+            })
+        )
+        session = newSession
+        observe(newSession)
+        // Adopted before `start()`, not after: a claim that is refused ends
+        // the session synchronously, in the same call, and the registry has
+        // to already be pointing at it for that end to clear the right thing.
+        registry.adopt(newSession)
+        newSession.start()
+    }
+
+    func startDecoding() {
+        session?.stop()
+    }
+
+    /// Turns one phase into what the button draws and which timers run - the
+    /// same split `IndicatorViewModel` makes for the hotkey path's card,
+    /// because a dictation's lifetime and a window's own timers are different
+    /// things that happen to change together.
+    private func observe(_ session: DictationSession) {
+        sessionCancellables.removeAll()
+        session.$phase
+            .sink { [weak self] phase in self?.follow(phase) }
+            .store(in: &sessionCancellables)
+    }
+
+    private func follow(_ phase: DictationPhase) {
+        switch phase {
+        case .idle:
+            break
+        case .connecting:
+            recordingStartFailure = nil
             state = .connecting
             stopBlinking()
             stopDurationTimer()
             recordingDuration = 0
-        } else {
+        case .recording:
+            recordingStartFailure = nil
             state = .recording
             startBlinking()
             recordingStartTime = Date()
             recordingDuration = 0
             startDurationTimerIfNeeded()
-        }
-    }
-
-    /// Ends a session whose microphone never opened.
-    ///
-    /// The claim is already back - `AudioRecorder.failStart` releases it before
-    /// reporting - so this only has to drop the session this window is still
-    /// holding, stop drawing a recording that is not happening, and say why.
-    private func recordingSessionDidFailToStart(_ reason: FailedRecordingStart.Reason) {
-        recordingSession = nil
-        recordingStartTime = nil
-        state = .idle
-        stopBlinking()
-        stopDurationTimer()
-        recordingDuration = 0
-        recordingStartFailure = reason.message
-    }
-
-    func startDecoding() {
-        guard let session = recordingSession else { return }
-        recordingSession = nil
-
-        state = .decoding
-        stopBlinking()
-        stopDurationTimer()
-
-        IndicatorWindowManager.shared.hide()
-
-        Task { [weak self] in
-            guard let self = self else { return }
-
-            if let tempURL = await self.recorder.stopRecording(session) {
-                let duration = await AudioUtil.audioDuration(url: tempURL)
-                do {
-                    print("start decoding...")
-                    let styled = try await transcriptionService.transcribeAudio(url: tempURL, settings: Settings())
-                    let text = styled.final
-
-                    if text.isEmpty {
-                        try? FileManager.default.removeItem(at: tempURL)
-                        print("No speech detected, dictation discarded")
-                    } else {
-                        let newRecording = Recording.newRow(
-                            transcription: text,
-                            duration: duration,
-                            status: .completed,
-                            progress: 1.0,
-                            rawTranscription: styled.originalWorthKeeping,
-                            provenance: .dictation
-                        )
-
-                        try recorder.moveTemporaryRecording(from: tempURL, to: newRecording.url)
-
-                        await MainActor.run {
-                            self.recordingStore.addRecording(newRecording)
-                            
-                            if !self.currentSearchQuery.isEmpty {
-                                self.shouldClearSearch = true
-                                self.currentSearchQuery = HistorySearchQuery("")
-                            }
-                            self.recordings.insert(newRecording, at: 0)
-                        }
-
-                        print("Transcription result: \(text)")
-                    }
-                } catch {
-                    print("Error transcribing audio: \(error)")
-
-                    switch DictationFailureOutcome.forError(error) {
-                    case .keep(let reason, _):
-                        // The recording lands in the list carrying the reason;
-                        // the banner above says what to do about it, and the
-                        // row's regenerate button transcribes it once that is
-                        // done.
-                        await MainActor.run {
-                            if let kept = self.recordingStore.keepFailedDictation(
-                                temporaryURL: tempURL,
-                                duration: duration,
-                                reason: reason
-                            ) {
-                                self.recordings.insert(kept, at: 0)
-                            }
-                        }
-                    case .discard:
-                        try? FileManager.default.removeItem(at: tempURL)
-                    }
-                }
-
-                await MainActor.run {
-                    self.state = .idle
-                    self.recordingDuration = 0
-                }
-            } else {
-                await MainActor.run {
-                    self.state = .idle
-                    self.recordingDuration = 0
-                }
+        case .decoding:
+            state = .decoding
+            stopBlinking()
+            stopDurationTimer()
+            IndicatorWindowManager.shared.hide()
+        case .awaitingChannelChoice:
+            // Unreachable: `.historyOnly` never routes a spoken command, so
+            // this window's own session never offers the channel picker.
+            break
+        case .ended(let notice):
+            registry.clear()
+            state = .idle
+            stopBlinking()
+            stopDurationTimer()
+            recordingDuration = 0
+            // Every other notice - busy, no engine, a cloud failure kept on
+            // the row itself - said nothing here before this window moved
+            // onto `DictationSession` either; the banner is only for a claim
+            // that was accepted and then failed on the recorder's own queue.
+            switch notice {
+            case .noMicrophone:
+                recordingStartFailure = "No microphone is available."
+            case .recordingFailed:
+                recordingStartFailure = "The microphone could not be started."
+            default:
+                break
             }
         }
+    }
+
+    /// Mirrors the optimistic update `startDecoding()` used to make by hand:
+    /// a completed dictation from this window's own button clears an active
+    /// search and appears at the top of the list immediately, rather than
+    /// waiting for the reload `RecordingStore.recordingsDidUpdateNotification`
+    /// triggers a moment later.
+    private func recordingWasAdded(_ recording: Recording) {
+        if !currentSearchQuery.isEmpty {
+            shouldClearSearch = true
+            currentSearchQuery = HistorySearchQuery("")
+        }
+        recordings.insert(recording, at: 0)
     }
 
     private func stopDurationTimer() {
@@ -481,6 +418,45 @@ class ContentViewModel: ObservableObject {
         blinkTimer?.invalidate()
         blinkTimer = nil
         isBlinking = false
+    }
+}
+
+/// Writes through to `RecordingStore` and reports back what it wrote, so the
+/// main window's own list can update the instant a press finishes rather than
+/// waiting for the notification the store posts once the write reaches disk.
+@MainActor
+private final class OptimisticHistory: DictationHistory {
+    private let base: DictationHistory
+    private let onAdd: (Recording) -> Void
+
+    init(base: DictationHistory = RecordingStore.shared, onAdd: @escaping (Recording) -> Void) {
+        self.base = base
+        self.onAdd = onAdd
+    }
+
+    func addRecording(_ recording: Recording) {
+        base.addRecording(recording)
+        onAdd(recording)
+    }
+
+    func addRecordingSync(_ recording: Recording) async throws {
+        try await base.addRecordingSync(recording)
+    }
+
+    @discardableResult
+    func keepFailedDictation(
+        temporaryURL: URL, duration: TimeInterval, reason: String,
+        provenance: RecordingProvenance
+    ) -> Recording? {
+        guard let kept = base.keepFailedDictation(
+            temporaryURL: temporaryURL, duration: duration, reason: reason, provenance: provenance)
+        else { return nil }
+        onAdd(kept)
+        return kept
+    }
+
+    func updateProvenance(_ id: UUID, to provenance: RecordingProvenance) async {
+        await base.updateProvenance(id, to: provenance)
     }
 }
 

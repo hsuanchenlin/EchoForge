@@ -59,12 +59,14 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
     private func makeSession(
         purpose: DictationPurpose = .dictation,
         selectionEdit: SelectedTextCapture? = nil,
+        delivery: DictationDelivery = .insertion,
         live: FakeLiveDictation? = nil
     ) -> DictationSession {
         DictationSession(
             purpose: purpose,
             dictationTarget: nil,
             selectionEdit: selectionEdit,
+            delivery: delivery,
             recorder: recorder,
             transcriber: transcriber,
             history: history,
@@ -284,6 +286,160 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
         XCTAssertTrue(insertion.inserted.isEmpty)
         XCTAssertEqual(history.added.count, 1)
         XCTAssertEqual(session.result, .asked)
+    }
+
+    // MARK: - Delivery
+
+    /// `.historyOnly` is the main window's record button: the words are stored
+    /// exactly as an ordinary dictation's are, and never pasted.
+    func testHistoryOnlyDelivery_storesButNeverPastes() async {
+        recorder.stoppedURL = makeTemporaryAudio()
+        transcriber.wholeFileResult = .success(.stub("hello there"))
+        let session = makeSession(delivery: .historyOnly)
+        session.start()
+
+        session.stop()
+        await waitForEnd(session)
+
+        XCTAssertEqual(endedNotice(session), nil)
+        XCTAssertTrue(insertion.inserted.isEmpty, "the main window's own list is not a paste target")
+        XCTAssertEqual(history.added.count, 1)
+        XCTAssertEqual(history.added.first?.transcription, "hello there")
+        XCTAssertEqual(session.result, .inserted(styleNotice: nil))
+    }
+
+    /// A spoken command is never read on `.historyOnly`, so the pipeline never
+    /// even offers `completeDictation` a `.ask`/`.openLatestVideo` intent to
+    /// act on: the main window's record button takes the plain path, the way
+    /// a dropped file always has. Stated against a preference that would
+    /// route an ordinary dictation, so the delivery - not the preference - is
+    /// what turns it off.
+    func testHistoryOnlyDelivery_neverRoutesASpokenCommand() async throws {
+        AppPreferences.shared.spokenIntentsEnabled = true
+        recorder.stoppedURL = makeTemporaryAudio()
+        transcriber.wholeFileResult = .success(.stub("ask: what is the time"))
+        let session = makeSession(delivery: .historyOnly)
+        session.start()
+
+        session.stop()
+        await waitForEnd(session)
+
+        let settings = try XCTUnwrap(transcriber.wholeFileSettings.last)
+        XCTAssertFalse(settings.routesSpokenIntents)
+        XCTAssertTrue(asking.queries.isEmpty)
+        XCTAssertEqual(history.added.first?.transcription, "ask: what is the time")
+    }
+
+    /// A failure the user can fix keeps the audio on `.historyOnly` exactly as
+    /// it does on the hotkey path - `DictationFailureOutcome` is the one rule,
+    /// shared rather than duplicated.
+    func testHistoryOnlyDelivery_aFailureTheUserCanFixStillKeepsTheAudio() async {
+        recorder.stoppedURL = makeTemporaryAudio()
+        transcriber.wholeFileResult = .failure(TranscriptionError.processingTimedOut)
+        let session = makeSession(delivery: .historyOnly)
+        session.start()
+
+        session.stop()
+        await waitForEnd(session)
+
+        XCTAssertEqual(endedNotice(session), .transcriptionTimedOut)
+        XCTAssertEqual(history.kept.count, 1)
+        XCTAssertTrue(insertion.inserted.isEmpty)
+    }
+
+    /// `.toPanel` is the Ask panel's own voice follow-up: the words are handed
+    /// to the receiver exactly as `voiceCaptureDidProduce` used to be called by
+    /// hand, and nothing is pasted or kept in history.
+    func testToPanelDelivery_handsFinishedWordsToTheReceiverAndKeepsNoHistory() async {
+        recorder.stoppedURL = makeTemporaryAudio()
+        transcriber.wholeFileResult = .success(.stub("and in euros?"))
+        let receiver = FakeDictationPanelReceiver()
+        let session = makeSession(delivery: .toPanel(receiver: receiver))
+        session.start()
+
+        session.stop()
+        await waitForEnd(session)
+
+        XCTAssertEqual(receiver.produced, ["and in euros?"])
+        XCTAssertTrue(receiver.failures.isEmpty)
+        XCTAssertTrue(insertion.inserted.isEmpty)
+        XCTAssertTrue(history.added.isEmpty, "a follow-up question is not a dictation to keep")
+        XCTAssertEqual(session.result, .asked)
+    }
+
+    /// A capture that heard nothing is the receiver's own failure to show, the
+    /// way the panel's card used to be told directly.
+    func testToPanelDelivery_aCaptureThatHeardNothingFailsToTheReceiver() async {
+        let audio = makeTemporaryAudio()
+        recorder.stoppedURL = audio
+        transcriber.wholeFileResult = .success(.stub(""))
+        let receiver = FakeDictationPanelReceiver()
+        let session = makeSession(delivery: .toPanel(receiver: receiver))
+        session.start()
+
+        session.stop()
+        await waitForEnd(session)
+
+        XCTAssertEqual(receiver.failures, ["No speech detected"])
+        XCTAssertTrue(receiver.produced.isEmpty)
+        XCTAssertTrue(history.added.isEmpty)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: audio.path))
+    }
+
+    /// A transcription failure on `.toPanel` never keeps the audio - there is
+    /// no regenerate button on a question, only the card telling the user to
+    /// try again.
+    func testToPanelDelivery_aTranscriptionFailureReportsToTheReceiverAndKeepsNothing() async {
+        let audio = makeTemporaryAudio()
+        recorder.stoppedURL = audio
+        transcriber.wholeFileResult = .failure(TranscriptionError.processingTimedOut)
+        let receiver = FakeDictationPanelReceiver()
+        let session = makeSession(delivery: .toPanel(receiver: receiver))
+        session.start()
+
+        session.stop()
+        await waitForEnd(session)
+
+        XCTAssertEqual(receiver.failures.count, 1)
+        XCTAssertTrue(history.kept.isEmpty, "a follow-up keeps nothing, even a failure the hotkey path would")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: audio.path))
+    }
+
+    /// A follow-up is a question for the panel: never routed - it must not
+    /// reopen the panel it came from - and never restyled, because restyling a
+    /// question on its way to the model that is about to answer it changes
+    /// what was asked. Only the model-backed stage is withheld; the
+    /// deterministic stages keep their own preferences. Stated against
+    /// preferences that would route and restyle an ordinary dictation, so the
+    /// delivery - not the preference - is what turns them off.
+    func testToPanelDelivery_neverRoutesAndNeverRestylesRegardlessOfPreference() async throws {
+        AppPreferences.shared.spokenIntentsEnabled = true
+        AppPreferences.shared.styleRewriteEnabled = true
+        AppPreferences.shared.styleRewriteStyleID = StyleRewriteCatalog.defaultStyleID
+        recorder.stoppedURL = makeTemporaryAudio()
+        transcriber.wholeFileResult = .success(.stub("and in euros?"))
+        let receiver = FakeDictationPanelReceiver()
+        let session = makeSession(delivery: .toPanel(receiver: receiver))
+        session.start()
+
+        session.stop()
+        await waitForEnd(session)
+
+        let settings = try XCTUnwrap(transcriber.wholeFileSettings.last)
+        XCTAssertFalse(settings.routesSpokenIntents)
+        XCTAssertFalse(settings.styleRewrite.isRunnable)
+    }
+
+    /// `.toPanel` never picks up the hotkey path's live decoder - the Ask
+    /// panel's follow-up never had it, and this delivery keeps it that way.
+    func testToPanelDelivery_neverStartsALiveSession() {
+        let live = FakeLiveDictation(settings: Settings())
+        let receiver = FakeDictationPanelReceiver()
+        let session = makeSession(delivery: .toPanel(receiver: receiver), live: live)
+
+        session.start()
+
+        XCTAssertEqual(live.startCount, 0)
     }
 
     /// The capture that was too short to keep: the recorder hands back no file,

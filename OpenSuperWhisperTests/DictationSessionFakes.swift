@@ -89,6 +89,10 @@ final class FakeDictationTranscriber: DictationTranscribing {
     private(set) var wholeFileCalls: [URL] = []
     private(set) var finishedRaws: [String] = []
     private(set) var cancelCount = 0
+    /// What each whole-file decode was asked to run with, in call order - what
+    /// makes a delivery's own settings (routing, restyling) assertable without
+    /// reaching into `DictationSession` for a private detail.
+    private(set) var wholeFileSettings: [Settings] = []
 
     /// Held open until `release()` so a test can act while a decode is in flight.
     var gate: CheckedContinuation<Void, Never>?
@@ -109,6 +113,7 @@ final class FakeDictationTranscriber: DictationTranscribing {
 
     func transcribeAudio(url: URL, settings: Settings) async throws -> StyledTranscript {
         wholeFileCalls.append(url)
+        wholeFileSettings.append(settings)
         await waitIfGated()
         return try wholeFileResult.get()
     }
@@ -252,4 +257,15 @@ final class FakeSelectionEditing: DictationSelectionEditing, @unchecked Sendable
 struct FixedAudioDuration: DictationAudioMeasuring {
     var seconds: TimeInterval = 3
     func duration(of url: URL) async -> TimeInterval { seconds }
+}
+
+// MARK: - .toPanel delivery
+
+@MainActor
+final class FakeDictationPanelReceiver: DictationPanelReceiving {
+    private(set) var produced: [String] = []
+    private(set) var failures: [String] = []
+
+    func voiceCaptureDidProduce(_ text: String) async { produced.append(text) }
+    func voiceCaptureDidFail(_ message: String) { failures.append(message) }
 }

@@ -467,3 +467,7 @@ final class AskPanelViewModel: ObservableObject {
         captureWaiter = nil
     }
 }
+
+/// The follow-up already had exactly this shape, so `.toPanel` delivery hands
+/// a `DictationSession` its words the same way the controller used to.
+extension AskPanelViewModel: DictationPanelReceiving {}

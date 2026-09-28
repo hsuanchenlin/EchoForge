@@ -76,6 +76,12 @@ final class DictationSession: ObservableObject {
     /// found nothing to edit (those never take the microphone).
     let selectionEdit: SelectedTextCapture?
 
+    /// Where this dictation's finished words go. `.insertion` - the default -
+    /// is the hotkey path; `.historyOnly` and `.toPanel` are the main window's
+    /// record button and the Ask panel's own voice follow-up. See
+    /// `DictationDelivery`.
+    let delivery: DictationDelivery
+
     /// What this dictation produced, once it is known. Read by whoever is
     /// showing the session when it ends; `nil` while it is still running, and
     /// left `nil` for an ending that speaks for itself.
@@ -131,6 +137,7 @@ final class DictationSession: ObservableObject {
         purpose: DictationPurpose = .dictation,
         dictationTarget: DictationTargetApp? = AppDetector.currentTarget(),
         selectionEdit: SelectedTextCapture? = nil,
+        delivery: DictationDelivery = .insertion,
         recorder: DictationRecording = AudioRecorder.shared,
         transcriber: DictationTranscribing = TranscriptionService.shared,
         history: DictationHistory = RecordingStore.shared,
@@ -144,6 +151,7 @@ final class DictationSession: ObservableObject {
         self.purpose = purpose
         self.dictationTarget = dictationTarget
         self.selectionEdit = selectionEdit
+        self.delivery = delivery
         self.recorder = recorder
         self.transcriber = transcriber
         self.history = history
@@ -243,6 +251,11 @@ final class DictationSession: ObservableObject {
     /// same snapshot, so one dictation cannot be decoded under one set of
     /// preferences and post-processed under another.
     private func startLiveSessionIfEligible(for session: RecordingSession) {
+        // Live dictation is the hotkey path's own speed-up. The main window's
+        // record button and the Ask panel's own follow-up never had it, and
+        // `.historyOnly`/`.toPanel` keep it that way rather than picking up a
+        // faster path nobody asked them for.
+        guard case .insertion = delivery else { return }
         guard let live = makeLiveSession(
             session,
             purpose,
@@ -257,6 +270,42 @@ final class DictationSession: ObservableObject {
             self?.liveTranscript = transcript
         }
         Task { await live.start() }
+    }
+
+    /// The settings a whole-file decode runs with, when this dictation is not
+    /// finishing a live session that already resolved its own.
+    ///
+    /// Only `.insertion` - the hotkey path - reads the transcript for a spoken
+    /// command or a spoken correction; `.historyOnly` and `.toPanel` both take
+    /// the plain path, the way a dropped file or a regenerate from history
+    /// always has. `.toPanel` additionally pins the style rewrite off: a
+    /// follow-up question is not a dictation to restyle, and restyling it on
+    /// its way to the model that is about to answer it would change what was
+    /// asked.
+    private func wholeFileSettings() -> Settings {
+        switch delivery {
+        case .insertion:
+            return Settings(
+                purpose: purpose,
+                dictationTarget: dictationTarget,
+                // Live dictation is the one path where a spoken command means
+                // anything - see `Settings`. A `.youTubeCommand` capture is
+                // not one, and `Settings` refuses it there whatever is
+                // passed.
+                routesSpokenIntents: true,
+                // Live dictation is also the one path where "scratch that" is
+                // a retraction rather than words: a dropped file is
+                // somebody's recording and a ⌥E instruction is the
+                // instruction. `Settings` refuses both.
+                correctsSpokenEdits: true
+            )
+        case .historyOnly:
+            return Settings(purpose: purpose, dictationTarget: dictationTarget)
+        case .toPanel:
+            var settings = Settings(purpose: purpose, dictationTarget: dictationTarget)
+            settings.styleRewrite = .disabled
+            return settings
+        }
     }
 
     /// Ends the live session for `session`, discarding what it holds, and stops
@@ -376,27 +425,28 @@ final class DictationSession: ObservableObject {
                 // A live session already resolved them at the press, and
                 // decoded every utterance with them; the joined text is
                 // finished with the same snapshot.
-                let settings = liveSession?.settings ?? Settings(
-                    purpose: self.purpose,
-                    dictationTarget: self.dictationTarget,
-                    // Live dictation is the one path where a spoken
-                    // command means anything - see `Settings`. A
-                    // `.youTubeCommand` capture is not one, and
-                    // `Settings` refuses it there whatever is passed.
-                    routesSpokenIntents: true,
-                    // Live dictation is also the one path where "scratch
-                    // that" is a retraction rather than words: a dropped
-                    // file is somebody's recording and a ⌥E instruction is
-                    // the instruction. `Settings` refuses both.
-                    correctsSpokenEdits: true
-                )
+                let settings = liveSession?.settings ?? self.wholeFileSettings()
                 let styled = try await self.transcribe(
                     tempURL, liveOutcome: liveOutcome, settings: settings)
                 let text = styled.final
 
                 let duration = await measuredDuration
 
-                if text.isEmpty {
+                if case .toPanel(let receiver) = self.delivery {
+                    // The Ask panel's own voice follow-up: hand the words
+                    // back exactly as a typed question would arrive, and keep
+                    // nothing else - no history row, no paste, the same
+                    // discard a typed question that never enters history
+                    // leaves behind.
+                    try? FileManager.default.removeItem(at: tempURL)
+                    if text.isEmpty {
+                        self.result = .noSpeech
+                        receiver.voiceCaptureDidFail("No speech detected")
+                    } else {
+                        self.result = .asked
+                        await receiver.voiceCaptureDidProduce(text)
+                    }
+                } else if text.isEmpty {
                     try? FileManager.default.removeItem(at: tempURL)
                     self.result = .noSpeech
                     print("No speech detected, dictation discarded")
@@ -422,6 +472,18 @@ final class DictationSession: ObservableObject {
                 // report back to them.
                 if !self.didCancelWorkInFlight {
                     self.result = .failed(Self.failureMessage(for: error))
+                }
+
+                if case .toPanel(let receiver) = self.delivery {
+                    // The panel's own follow-up never keeps a failed capture -
+                    // there is no regenerate button on a question, only the
+                    // card telling the user to try again.
+                    try? FileManager.default.removeItem(at: tempURL)
+                    if !self.didCancelWorkInFlight {
+                        receiver.voiceCaptureDidFail(Self.failureMessage(for: error))
+                    }
+                    await MainActor.run { self.end(with: nil) }
+                    return
                 }
 
                 switch DictationFailureOutcome.forError(error) {
@@ -534,7 +596,12 @@ final class DictationSession: ObservableObject {
             return false
         }
 
-        insertion.insert(text)
+        // `.historyOnly` - the main window's record button - stores the words
+        // above and stops there: nothing is pasted, because there is nothing
+        // this window's own list is a paste target for.
+        if case .insertion = delivery {
+            insertion.insert(text)
+        }
         result = .inserted(styleNotice: styled.dictationStyleNotice)
         print("Transcription result: \(text)")
         return false

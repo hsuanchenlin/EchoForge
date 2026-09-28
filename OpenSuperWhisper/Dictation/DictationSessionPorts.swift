@@ -198,6 +198,39 @@ struct AskPanelPresentation: DictationAsking {
     }
 }
 
+/// Where a dictation's finished words go, once they are known.
+///
+/// The hotkey path pastes into whatever the user was typing in and reads the
+/// words for a spoken command or correction. Two more surfaces used to run a
+/// smaller copy of the same orchestration to reach two different endings:
+/// the main window's record button only ever wanted the words in history, and
+/// the Ask panel's own voice follow-up only ever wanted them handed back as
+/// the next question. Both now ask for the ending they want instead of
+/// keeping their own copy of everything that leads up to it.
+enum DictationDelivery {
+    /// The ordinary hotkey path: paste into the target app, and read the
+    /// words for a spoken command or correction.
+    case insertion
+    /// The main window's record button: add to history, and nothing else -
+    /// never pasted, never read for a command or a correction.
+    case historyOnly
+    /// The Ask panel's own voice follow-up: hand the words to `receiver`
+    /// instead of pasting or storing them. Never kept in history even on
+    /// failure - there is no regenerate button on a question, only the card
+    /// telling the user to try again.
+    case toPanel(receiver: DictationPanelReceiving)
+}
+
+/// Where a `.toPanel` dictation's finished words - or its failure - land.
+///
+/// `AskPanelViewModel` already has exactly this shape from the follow-up it
+/// used to drive by hand, so it conforms with nothing added.
+@MainActor
+protocol DictationPanelReceiving: AnyObject {
+    func voiceCaptureDidProduce(_ text: String) async
+    func voiceCaptureDidFail(_ message: String)
+}
+
 /// The voice-edit rewrite stage, as the session runs it.
 protocol DictationSelectionEditing {
     func rewrite(original: String, instruction: String, settings: Settings) async -> StyledTranscript
