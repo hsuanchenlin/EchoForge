@@ -579,10 +579,8 @@ class AudioRecorder: NSObject, ObservableObject, RecordingCaptureControlling {
                 averageDecibels: recorder.averagePower(forChannel: 0),
                 peakDecibels: recorder.peakPower(forChannel: 0)
             )
-            let capture = self.workQueueCapture
             DispatchQueue.main.async {
                 self.inputLevel = level
-                capture?.pushLevel(level)
             }
         }
         levelCheckTimer = timer

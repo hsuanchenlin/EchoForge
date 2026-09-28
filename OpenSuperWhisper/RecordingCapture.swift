@@ -25,9 +25,6 @@ final class RecordingCapture: @unchecked Sendable {
     private let startWaiter = StartWaiter()
     private let connectingSubject = CurrentValueSubject<Bool, Never>(false)
     private let recordingSubject = CurrentValueSubject<Bool, Never>(false)
-    private let levelLock = NSLock()
-    private var levelContinuation: AsyncStream<MicrophoneLevel>.Continuation?
-
     init(session: RecordingSession, controller: RecordingCaptureControlling) {
         self.session = session
         self.controller = controller
@@ -35,7 +32,6 @@ final class RecordingCapture: @unchecked Sendable {
 
     deinit {
         startWaiter.completeIfPending(.success(()))
-        levelContinuation?.finish()
     }
 
     /// Completes when the microphone has opened, or with the reason it never did.
@@ -72,25 +68,6 @@ final class RecordingCapture: @unchecked Sendable {
         recordingSubject.eraseToAnyPublisher()
     }
 
-    /// Microphone levels while this capture is in flight.
-    var levels: AsyncStream<MicrophoneLevel> {
-        AsyncStream { [weak self] continuation in
-            guard let self else {
-                continuation.finish()
-                return
-            }
-            self.levelLock.lock()
-            self.levelContinuation = continuation
-            self.levelLock.unlock()
-            continuation.onTermination = { [weak self] _ in
-                guard let self else { return }
-                self.levelLock.lock()
-                self.levelContinuation = nil
-                self.levelLock.unlock()
-            }
-        }
-    }
-
     // MARK: - The recorder's reports
 
     /// The start has resolved. Safe to call more than once: the first answer
@@ -109,13 +86,6 @@ final class RecordingCapture: @unchecked Sendable {
         if isRecording {
             startWaiter.complete(.success(()))
         }
-    }
-
-    func pushLevel(_ level: MicrophoneLevel) {
-        levelLock.lock()
-        let continuation = levelContinuation
-        levelLock.unlock()
-        continuation?.yield(level)
     }
 }
 

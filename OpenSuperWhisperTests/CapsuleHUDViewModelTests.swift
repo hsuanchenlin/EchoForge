@@ -192,7 +192,7 @@ final class CapsuleHUDViewModelTests: XCTestCase {
 
         // The cancellation makes the transcription fail, and that failure comes
         // back through the session's outcome. It must not resurrect the capsule.
-        viewModel.follow(.ended(nil), result: nil)
+        viewModel.follow(.ended(nil, nil))
         XCTAssertEqual(viewModel.state, .idle)
         XCTAssertTrue(scheduled.isEmpty)
     }
@@ -247,7 +247,7 @@ final class CapsuleHUDViewModelTests: XCTestCase {
             viewModel.beginRecording()
             viewModel.beginPolishing(.transcribing)
 
-            viewModel.follow(.ended(nil), result: result)
+            viewModel.follow(.ended(nil, result))
 
             XCTAssertEqual(viewModel.state, expected, "for \(result)")
         }
@@ -262,8 +262,7 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         viewModel.beginPolishing(.rewriting)
 
         viewModel.follow(
-            .ended(nil),
-            result: .inserted(styleNotice: "Kept the original: the rewrite took too long."))
+            .ended(nil, .inserted(styleNotice: "Kept the original: the rewrite took too long.")))
 
         XCTAssertEqual(
             viewModel.state, .error("Kept the original: the rewrite took too long."),
@@ -322,10 +321,10 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         viewModel.follow(.decoding)
         XCTAssertEqual(viewModel.state, .polishing(.transcribing))
 
-        viewModel.follow(.ended(.noMicrophone))
+        viewModel.follow(.ended(.noMicrophone, nil))
         XCTAssertEqual(viewModel.state, .error("No microphone"))
 
-        viewModel.follow(.ended(.noEngine))
+        viewModel.follow(.ended(.noEngine, nil))
         XCTAssertEqual(viewModel.state, .error(CapsuleHUDViewModel.noEngineMessage))
     }
 
@@ -333,7 +332,7 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         let stopped = makeViewModel()
         stopped.beginSession(mode: .dictate)
         stopped.beginRecording()
-        stopped.follow(.ended(.busy(.audioQueued)))
+        stopped.follow(.ended(.busy(.audioQueued), nil))
         XCTAssertEqual(
             stopped.state, .error("Still transcribing - queued"),
             "Stopping while busy really does queue the audio"
@@ -341,7 +340,7 @@ final class CapsuleHUDViewModelTests: XCTestCase {
 
         let refused = makeViewModel()
         refused.beginSession(mode: .dictate)
-        refused.follow(.ended(.busy(.startRefused)))
+        refused.follow(.ended(.busy(.startRefused), nil))
         XCTAssertEqual(
             refused.state, .error("Busy - try again in a moment"),
             "A refused start captured nothing and queued nothing, so it must not say 'queued'"
@@ -378,7 +377,7 @@ final class CapsuleHUDViewModelTests: XCTestCase {
 
         // Chosen, and the video opened: Chrome is in front of the user, which
         // is a clearer answer than a checkmark drawn over the top of it.
-        viewModel.follow(.ended(nil), result: .openedVideo(channel: "valley101"))
+        viewModel.follow(.ended(nil, .openedVideo(channel: "valley101")))
         XCTAssertEqual(viewModel.state, .idle)
     }
 
@@ -388,7 +387,7 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         viewModel.beginRecording()
         viewModel.follow(.awaitingChannelChoice)
 
-        viewModel.follow(.ended(.commandFailed("You cancelled the choice")))
+        viewModel.follow(.ended(.commandFailed("You cancelled the choice"), nil))
 
         XCTAssertEqual(viewModel.state, .error("You cancelled the choice"))
         XCTAssertEqual(scheduled.map(\.delay), [CapsuleHUDViewModel.errorVisibleDuration])
@@ -441,7 +440,7 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         viewModel.beginRecording()
         viewModel.setCancelConfirmation(true)
         viewModel.beginPolishing(.transcribing)
-        viewModel.follow(.ended(nil), result: .inserted(styleNotice: nil))
+        viewModel.follow(.ended(nil, .inserted(styleNotice: nil)))
         viewModel.beginSession(mode: .dictate)
         XCTAssertFalse(
             viewModel.isConfirmingCancel,
@@ -588,7 +587,7 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         viewModel.beginPolishing(.transcribing)
         viewModel.setMode(.ask)
 
-        viewModel.follow(.ended(nil), result: .asked)
+        viewModel.follow(.ended(nil, .asked))
 
         XCTAssertEqual(viewModel.state, .idle)
     }

@@ -346,7 +346,7 @@ class ContentViewModel: ObservableObject {
             // Unreachable: `.historyOnly` never routes a spoken command, so
             // this window's own session never offers the channel picker.
             break
-        case .ended(let notice):
+        case .ended(let notice, _):
             registry.clear()
             state = .idle
             stopBlinking()

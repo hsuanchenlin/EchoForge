@@ -26,7 +26,7 @@ enum DictationPhase: Equatable {
     /// Over. `notice` is what the user still has to be told, and `nil` means
     /// the session ended with nothing to add - every ordinary success, and
     /// every cancel, because they already know what they did.
-    case ended(DictationNotice?)
+    case ended(DictationNotice?, DictationResult?)
 }
 
 /// The short line a dictation leaves behind when it stops early.

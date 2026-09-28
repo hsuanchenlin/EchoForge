@@ -143,7 +143,7 @@ final class CapsuleHUDWindowController {
         indicatorViewModel.session.$phase
             .receive(on: RunLoop.main)
             .sink { [weak self] phase in
-                self?.viewModel.follow(phase, result: indicatorViewModel.result)
+                self?.viewModel.follow(phase)
             }
             .store(in: &sessionCancellables)
 

@@ -96,7 +96,7 @@ class IndicatorViewModel: ObservableObject {
             state = .decoding
         case .awaitingChannelChoice:
             state = .awaitingChannelChoice
-        case .ended(let notice):
+        case .ended(let notice, _):
             resetCancelConfirmation()
             stopBlinking()
             recordingStartedAt = nil
@@ -114,7 +114,7 @@ class IndicatorViewModel: ObservableObject {
     /// one short line and there is nothing on it to act on, so a per-message
     /// duration would only make the overlay's behaviour harder to predict.
     private func showAutoDismissingMessage(_ notice: DictationNotice) {
-        state = .ended(notice)
+        state = .ended(notice, result)
 
         hideTimer?.invalidate()
         hideTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
@@ -449,7 +449,7 @@ struct IndicatorWindow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 
-            case .ended(let notice):
+            case .ended(let notice, _):
                 endedNotice(notice)
 
             case .awaitingChannelChoice:

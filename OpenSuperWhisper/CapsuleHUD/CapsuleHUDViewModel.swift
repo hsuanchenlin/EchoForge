@@ -517,7 +517,7 @@ final class CapsuleHUDViewModel: ObservableObject {
     /// Mapped rather than mirrored: the two busy paths, no microphone and no
     /// engine are different sentences the user needs, and the card already shows
     /// all of them, so the capsule shows them the same way.
-    func follow(_ phase: DictationPhase, result: DictationResult? = nil) {
+    func follow(_ phase: DictationPhase) {
         switch phase {
         case .idle:
             break
@@ -529,7 +529,7 @@ final class CapsuleHUDViewModel: ObservableObject {
             beginPolishing(.transcribing)
         case .awaitingChannelChoice:
             beginAwaitingChannelChoice()
-        case .ended(let notice):
+        case .ended(let notice, let result):
             if let notice {
                 fail(notice.capsuleLine)
             } else {

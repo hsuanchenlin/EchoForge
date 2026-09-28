@@ -816,7 +816,7 @@ final class DictationSession: ObservableObject {
     /// The one way a session finishes: the outcome is already recorded, and this
     /// publishes the phase that says so.
     private func end(with notice: DictationNotice?) {
-        phase = .ended(notice)
+        phase = .ended(notice, result)
     }
 
     // MARK: - Words
