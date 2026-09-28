@@ -151,8 +151,8 @@ capsule only mirrors `isConfirmingCancel`, swapping the meter for "Press Esc to
 cancel" over the card's own `CancelConfirmationBar` countdown.
 
 `CapsuleHUDViewModel.follow(_:)` takes the session's `DictationPhase`. A notice
-on `.ended` is the error badge; a silent `.ended(nil)` is the outcome
-`DictationResult` already recorded. The card never needed that result - it
+on `.ended` is the error badge; `.ended(nil, result)` carries the
+`DictationResult` directly. The card never needed that result - it
 decodes, hides, and says nothing either way - but a HUD has to tell a silent
 recording and a failed transcription apart from a successful one. `.inserted`
 carries `StyleRewriteStatus.explanation` when a promised rewrite kept the

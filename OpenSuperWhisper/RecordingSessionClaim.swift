@@ -114,5 +114,3 @@ extension FailedRecordingStart.Reason {
         }
     }
 }
-
-

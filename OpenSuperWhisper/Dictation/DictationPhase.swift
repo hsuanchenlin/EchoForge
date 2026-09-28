@@ -25,7 +25,8 @@ enum DictationPhase: Equatable {
     case awaitingChannelChoice
     /// Over. `notice` is what the user still has to be told, and `nil` means
     /// the session ended with nothing to add - every ordinary success, and
-    /// every cancel, because they already know what they did.
+    /// every cancel, because they already know what they did. `result` carries
+    /// the outcome the capsule presents when there is no notice.
     case ended(DictationNotice?, DictationResult?)
 }
 

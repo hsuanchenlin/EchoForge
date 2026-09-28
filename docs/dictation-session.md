@@ -1,15 +1,16 @@
 # The dictation session
 
 One dictation, from the press that claims the microphone to the words landing in
-whatever the user was typing in. `OpenSuperWhisper/Dictation/` is the whole of
-it: `DictationSession` does the work, `DictationPhase` is what it says about
-itself while it does, and `DictationSessionPorts.swift` is what it needs from
-the rest of the app.
+whatever the user was typing in. `OpenSuperWhisper/Dictation/` owns the
+orchestration: `DictationSession` does the work, `DictationPhase` is what it says
+about itself while it does, and `DictationSessionPorts.swift` is what it needs
+from the rest of the app. `RecordingCapture` owns one microphone capture from
+start through stop or cancel.
 
-This is the hotkey path only - ⌥\`, ⌥Y, ⌥E, the modifier-only and mouse-button
-triggers, and the menu bar item. The main window's record button
-(`ContentViewModel`) still has its own smaller copy of the same shape and is not
-on this module yet.
+This module serves the hotkey paths - ⌥\`, ⌥Y, ⌥E, the modifier-only and
+mouse-button triggers, and the menu bar item - plus the main window's record
+button and the Ask panel's voice follow-up. `DictationDelivery` keeps their
+destinations distinct: insertion, history only, or the Ask panel.
 
 ## Why it is its own module
 
@@ -42,17 +43,18 @@ ShortcutManager  ──► IndicatorWindowManager.prepare()
 ```
 
 `DictationPhase` is the session's own account: `idle`, `connecting`,
-`recording`, `decoding`, `awaitingChannelChoice`, and `ended(DictationNotice?)`.
-A `nil` notice means the session ended with nothing to add - every ordinary
-success, and every cancel, because the user knows what they did. A notice is
-the short line they still have to read, and **how long it stays on screen is not
-the session's business**: `IndicatorViewModel` owns that timer, because it is a
-property of an overlay rather than of a recording.
+`recording`, `decoding`, `awaitingChannelChoice`, and
+`ended(DictationNotice?, DictationResult?)`. A `nil` notice means the session
+ended with nothing to add - every ordinary success, and every cancel, because
+the user knows what they did. The optional result lets the capsule distinguish
+success, silence, cancellation, and transcription failure without a second
+input. A notice is the short line they still have to read, and **how long it
+stays on screen is not the session's business**: `IndicatorViewModel` owns that
+timer, because it is a property of an overlay rather than of a recording.
 
 The card draws `DictationPhase` directly. The capsule follows the same phase
 through `CapsuleHUDViewModel.follow(_:)`: a notice becomes the error badge, and
-a silent `.ended(nil)` is the outcome `result` already recorded - see
-`docs/capsule-hud.md`.
+`.ended(nil, result)` supplies the outcome directly - see `docs/capsule-hud.md`.
 
 `DictationSessionRegistry.current` is the one answer to "is a dictation
 running?" Five ways of starting one and three of stopping one all ask it;
