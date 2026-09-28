@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import KeyboardShortcuts
 import SwiftUI
 
@@ -510,21 +509,16 @@ final class AskPanelWindowController {
 
     // MARK: - Voice follow-up
 
-    /// The follow-up records and transcribes through the ordinary services, but
-    /// deliberately not through `IndicatorWindowManager`: that machinery exists
-    /// to paste into another app, and this recording is a question for the panel
-    /// that is already on screen. The panel shows its own listening state.
-    private var captureSession: RecordingSession?
-
-    /// Watches for this panel's own capture failing to start.
-    ///
-    /// The comment on `isCapturing` already names the two ways that happens; the
-    /// panel simply had no way to hear about either, so it sat on "Listening…"
-    /// and the finish that followed reported the silence as "No speech
-    /// detected". The subscription is identity-gated on `captureSession`
-    /// because the recorder is shared with the dictation keys and `@Published`
-    /// replays.
-    private var failedStartObserver: AnyCancellable?
+    /// The follow-up's dictation, from the press that claims the microphone to
+    /// the words landing back on the panel. `DictationSession` is the whole of
+    /// that orchestration now - the microphone claim, watching for a capture
+    /// that fails to start, the transcription; this only keeps the reference
+    /// live long enough to stop or cancel it. Not routed through
+    /// `IndicatorWindowManager`: that machinery exists to paste into another
+    /// app, and this recording is a question for the panel that is already on
+    /// screen, delivered with `.toPanel` so nothing is pasted or kept in
+    /// history. The panel shows its own listening state.
+    private var session: DictationSession?
 
     /// Whether the panel is holding a capture of its own. Derived from the
     /// session rather than tracked beside it: a separate flag stayed true after
@@ -532,7 +526,7 @@ final class AskPanelWindowController {
     /// microphone that vanished, an `AVAudioRecorder` that threw - and the
     /// finish or the close that followed then stopped whatever had claimed the
     /// microphone since.
-    private var isCapturing: Bool { captureSession != nil }
+    private var isCapturing: Bool { session?.isCapturing ?? false }
 
     /// Why a capture cannot start, and what the card says instead.
     ///
@@ -604,75 +598,29 @@ final class AskPanelWindowController {
             viewModel.voiceCaptureDidFail(refusal.message)
             return
         }
-        // The recorder's own claim is what actually decides, and it is atomic:
-        // the read above can go stale between here and the next line, and the
-        // panel must never be left showing "Listening…" over a capture that was
-        // refused - or, worse, over a dictation it has just taken.
-        guard let session = AudioRecorder.shared.startRecording() else {
+        // The recorder's own claim, inside `DictationSession.start()`, is what
+        // actually decides: the read above can go stale between here and
+        // there, and the panel must never be left showing "Listening…" over a
+        // capture that was refused - or, worse, over a dictation it has just
+        // taken.
+        let newSession = DictationSession(delivery: .toPanel(receiver: viewModel))
+        newSession.start()
+        guard newSession.isCapturing else {
             viewModel.voiceCaptureDidFail(VoiceCaptureRefusal.dictationInFlight.message)
             return
         }
-        captureSession = session
-        failedStartObserver = AudioRecorder.shared.$failedStart
-            .receive(on: RunLoop.main)
-            .sink { [weak self] failure in
-                guard let self, let failure, failure.ends(self.captureSession) else { return }
-                self.captureSession = nil
-                self.failedStartObserver = nil
-                self.viewModel.voiceCaptureDidFail(failure.reason.message)
-            }
+        session = newSession
     }
 
     private func finishVoiceCapture() {
-        guard let session = captureSession else { return }
-        captureSession = nil
-        failedStartObserver = nil
-
-        Task { [weak self] in
-            guard let self else { return }
-            guard let url = await AudioRecorder.shared.stopRecording(session) else {
-                self.viewModel.voiceCaptureDidFail("No speech detected")
-                return
-            }
-            defer { try? FileManager.default.removeItem(at: url) }
-            do {
-                let styled = try await TranscriptionService.shared.transcribeAudio(
-                    url: url, settings: Self.followUpTranscriptionSettings()
-                )
-                await self.viewModel.voiceCaptureDidProduce(styled.final)
-            } catch {
-                self.viewModel.voiceCaptureDidFail(
-                    DictationSession.failureMessage(for: error)
-                )
-            }
-        }
-    }
-
-    /// The settings a voice follow-up is transcribed with.
-    ///
-    /// `routesSpokenIntents` stays off: a follow-up that began "Ask: …" must
-    /// not be routed back into the panel it came from. And the style rewrite is
-    /// pinned off whatever the user's preference says: a question is not a
-    /// dictation to restyle, and restyling it on its way to the model that is
-    /// about to answer it changes what was asked. The deterministic stages -
-    /// personal terms, CJK spacing - still run.
-    static func followUpTranscriptionSettings() -> Settings {
-        var settings = Settings()
-        settings.styleRewrite = .disabled
-        return settings
+        session?.stop()
     }
 
     private func cancelVoiceCapture() {
-        guard let session = captureSession else { return }
-        captureSession = nil
-        failedStartObserver = nil
-        AudioRecorder.shared.cancelRecording(session)
+        session?.cancel()
     }
 
     private func stopVoiceCaptureIfRunning() {
-        guard let session = captureSession else { return }
-        captureSession = nil
-        failedStartObserver = nil
-        AudioRecorder.shared.cancelRecording(session)
+        session?.cancel()
     }
 }

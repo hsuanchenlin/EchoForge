@@ -313,6 +313,11 @@ final class AskVoiceShortcutTests: XCTestCase {
     /// recorder is a singleton on real hardware, so the only way to know
     /// `startVoiceCapture` consults it is to read the source. It covers ⌥S and
     /// the **Ask by voice** button too, since all three reach that call.
+    ///
+    /// The atomic claim itself now lives in `DictationSession.start()`, shared
+    /// with every other surface that takes the microphone - `startVoiceCapture`
+    /// only has the optimistic pre-check and the fallback for when that check
+    /// went stale.
     func testStartingACaptureConsultsTheSharedRecorder() throws {
         let controller = try Self.source(of: "OpenSuperWhisper/Ask/AskPanelWindowController.swift")
         let body = try Self.body(of: "private func startVoiceCapture() {", in: controller)
@@ -320,8 +325,8 @@ final class AskVoiceShortcutTests: XCTestCase {
         XCTAssertTrue(body.contains("voiceCaptureRefusal("))
         XCTAssertTrue(body.contains("isRecordingInFlight: isSharedRecorderInFlight"))
         XCTAssertTrue(
-            body.contains("guard let session = AudioRecorder.shared.startRecording() else"),
-            "the read can go stale, so the recorder's own claim has to be what decides"
+            body.contains("guard newSession.isCapturing else"),
+            "the pre-check can go stale, so the session's own claim has to be what decides"
         )
         XCTAssertTrue(
             controller.contains("AudioRecorder.shared.hasSessionInFlight"),
@@ -330,6 +335,13 @@ final class AskVoiceShortcutTests: XCTestCase {
         XCTAssertFalse(
             controller.contains("AudioRecorder.shared.isRecording || AudioRecorder.shared.isConnecting"),
             "those two are published a main-queue hop after the start, so a press lands inside the window they leave open"
+        )
+
+        let session = try Self.source(of: "OpenSuperWhisper/Dictation/DictationSession.swift")
+        XCTAssertTrue(
+            try Self.body(of: "func start() {", in: session)
+                .contains("guard let claimed = recorder.startRecording() else"),
+            "the read can go stale, so the recorder's own claim has to be what decides"
         )
     }
 
@@ -340,7 +352,9 @@ final class AskVoiceShortcutTests: XCTestCase {
     /// listening ran straight into `performStart`, which deletes the recording
     /// in flight and re-points the file - the panel's question destroyed, the
     /// card still saying "Listening…". A rule every caller has to remember is a
-    /// rule one of them forgets.
+    /// rule one of them forgets. The main window's record button now reaches
+    /// the claim the same way both other keys do: through
+    /// `DictationSession.start()`, not a copy of its own.
     func testTheRecorderRefusesASecondSessionSoNeitherKeyCanSeizeTheOther() throws {
         let recorder = try Self.source(of: "OpenSuperWhisper/AudioRecorder.swift")
         XCTAssertTrue(
@@ -353,9 +367,8 @@ final class AskVoiceShortcutTests: XCTestCase {
 
         let main = try Self.source(of: "OpenSuperWhisper/ContentView.swift")
         XCTAssertTrue(
-            try Self.body(of: "func startRecording() {", in: main)
-                .contains("guard let claimed = recorder.startRecording() else"),
-            "the main window's record button reaches the same one recorder"
+            try Self.body(of: "func startRecording() {", in: main).contains("DictationSession("),
+            "the main window's record button reaches the same one recorder through DictationSession"
         )
     }
 
@@ -366,7 +379,9 @@ final class AskVoiceShortcutTests: XCTestCase {
     /// merely *believed* it was recording ended somebody else's session. The
     /// main window's record button read the shared `isRecording`, so it drew
     /// itself as recording while the Ask panel listened and decoded the
-    /// panel's question as a dictation on the next press.
+    /// panel's question as a dictation on the next press. Both surfaces now ask
+    /// their own `DictationSession` rather than the shared recorder or a flag
+    /// kept beside it.
     func testEndingARecordingHasToNameTheSessionItMeans() throws {
         let recorder = try Self.source(of: "OpenSuperWhisper/AudioRecorder.swift")
         XCTAssertTrue(recorder.contains("func stopRecording(_ session: RecordingSession) async -> URL?"))
@@ -382,13 +397,13 @@ final class AskVoiceShortcutTests: XCTestCase {
 
         let main = try Self.source(of: "OpenSuperWhisper/ContentView.swift")
         XCTAssertTrue(
-            try Self.body(of: "var isRecording: Bool {", in: main).contains("recordingSession != nil"),
-            "the record button must ask whether *this window* is recording, not whether the microphone is busy"
+            try Self.body(of: "var isRecording: Bool {", in: main).contains("session?.isCapturing"),
+            "the record button must ask whether *this window's own session* is capturing, not whether the microphone is busy"
         )
 
         let controller = try Self.source(of: "OpenSuperWhisper/Ask/AskPanelWindowController.swift")
         XCTAssertTrue(
-            controller.contains("private var isCapturing: Bool { captureSession != nil }"),
+            controller.contains("private var isCapturing: Bool { session?.isCapturing ?? false }"),
             "a flag beside the session outlived the claim and cancelled whatever held the microphone next"
         )
     }

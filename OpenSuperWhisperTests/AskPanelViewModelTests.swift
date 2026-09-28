@@ -561,29 +561,3 @@ final class AskPanelViewModelTests: XCTestCase {
         func answer(_ request: AskRequest) async throws -> String { throw Failure() }
     }
 }
-
-/// The settings a voice follow-up is transcribed with, stated against
-/// preferences that would restyle or route a live dictation.
-final class AskPanelFollowUpSettingsTests: IsolatedPreferencesTestCase {
-
-    /// A follow-up is a question for the panel: never routed - it must not
-    /// reopen the panel it came from - and never restyled, because restyling a
-    /// question on its way to the model that is about to answer it changes what
-    /// was asked. Only the model-backed stage is withheld; the deterministic
-    /// stages keep their own preferences.
-    @MainActor
-    func testAFollowUpIsNeverRoutedAndNeverRestyled() {
-        let preferences = AppPreferences.shared
-        preferences.spokenIntentsEnabled = true
-        preferences.styleRewriteEnabled = true
-        preferences.styleRewriteStyleID = StyleRewriteCatalog.defaultStyleID
-
-        let settings = AskPanelWindowController.followUpTranscriptionSettings()
-
-        XCTAssertFalse(settings.routesSpokenIntents)
-        XCTAssertFalse(settings.styleRewrite.isRunnable)
-        // The same preferences would restyle a live dictation, so the pin - not
-        // the preference - is what turns the follow-up's rewrite off.
-        XCTAssertTrue(Settings(routesSpokenIntents: true).styleRewrite.isRunnable)
-    }
-}
