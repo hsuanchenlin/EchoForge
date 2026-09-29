@@ -299,7 +299,7 @@ final class TranscriptionLatencyAndTimeoutTests: XCTestCase {
         }
         XCTAssertEqual(notice, .transcriptionTimedOut)
         XCTAssertEqual(reason, TranscriptionError.processingTimedOut.errorDescription)
-        XCTAssertEqual(RecordingState(notice), .transcriptionTimedOut)
+        XCTAssertEqual(notice, .transcriptionTimedOut)
     }
 
     /// The failure reads as something the user can do, the rule every

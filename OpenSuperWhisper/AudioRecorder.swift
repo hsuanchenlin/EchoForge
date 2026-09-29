@@ -4,7 +4,7 @@ import SwiftUI
 import AppKit
 import CoreAudio
 
-class AudioRecorder: NSObject, ObservableObject {
+class AudioRecorder: NSObject, ObservableObject, RecordingCaptureControlling {
     @Published var isRecording = false
     @Published var isPlaying = false
     @Published var currentlyPlayingURL: URL?
@@ -24,25 +24,6 @@ class AudioRecorder: NSObject, ObservableObject {
     /// what `MicrophoneSignalMonitor` reads clipping off, and mean power cannot
     /// answer that question. See `MicrophoneLevel`.
     @Published private(set) var inputLevel: MicrophoneLevel = .silent
-
-    /// A start that failed *after* `startRecording` had already handed its
-    /// session back, or `nil` when nothing has.
-    ///
-    /// `startRecording` claims the microphone synchronously and returns at once,
-    /// then pays CoreAudio's 20-35 ms on the work queue - so the two ways a start
-    /// can fail (no audio input, an `AVAudioRecorder` that threw) both happen
-    /// after the caller has been told it owns a recording. The claim is given
-    /// back there, which keeps the ownership rule intact, but nothing told the
-    /// caller: the dictation card went on blinking "Recording..." over a
-    /// microphone that never started, and the press that ended it got `nil` from
-    /// `stopRecording` and closed the session without a word. The Ask panel had
-    /// the same hole and reported it as "No speech detected".
-    ///
-    /// It names its session for the reason every other signal here does:
-    /// `@Published` replays to each new subscriber and five keys share this
-    /// recorder, so a subscriber may act only on a failure carrying the session
-    /// it is actually holding.
-    @Published private(set) var failedStart: FailedRecordingStart?
 
     /// How often the level is sampled while it is being drawn. 20 Hz is what a
     /// level meter needs to look continuous; the waveform's own history supplies
@@ -69,6 +50,11 @@ class AudioRecorder: NSObject, ObservableObject {
     /// Who holds the microphone. `RecordingSessionClaim` documents the whole
     /// rule and is where it is tested.
     private let sessionClaim = RecordingSessionClaim()
+
+    /// The capture whose start is in flight. Touched on `workQueue` only, so
+    /// connecting, recording, failure and levels reach *that* handle rather
+    /// than a replaying `@Published` every surface has to gate.
+    private weak var workQueueCapture: RecordingCapture?
 
     private var audioRecorder: AVAudioRecorder?
     private var audioPlayer: AVAudioPlayer?
@@ -205,23 +191,20 @@ class AudioRecorder: NSObject, ObservableObject {
     }
 
     private func claimSession() -> RecordingSession? {
-        let claimed = sessionClaim.claim()
-        // A new claim clears the last failure, so a subscriber that appears
-        // between two presses is not replayed somebody else's.
-        if claimed != nil {
-            DispatchQueue.main.async { self.failedStart = nil }
-        }
-        return claimed
+        sessionClaim.claim()
     }
 
-    /// Gives `session` back and says so, for the two starts that fail on the
-    /// work queue after the caller has already been handed the session.
-    private func failStart(_ session: RecordingSession, _ reason: FailedRecordingStart.Reason) {
+    /// Gives the capture's session back and resolves its start, for the two
+    /// starts that fail on the work queue after the caller has already been
+    /// handed the handle.
+    private func failStart(_ capture: RecordingCapture, _ reason: FailedRecordingStart.Reason) {
         // Released first: the microphone is free from this moment, and a caller
         // woken by the report must find it so.
-        releaseSession(session)
-        let failure = FailedRecordingStart(session: session, reason: reason)
-        DispatchQueue.main.async { self.failedStart = failure }
+        releaseSession(capture.session)
+        capture.completeStart(.failure(reason))
+        if workQueueCapture === capture {
+            workQueueCapture = nil
+        }
     }
 
     @discardableResult
@@ -240,25 +223,29 @@ class AudioRecorder: NSObject, ObservableObject {
     /// wrong recording. Every caller guarding itself cannot hold that rule -
     /// one of them always forgets, and the dictation keys did.
     ///
-    /// - Returns: the claimed session, or nil when the microphone is already
-    ///   held - in which case nothing was started and the session in flight is
-    ///   untouched, and the caller shows its own refusal. A caller that starts
-    ///   one keeps the session and presents it again to stop or cancel; there
-    ///   is deliberately no way to end a recording without naming it.
-    func startRecording() -> RecordingSession? {
+    /// - Returns: the capture for the claimed session, or nil when the
+    ///   microphone is already held - in which case nothing was started and the
+    ///   session in flight is untouched, and the caller shows its own refusal.
+    ///   A caller that starts one keeps the capture and asks *it* to stop or
+    ///   cancel; there is deliberately no way to end a recording without naming
+    ///   it.
+    func startRecording() -> RecordingCapture? {
         guard let session = claimSession() else {
             print("Cannot start recording - a recording is already in flight")
             return nil
         }
+        let capture = RecordingCapture(session: session, controller: self)
         // Everything below costs CoreAudio HAL round-trips (device queries,
         // AudioQueue start for the notification sound) - 20-35 ms that used to
         // block the main thread right when the indicator appear animation
         // starts, so the whole start sequence runs on the work queue.
         let playSound = AppPreferences.shared.playSoundOnRecordStart
-        workQueue.async {
+        workQueue.async { [weak capture] in
+            guard let capture else { return }
+            self.workQueueCapture = capture
             guard let activeMic = MicrophoneService.shared.getActiveMicrophone() else {
                 print("Cannot start recording - no audio input available")
-                self.failStart(session, .noAudioInput)
+                self.failStart(capture, .noAudioInput)
                 return
             }
 
@@ -269,13 +256,13 @@ class AudioRecorder: NSObject, ObservableObject {
             let requiresConnection = MicrophoneService.shared.isActiveMicrophoneRequiresConnection()
             self.updateRecordingState(isRecording: false, isConnecting: requiresConnection)
             self.performStart(
-                session: session, activeMic: activeMic, monitorConnection: requiresConnection)
+                capture: capture, activeMic: activeMic, monitorConnection: requiresConnection)
         }
-        return session
+        return capture
     }
 
     private func performStart(
-        session: RecordingSession,
+        capture: RecordingCapture,
         activeMic: MicrophoneService.AudioDevice?,
         monitorConnection: Bool
     ) {
@@ -338,7 +325,7 @@ class AudioRecorder: NSObject, ObservableObject {
             currentRecordingURL = nil
             restoreSystemDefaultInputIfNeeded()
             updateRecordingState(isRecording: false, isConnecting: false)
-            failStart(session, .recorderFailed)
+            failStart(capture, .recorderFailed)
         }
     }
 
@@ -352,6 +339,9 @@ class AudioRecorder: NSObject, ObservableObject {
     func stopRecording(_ session: RecordingSession) async -> URL? {
         await withCheckedContinuation { continuation in
             workQueue.async {
+                if self.workQueueCapture?.session == session {
+                    self.workQueueCapture = nil
+                }
                 guard self.releaseSession(session) else {
                     // Somebody else's recording, or one whose start already gave
                     // the claim back. Either way nothing here may touch the
@@ -401,6 +391,9 @@ class AudioRecorder: NSObject, ObservableObject {
     /// Ask panel's question instead.
     func cancelRecording(_ session: RecordingSession) {
         workQueue.sync {
+            if workQueueCapture?.session == session {
+                workQueueCapture = nil
+            }
             guard releaseSession(session) else { return }
             _ = performStop(discard: true)
         }
@@ -492,9 +485,12 @@ class AudioRecorder: NSObject, ObservableObject {
     }
     
     private func updateRecordingState(isRecording: Bool, isConnecting: Bool) {
+        let capture = workQueueCapture
         DispatchQueue.main.async {
             self.isRecording = isRecording
             self.isConnecting = isConnecting
+            capture?.noteConnecting(isConnecting)
+            capture?.noteRecording(isRecording)
         }
     }
     

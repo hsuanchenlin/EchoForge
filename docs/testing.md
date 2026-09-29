@@ -65,7 +65,7 @@ one, read its header before weakening it:
 - `ReleasePackagingTests` - runs `Scripts/tests/verify_release_package_test.sh`.
 - `AppIdentityTests` and `AppIconArtworkTests` - [app-identity.md](app-identity.md).
 - `SettingsTabBarFitTests` and `SettingsTabBarGeometryTests` - [settings-sheet.md](settings-sheet.md).
-- `ModalDismissalOnPowerOffTests`, `FailedRecordingStartTests`, `CLISeamTests`,
+- `ModalDismissalOnPowerOffTests`, `CLISeamTests`,
   `CloudPrivacyTests`, `HistoryProvenancePrivacyTests`, `AppStyleMappingTests`,
   `WhisperInitialPromptTests`, `EngineWeightsPreparationTests` - source scans that keep a
   rule true across the tree; each names the rule it holds.

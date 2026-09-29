@@ -20,8 +20,8 @@ import Foundation
 
 // MARK: - The microphone
 
-/// The microphone, as one dictation uses it: claim it, give it back with the
-/// audio, or throw the audio away.
+/// The microphone, as one dictation uses it: claim a capture, whose handle
+/// is the stop, the cancel and the start's own result.
 protocol DictationRecording: AnyObject {
     /// Whether there is an input device to record with.
     ///
@@ -29,39 +29,16 @@ protocol DictationRecording: AnyObject {
     /// round-trip on the main thread.
     var hasActiveInput: Bool { get }
 
-    /// Claims the microphone for one session, or refuses because something
-    /// already holds it. See `RecordingSessionClaim`.
-    func startRecording() -> RecordingSession?
-
-    /// Ends `session` and hands back its audio, or nil when that session is no
-    /// longer the one in flight.
-    func stopRecording(_ session: RecordingSession) async -> URL?
-
-    /// Throws `session`'s audio away.
-    func cancelRecording(_ session: RecordingSession)
+    /// Claims the microphone for one capture, or refuses because something
+    /// already holds it. See `RecordingCapture`.
+    func startRecording() -> RecordingCapture?
 
     /// Moves a temporary capture under the name history gave it.
     func moveTemporaryRecording(from tempURL: URL, to finalURL: URL) throws
-
-    /// The recorder is reaching a device that takes a moment to open.
-    var isConnectingPublisher: AnyPublisher<Bool, Never> { get }
-
-    /// The recorder is capturing.
-    var isRecordingPublisher: AnyPublisher<Bool, Never> { get }
-
-    /// A start that was accepted and then failed on the work queue. It names
-    /// the session it belongs to, because five keys share one recorder - see
-    /// `AudioRecorder.failedStart`.
-    var failedStartPublisher: AnyPublisher<FailedRecordingStart?, Never> { get }
 }
 
 extension AudioRecorder: DictationRecording {
     var hasActiveInput: Bool { MicrophoneService.shared.getActiveMicrophone() != nil }
-    var isConnectingPublisher: AnyPublisher<Bool, Never> { $isConnecting.eraseToAnyPublisher() }
-    var isRecordingPublisher: AnyPublisher<Bool, Never> { $isRecording.eraseToAnyPublisher() }
-    var failedStartPublisher: AnyPublisher<FailedRecordingStart?, Never> {
-        $failedStart.eraseToAnyPublisher()
-    }
 }
 
 // MARK: - The engine

@@ -140,10 +140,10 @@ final class CapsuleHUDWindowController {
         // must not be paid during the appear animation.
         ensurePanel()
 
-        indicatorViewModel.$state
+        indicatorViewModel.session.$phase
             .receive(on: RunLoop.main)
-            .sink { [weak self] state in
-                self?.viewModel.follow(state)
+            .sink { [weak self] phase in
+                self?.viewModel.follow(phase)
             }
             .store(in: &sessionCancellables)
 

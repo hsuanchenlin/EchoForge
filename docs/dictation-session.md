@@ -1,15 +1,16 @@
 # The dictation session
 
 One dictation, from the press that claims the microphone to the words landing in
-whatever the user was typing in. `OpenSuperWhisper/Dictation/` is the whole of
-it: `DictationSession` does the work, `DictationPhase` is what it says about
-itself while it does, and `DictationSessionPorts.swift` is what it needs from
-the rest of the app.
+whatever the user was typing in. `OpenSuperWhisper/Dictation/` owns the
+orchestration: `DictationSession` does the work, `DictationPhase` is what it says
+about itself while it does, and `DictationSessionPorts.swift` is what it needs
+from the rest of the app. `RecordingCapture` owns one microphone capture from
+start through stop or cancel.
 
-This is the hotkey path only - ⌥\`, ⌥Y, ⌥E, the modifier-only and mouse-button
-triggers, and the menu bar item. The main window's record button
-(`ContentViewModel`) still has its own smaller copy of the same shape and is not
-on this module yet.
+This module serves the hotkey paths - ⌥\`, ⌥Y, ⌥E, the modifier-only and
+mouse-button triggers, and the menu bar item - plus the main window's record
+button and the Ask panel's voice follow-up. `DictationDelivery` keeps their
+destinations distinct: insertion, history only, or the Ask panel.
 
 ## Why it is its own module
 
@@ -24,9 +25,9 @@ keep-versus-discard, what a cancel means on each path: all of them were
 asserted, when at all, by reading the source.
 
 The split is by lifetime. `DictationSession` is the dictation.
-`IndicatorViewModel` is the card: it follows the session's phase, derives the
-`RecordingState` the card draws, and runs the timers. `DictationSessionTests`
-is what the extraction bought - the rules below, stated against fakes.
+`IndicatorViewModel` is the card: it follows the session's phase, draws it,
+and runs the timers. `DictationSessionTests` is what the extraction bought -
+the rules below, stated against fakes.
 
 ## What the overlays see
 
@@ -37,22 +38,23 @@ ShortcutManager  ──► IndicatorWindowManager.prepare()
                      DictationSession ── @Published phase ──► IndicatorViewModel
                                       └─ @Published liveTranscript ─┘   │
                                                                         ▼
-                                              RecordingState ──► the card
-                                                             └─► CapsuleHUDViewModel
+                                              DictationPhase ──► the card
+                                                             └─► CapsuleHUDViewModel.follow(_:)
 ```
 
 `DictationPhase` is the session's own account: `idle`, `connecting`,
-`recording`, `decoding`, `awaitingChannelChoice`, and `ended(DictationNotice?)`.
-A `nil` notice means the session ended with nothing to add - every ordinary
-success, and every cancel, because the user knows what they did. A notice is
-the short line they still have to read, and **how long it stays on screen is not
-the session's business**: `IndicatorViewModel` owns that timer, because it is a
-property of an overlay rather than of a recording.
+`recording`, `decoding`, `awaitingChannelChoice`, and
+`ended(DictationNotice?, DictationResult?)`. A `nil` notice means the session
+ended with nothing to add - every ordinary success, and every cancel, because
+the user knows what they did. The optional result lets the capsule distinguish
+success, silence, cancellation, and transcription failure without a second
+input. A notice is the short line they still have to read, and **how long it
+stays on screen is not the session's business**: `IndicatorViewModel` owns that
+timer, because it is a property of an overlay rather than of a recording.
 
-`RecordingState` is still the card's vocabulary and is derived one-to-one from
-`DictationNotice` (`RecordingState.init(_:)` in `Indicator/IndicatorWindow.swift`).
-The capsule follows `RecordingState` through `IndicatorViewModel.state`, so
-`CapsuleHUDViewModel.follow` is unchanged - see `docs/capsule-hud.md`.
+The card draws `DictationPhase` directly. The capsule follows the same phase
+through `CapsuleHUDViewModel.follow(_:)`: a notice becomes the error badge, and
+`.ended(nil, result)` supplies the outcome directly - see `docs/capsule-hud.md`.
 
 `DictationSessionRegistry.current` is the one answer to "is a dictation
 running?" Five ways of starting one and three of stopping one all ask it;
@@ -72,10 +74,11 @@ making `RecordingStore` and `TranscriptionQueue` constructible - is deliberately
 
 Each of these is one test in `DictationSessionTests`.
 
-**The microphone is owned.** Every recording is a `RecordingSession` claimed
+**The microphone is owned.** Every recording is a `RecordingCapture` claimed
 from `AudioRecorder`, and every stop and cancel names the session it means. A
-`failedStart` belonging to another key's capture is ignored.
-(`RecordingSessionClaim`, `docs/ask-panel.md`)
+failed start belonging to another key's capture cannot reach this one: the
+handle itself is the report.
+(`RecordingCapture`, `RecordingSessionClaim`, `docs/ask-panel.md`)
 
 **The busy rule, and what it does with the audio.** A start refused because a
 transcription is running keeps nothing (`.busy(.startRefused)`). A *stop* while
@@ -113,8 +116,8 @@ rewrite of the captured text and never the spoken instruction.
 
 ## What is left
 
-`ContentViewModel` still holds a second, smaller copy of this orchestration for
-the main window's record button. Moving it onto `DictationSession` is the
-obvious next step and is out of scope here; until it happens, a rule that has to
-hold in both places - `DictationFailureOutcome` is the one that already did -
-belongs in a type both can reach.
+The main window's record button and the Ask panel's voice follow-up already
+run on `DictationSession` (`delivery: .historyOnly` / `.toPanel`). The
+remaining work from the architecture review is elsewhere: pipeline progress
+reported to the session rather than global rewrite flags, and a typed history
+change stream.

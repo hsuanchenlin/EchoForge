@@ -23,10 +23,10 @@ import Foundation
 /// Four rules hold, and none of them is new - they are the reason the code
 /// below is shaped the way it is.
 ///
-/// **The microphone is owned.** Every recording is a `RecordingSession` claimed
+/// **The microphone is owned.** Every recording is a `RecordingCapture` claimed
 /// from `AudioRecorder`, and every stop and cancel names the session it means.
 /// A session that was refused holds nothing and touches nothing.
-/// (`RecordingSessionClaim`)
+/// (`RecordingCapture`, `RecordingSessionClaim`)
 ///
 /// **Nothing between engine and paste may fail or invent.** The live path is a
 /// speed-up and never a failure mode: every way it can break answers
@@ -94,7 +94,7 @@ final class DictationSession: ObservableObject {
     private(set) var didCancelWorkInFlight = false
 
     /// Whether this session holds the microphone right now.
-    var isCapturing: Bool { recordingSession != nil }
+    var isCapturing: Bool { recordingCapture != nil }
 
     /// Whether a transcription is already running, here or in the queue.
     var isTranscriptionBusy: Bool { transcriber.isTranscribing || queue.isProcessing }
@@ -113,17 +113,17 @@ final class DictationSession: ObservableObject {
 
     // MARK: - What it holds while it runs
 
-    /// The microphone claim this session holds, from the press that took it
-    /// until the stop or cancel that gives it back. `nil` means this session
-    /// owns no recording - it was refused, or it has already ended - and every
-    /// path that reads the recorder is gated on it.
-    private var recordingSession: RecordingSession?
+    /// The capture this session holds, from the press that took it until the
+    /// stop or cancel that gives it back. `nil` means this session owns no
+    /// recording - it was refused, or it has already ended - and every path
+    /// that reads the recorder is gated on it.
+    private var recordingCapture: RecordingCapture?
 
     /// The decoder running alongside the recording, or nil when this dictation
     /// takes the whole-file path: the switch is off, the engine is the cloud
     /// one, or the key was not the dictation key (`LiveDictationEligibility`).
     ///
-    /// Bound to `recordingSession` - it is made with the claim and ends with
+    /// Bound to `recordingCapture` - it is made with the claim and ends with
     /// it, by name - and owned here rather than by the recorder because it is
     /// a consumer of the microphone the way the capsule's level meter is, not
     /// a second recorder. The WAV is still written; this only decides how much
@@ -161,44 +161,6 @@ final class DictationSession: ObservableObject {
         self.selectionEditor = selectionEditor
         self.measurement = measurement
         self.makeLiveSession = makeLiveSession
-
-        // Both sinks describe **this** session and no other, which is what
-        // `recordingSession` gates them on. `AudioRecorder` publishes to every
-        // subscriber, `@Published` replays its current value to a new one, and
-        // the session is built before the press has claimed anything - so a
-        // dictation refused because the Ask panel holds the microphone would
-        // otherwise be handed that panel's `isRecording` a runloop turn later,
-        // repaint itself as a recording it does not own, and let the next press
-        // decode the question as a dictation.
-        recorder.isConnectingPublisher
-            .receive(on: RunLoop.main)
-            .sink { [weak self] isConnecting in
-                guard let self, self.recordingSession != nil else { return }
-                if isConnecting { self.phase = .connecting }
-            }
-            .store(in: &cancellables)
-
-        recorder.isRecordingPublisher
-            .receive(on: RunLoop.main)
-            .sink { [weak self] isRecording in
-                guard let self, self.recordingSession != nil else { return }
-                if isRecording { self.phase = .recording }
-            }
-            .store(in: &cancellables)
-
-        // The third thing the recorder can say, and the one that used to be
-        // said to nobody: this session's microphone never opened. Gated on the
-        // session itself rather than on `recordingSession != nil` like the two
-        // above, because `@Published` replays and a failure belonging to the
-        // Ask panel's capture must not end a dictation. See
-        // `AudioRecorder.failedStart`.
-        recorder.failedStartPublisher
-            .receive(on: RunLoop.main)
-            .sink { [weak self] failure in
-                guard let self, let failure, failure.ends(self.recordingSession) else { return }
-                self.recordingDidFailToStart(failure.reason)
-            }
-            .store(in: &cancellables)
     }
 
     // MARK: - Starting
@@ -221,17 +183,53 @@ final class DictationSession: ObservableObject {
         // re-point its file at this session - the mirror image of the seizure
         // `AskPanelWindowController.voiceCaptureRefusal` refuses, and the half
         // nothing guarded. The claim itself is synchronous and costs no
-        // CoreAudio HAL round-trip; the recorder still resolves the real state
-        // on its own queue and publishes isConnecting/isRecording, which the
-        // sinks above translate into `.connecting`/`.recording`.
+        // CoreAudio HAL round-trip; the capture then reports connecting,
+        // recording, or a start that never opened, and those reports cannot
+        // reach a session that does not hold this capture.
         guard let claimed = recorder.startRecording() else {
             end(with: .busy(.startRefused))
             return
         }
-        recordingSession = claimed
-        startLiveSessionIfEligible(for: claimed)
+        recordingCapture = claimed
+        follow(claimed)
+        startLiveSessionIfEligible(for: claimed.session)
 
         phase = .recording
+    }
+
+    /// Follows one capture: connecting, recording, and a start that never
+    /// opened. Bound to this capture by type, so another key's headset cannot
+    /// paint this session as recording, and another key's failed start cannot
+    /// end it.
+    private func follow(_ capture: RecordingCapture) {
+        cancellables.removeAll()
+
+        capture.isConnectingPublisher
+            .receive(on: RunLoop.main)
+            .sink { [weak self, weak capture] isConnecting in
+                guard let self, self.recordingCapture === capture else { return }
+                if isConnecting { self.phase = .connecting }
+            }
+            .store(in: &cancellables)
+
+        capture.isRecordingPublisher
+            .receive(on: RunLoop.main)
+            .sink { [weak self, weak capture] isRecording in
+                guard let self, self.recordingCapture === capture else { return }
+                if isRecording { self.phase = .recording }
+            }
+            .store(in: &cancellables)
+
+        Task { @MainActor [weak self, weak capture] in
+            guard let capture else { return }
+            switch await capture.started() {
+            case .success:
+                break
+            case .failure(let reason):
+                guard let self, self.recordingCapture === capture else { return }
+                self.recordingDidFailToStart(reason)
+            }
+        }
     }
 
     /// A voice-edit press that found no selection and no clipboard text.
@@ -326,10 +324,11 @@ final class DictationSession: ObservableObject {
     private func recordingDidFailToStart(_ reason: FailedRecordingStart.Reason) {
         // The live decoder is a consumer of this microphone, so it goes with
         // the capture that never started - named, like every end of a session.
-        if let session = recordingSession {
+        if let session = recordingCapture?.session {
             endLiveSession(session)
         }
-        recordingSession = nil
+        recordingCapture = nil
+        cancellables.removeAll()
         end(with: reason.notice)
     }
 
@@ -344,11 +343,13 @@ final class DictationSession: ObservableObject {
         // restart decoding while transcription is in flight.
         guard phase == .recording || phase == .connecting else { return }
 
-        guard let session = recordingSession else {
+        guard let capture = recordingCapture else {
             end(with: nil)
             return
         }
-        recordingSession = nil
+        let session = capture.session
+        recordingCapture = nil
+        cancellables.removeAll()
         var liveSession = self.liveSession
         self.liveSession = nil
         if case .unavailable? = liveSession?.state {
@@ -368,7 +369,7 @@ final class DictationSession: ObservableObject {
             if purpose == .selectionEdit {
                 Task { [weak self] in
                     guard let self,
-                          let tempURL = await self.recorder.stopRecording(session)
+                          let tempURL = await capture.stop()
                     else { return }
                     try? FileManager.default.removeItem(at: tempURL)
                 }
@@ -379,7 +380,7 @@ final class DictationSession: ObservableObject {
             // and put it into the queue instead of deleting it.
             Task { [weak self] in
                 guard let self else { return }
-                if let tempURL = await self.recorder.stopRecording(session) {
+                if let tempURL = await capture.stop() {
                     // The queue transcribes and never routes, so a command
                     // capture that lands here is transcribed as text and the
                     // command never runs. History says exactly that rather than
@@ -399,7 +400,7 @@ final class DictationSession: ObservableObject {
 
             // Both stop after the same tail; neither waits for the other. The
             // live session then decodes what is left while the file is closed.
-            async let stopped = self.recorder.stopRecording(session)
+            async let stopped = capture.stop()
             let liveOutcome = await liveSession?.finish(session)
 
             guard let tempURL = await stopped else {
@@ -777,12 +778,14 @@ final class DictationSession: ObservableObject {
     /// nothing to tell them, and the overlay that asked for this is already
     /// taking itself down.
     func cancel() {
-        guard let session = recordingSession else { return }
-        recordingSession = nil
+        guard let capture = recordingCapture else { return }
+        let session = capture.session
+        recordingCapture = nil
+        cancellables.removeAll()
         // Buffer, committed words and file all go: nothing is pasted, nothing
         // is kept.
         endLiveSession(session)
-        recorder.cancelRecording(session)
+        capture.cancel()
     }
 
     /// Stops the transcription the user is currently waiting on, and remembers
@@ -813,7 +816,7 @@ final class DictationSession: ObservableObject {
     /// The one way a session finishes: the outcome is already recorded, and this
     /// publishes the phase that says so.
     private func end(with notice: DictationNotice?) {
-        phase = .ended(notice)
+        phase = .ended(notice, result)
     }
 
     // MARK: - Words

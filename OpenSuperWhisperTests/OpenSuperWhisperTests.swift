@@ -1621,7 +1621,7 @@ final class NoMicrophoneGuardTests: XCTestCase {
             let viewModel = IndicatorViewModel()
             viewModel.startRecording()
 
-            XCTAssertTrue(viewModel.state == .noMicrophone,
+            XCTAssertTrue(viewModel.state == .ended(.noMicrophone, nil),
                           "Indicator should show the no-microphone state instead of a fake 'recording' state")
             XCTAssertFalse(AudioRecorder.shared.isRecording,
                            "Recorder must not be recording when there is no microphone")

@@ -80,8 +80,9 @@ Three rules:
 - **The same microphone owner as everything else.** It goes through
   `AudioRecorder.startRecording()`, so it takes the single `RecordingSession`
   claim, is refused while a dictation is in flight, and cannot start a second
-  capture behind one. It watches `$failedStart` and acts only on a failure naming
-  its own session, like every other surface that holds the microphone.
+  capture behind one. It awaits that capture's `started()` and acts only on a
+  failure of the handle it is holding, like every other surface that takes the
+  microphone.
 - **The audio is discarded, always.** It ends with `cancelRecording`, which
   deletes the file, so a test leaves no `.wav`, no history row and nothing for
   the retention policy to reason about. There is no path here that keeps a

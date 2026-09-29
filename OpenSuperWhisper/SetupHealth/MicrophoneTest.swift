@@ -12,8 +12,8 @@ import Foundation
 /// Three rules carry it.
 ///
 /// **It is the same microphone owner as everything else.** It goes through
-/// `AudioRecorder.startRecording()`, so it takes the one `RecordingSession`
-/// claim, can be refused while a dictation is in flight, and cannot start a
+/// `AudioRecorder.startRecording()`, so it takes the one `RecordingCapture`
+/// handle, can be refused while a dictation is in flight, and cannot start a
 /// second capture behind one. Nothing here reaches CoreAudio on its own.
 ///
 /// **The audio is discarded, always.** It ends with `cancelRecording`, which
@@ -63,7 +63,7 @@ final class MicrophoneTestViewModel: ObservableObject {
     static let sampleCount = CapsuleHUDViewModel.waveformSampleCount
 
     private let recorder: AudioRecorder
-    private var session: RecordingSession?
+    private var capture: RecordingCapture?
     private var monitor = MicrophoneSignalMonitor()
     private var cancellables = Set<AnyCancellable>()
     private var countdown: Timer?
@@ -85,7 +85,7 @@ final class MicrophoneTestViewModel: ObservableObject {
         levels = []
         signal = .measuring
 
-        guard let session = recorder.startRecording() else {
+        guard let capture = recorder.startRecording() else {
             // The claim is held by a dictation, the Ask panel or a voice edit.
             // Refused rather than queued: this is a diagnostic, and taking the
             // microphone off a recording that is capturing somebody's words to
@@ -93,12 +93,12 @@ final class MicrophoneTestViewModel: ObservableObject {
             state = .refused("Something else is using the microphone. Try again in a moment.")
             return
         }
-        self.session = session
+        self.capture = capture
         endsAt = Date().addingTimeInterval(Self.duration)
         state = .running(remaining: Self.duration)
 
         recorder.setLevelMonitoring(enabled: true)
-        observe(session)
+        observe(capture)
         scheduleCountdown()
     }
 
@@ -122,7 +122,7 @@ final class MicrophoneTestViewModel: ObservableObject {
 
     // MARK: - Private
 
-    private func observe(_ session: RecordingSession) {
+    private func observe(_ capture: RecordingCapture) {
         cancellables.removeAll()
 
         recorder.$inputLevel
@@ -132,18 +132,20 @@ final class MicrophoneTestViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // A start can fail *after* the session was handed back - CoreAudio is
-        // paid on the work queue - and it names the session it failed, because
-        // five surfaces share this recorder and `@Published` replays. Acting on
-        // somebody else's failure would end their dictation from here.
-        recorder.$failedStart
-            .receive(on: RunLoop.main)
-            .sink { [weak self] failure in
-                guard let self, let failure, failure.ends(session) else { return }
+        // A start can fail *after* the capture was handed back - CoreAudio is
+        // paid on the work queue. The handle itself is the report, so this
+        // cannot act on somebody else's failure.
+        Task { @MainActor [weak self, weak capture] in
+            guard let capture else { return }
+            switch await capture.started() {
+            case .success:
+                break
+            case .failure(let reason):
+                guard let self, self.capture === capture else { return }
                 self.teardown()
-                self.state = .refused(failure.reason.message)
+                self.state = .refused(reason.message)
             }
-            .store(in: &cancellables)
+        }
     }
 
     private func record(_ level: MicrophoneLevel) {
@@ -207,11 +209,11 @@ final class MicrophoneTestViewModel: ObservableObject {
         endsAt = nil
         cancellables.removeAll()
         recorder.setLevelMonitoring(enabled: false)
-        if let session {
+        if let capture {
             // Cancel, never stop: `cancelRecording` deletes the file. A test
             // must not leave audio on the disk.
-            recorder.cancelRecording(session)
+            capture.cancel()
         }
-        session = nil
+        capture = nil
     }
 }

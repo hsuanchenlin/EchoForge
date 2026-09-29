@@ -128,7 +128,7 @@ fail; it can only make one slower than it would have been.
 | The engine changed between the last poll and the key going up | `.failed(.engineChanged)` from `finish`, before the tail is decoded - the same check the poll makes |
 | The tail holds speech the VAD found but less than the budget's tail minimum (a one-word dictation, a short last word after a pause) | `.failed(.tailBelowMinimum)` from `finish`, with or without utterances already committed; the line is cleared and the WAV is decoded whole, which keeps every segment the VAD reports. A tail with no detected speech is silence and is dropped, not a fallback |
 | Esc / cancel while recording | Buffer, committed text, tap and WAV all discarded; nothing pasted, no row |
-| `AudioRecorder.failedStart` for this session | The dictation session ends the live session with the capture that never started (`endLiveSession`); a tap still opening when that lands is stopped the moment it comes up |
+| `RecordingCapture.started()` fails for this session | The dictation session ends the live session with the capture that never started (`endLiveSession`); a tap still opening when that lands is stopped the moment it comes up |
 | Cancel button after the key went up (tail decode, finish, or a fallback's whole-file decode) | Nothing on the engine is interrupted: the work runs to its end and `DictationSession.transcribe` refuses its result because `didCancelWorkInFlight` is set - nothing pasted, no row, WAV discarded (below) |
 | App quits mid-recording | As today: temp WAV survives 24 h, no row; an utterance file left behind is swept with it |
 

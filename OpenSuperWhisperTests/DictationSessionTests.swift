@@ -97,14 +97,14 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
     ) async -> DictationNotice?? {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if case .ended(let notice) = session.phase { return .some(notice) }
+            if case .ended(let notice, _) = session.phase { return .some(notice) }
             try? await Task.sleep(nanoseconds: 1_000_000)
         }
         return nil
     }
 
     private func endedNotice(_ session: DictationSession) -> DictationNotice? {
-        guard case .ended(let notice) = session.phase else { return nil }
+        guard case .ended(let notice, _) = session.phase else { return nil }
         return notice
     }
 
@@ -116,7 +116,7 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
 
         session.start()
 
-        XCTAssertEqual(session.phase, .ended(.noMicrophone))
+        XCTAssertEqual(session.phase, .ended(.noMicrophone, nil))
         XCTAssertTrue(recorder.startedSessions.isEmpty,
                       "a refusal before the claim must not touch the recorder")
     }
@@ -127,7 +127,7 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
 
         session.start()
 
-        XCTAssertEqual(session.phase, .ended(.busy(.startRefused)))
+        XCTAssertEqual(session.phase, .ended(.busy(.startRefused), nil))
         XCTAssertTrue(recorder.startedSessions.isEmpty)
     }
 
@@ -139,7 +139,7 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
         second.start()
 
         XCTAssertEqual(first.phase, .recording)
-        XCTAssertEqual(second.phase, .ended(.busy(.startRefused)))
+        XCTAssertEqual(second.phase, .ended(.busy(.startRefused), nil))
         XCTAssertTrue(first.isCapturing)
         XCTAssertFalse(second.isCapturing)
         XCTAssertEqual(recorder.startedSessions.count, 1)
@@ -174,30 +174,28 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
 
         XCTAssertEqual(
             session.phase,
-            .ended(.recordingFailed(FailedRecordingStart.Reason.recorderFailed.shortMessage)))
+            .ended(.recordingFailed(FailedRecordingStart.Reason.recorderFailed.shortMessage), nil))
         XCTAssertFalse(session.isCapturing)
         XCTAssertEqual(live.cancelledSessions.count, 1,
                        "the live decoder is a consumer of a microphone that never opened")
         XCTAssertNil(session.liveTranscript)
     }
 
-    /// A failure belonging to somebody else's capture - ⌥A's, say - must not end
-    /// a dictation. `AudioRecorder.failedStart` is replayed to every subscriber.
+    /// A failure belonging to somebody else's capture - ⌥A's, say - cannot end
+    /// a dictation. Each capture carries its own start result, so there is no
+    /// shared published failure to subscribe to or gate.
     func testAnotherSessionsFailedStart_isIgnored() async {
         let session = makeSession()
         session.start()
 
-        // A session that is not this one. Claims number from one per
-        // `RecordingSessionClaim`, so the second of a separate claim's is the
-        // one that cannot collide with the recording in flight.
-        let otherClaim = RecordingSessionClaim()
-        let first = otherClaim.claim()!
-        otherClaim.release(first)
-        let other = otherClaim.claim()!
-        recorder.failure.send(FailedRecordingStart(session: other, reason: .noAudioInput))
+        let otherRecorder = FakeDictationRecorder()
+        let other = otherRecorder.startRecording()
+        otherRecorder.failStart(reason: .noAudioInput)
         try? await Task.sleep(nanoseconds: 20_000_000)
 
+        XCTAssertNotNil(other)
         XCTAssertEqual(session.phase, .recording)
+        XCTAssertTrue(session.isCapturing)
     }
 
     /// The Ask panel opens the microphone and updates `AudioRecorder` state; a dictation
@@ -208,21 +206,24 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
         let session = makeSession()
         session.start()
 
-        XCTAssertEqual(session.phase, .ended(.busy(.startRefused)))
+        XCTAssertEqual(session.phase, .ended(.busy(.startRefused), nil))
 
-        // Another surface connects and records.
-        recorder.connecting.send(true)
-        recorder.recording.send(true)
+        // Another surface connects and records on a capture this session
+        // does not hold.
+        let other = FakeDictationRecorder()
+        _ = other.startRecording()
+        other.sendConnecting(true)
+        other.sendRecording(true)
         try? await Task.sleep(nanoseconds: 20_000_000)
 
-        XCTAssertEqual(session.phase, .ended(.busy(.startRefused)))
+        XCTAssertEqual(session.phase, .ended(.busy(.startRefused), nil))
 
         // Stopping a refused session has no side effects.
         session.cancel()
         session.stop()
         try? await Task.sleep(nanoseconds: 20_000_000)
 
-        XCTAssertEqual(session.phase, .ended(.busy(.startRefused)))
+        XCTAssertEqual(session.phase, .ended(.busy(.startRefused), nil))
     }
 
     func testAVoiceEditPressWithNothingToEdit_neverTakesTheMicrophone() {
@@ -230,7 +231,7 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
 
         session.reportNothingToEdit()
 
-        XCTAssertEqual(session.phase, .ended(.commandFailed("Nothing to edit")))
+        XCTAssertEqual(session.phase, .ended(.commandFailed("Nothing to edit"), nil))
         XCTAssertTrue(recorder.startedSessions.isEmpty)
     }
 
@@ -566,7 +567,7 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
 
         session.stop()
 
-        XCTAssertEqual(session.phase, .ended(.busy(.audioQueued)))
+        XCTAssertEqual(session.phase, .ended(.busy(.audioQueued), nil))
         try? await Task.sleep(nanoseconds: 20_000_000)
         XCTAssertEqual(queue.queued.count, 1)
         XCTAssertEqual(queue.queued.first?.url, audio)
@@ -622,7 +623,7 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
 
         session.stop()
 
-        XCTAssertEqual(session.phase, .ended(.busy(.startRefused)))
+        XCTAssertEqual(session.phase, .ended(.busy(.startRefused), nil))
         try? await Task.sleep(nanoseconds: 20_000_000)
         XCTAssertTrue(queue.queued.isEmpty, "an instruction must never be queued as a dictation")
         XCTAssertFalse(FileManager.default.fileExists(atPath: audio.path))
