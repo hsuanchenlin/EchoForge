@@ -249,17 +249,16 @@ final class SpokenIntentRouterSnippetTests: IsolatedPreferencesTestCase {
     }
 
     @MainActor
-    func testTheCapsuleIsToldASnippetFired() async throws {
+    func testTheSessionIsToldASnippetFired() async throws {
         try enableRouting()
-        SpokenIntentActivity.shared.clear()
+        var events: [StageEvent] = []
 
         _ = await SpokenIntentPipeline.apply(
             to: processed("insert email signoff"),
             settings: Settings(routesSpokenIntents: true)
-        )
+        ) { events.append($0) }
 
-        XCTAssertEqual(SpokenIntentActivity.shared.outcome, .snippet(keyword: "email signoff"))
-        SpokenIntentActivity.shared.clear()
+        XCTAssertEqual(events, [.intent(.snippet(keyword: "email signoff"))])
     }
 
     // MARK: - The chip
@@ -281,20 +280,23 @@ final class SpokenIntentRouterSnippetTests: IsolatedPreferencesTestCase {
         XCTAssertEqual(CapsuleHUDMode.snippet(named: "   ").label, "Snippet")
     }
 
-    /// The chip is set once the words exist, and only while the capsule is
-    /// showing its own decode - a snippet fired by a queued file must not
-    /// relabel a recording that is still in progress.
+    /// A snippet fired on another session's capsule must not relabel the one
+    /// this session is following. Routing reports through the session's own
+    /// progress handler, so the chip only changes on the HUD that received it.
     @MainActor
-    func testTheChipOnlyChangesDuringThisSessionsDecode() {
-        let viewModel = CapsuleHUDViewModel(now: { Date() }, schedule: { _, _ in })
-        viewModel.beginSession(mode: .dictate)
-        viewModel.beginRecording()
+    func testTheChipOnlyChangesOnTheSessionThatRoutedTheSnippet() {
+        let followed = CapsuleHUDViewModel(now: { Date() }, schedule: { _, _ in })
+        followed.beginSession(mode: .dictate)
+        followed.beginRecording()
+        followed.beginPolishing(.transcribing)
 
-        viewModel.setMode(.snippet(named: "email signoff"))
-        XCTAssertEqual(viewModel.mode.label, "Dictate")
+        let other = CapsuleHUDViewModel(now: { Date() }, schedule: { _, _ in })
+        other.beginSession(mode: .dictate)
+        other.beginRecording()
+        other.beginPolishing(.transcribing)
+        other.setMode(.snippet(named: "email signoff"))
 
-        viewModel.beginPolishing(.transcribing)
-        viewModel.setMode(.snippet(named: "email signoff"))
-        XCTAssertEqual(viewModel.mode.label, "Snippet: email signoff")
+        XCTAssertEqual(followed.mode.label, "Dictate")
+        XCTAssertEqual(other.mode.label, "Snippet: email signoff")
     }
 }

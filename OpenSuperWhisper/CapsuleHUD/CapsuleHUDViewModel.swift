@@ -313,13 +313,12 @@ final class CapsuleHUDViewModel: ObservableObject {
     /// The chip is normally set at `beginSession`, from preferences, because
     /// that is when what is going to happen can be known. A spoken command is
     /// the one thing that cannot be known until the transcript exists, so this
-    /// is the exception - and it is scoped the same way `beginPolishing`'s
-    /// rewrite step is: only while the capsule is showing **its own** decode.
-    /// `SpokenIntentActivity` is global, so a queue transcription's routing
-    /// (file drop, open-with, history regenerate) must not relabel a recording
-    /// that is still in progress.
+    /// is the exception. The session that produced the verdict is the only
+    /// caller: `finish` reports it through that session's progress handler, and
+    /// the window controller forwards it from the session this capsule is
+    /// following. A queue transcription has no path here.
     func setMode(_ mode: CapsuleHUDMode) {
-        guard state == .polishing(.transcribing) else { return }
+        guard !state.isTerminalBadge, state != .idle else { return }
         self.mode = mode
     }
 
@@ -392,10 +391,11 @@ final class CapsuleHUDViewModel: ObservableObject {
         // A repeated decoding notification arriving after the rewrite started
         // must not tell the user the engine is still going.
         guard !(state == .polishing(.rewriting) && work == .transcribing) else { return }
-        // A rewrite can only follow this session's own decode.
-        // `StyleRewriteActivity` is global and every transcription flow passes
-        // through it, so a queue item's rewrite - file drop, open-with, history
-        // regenerate - would otherwise hijack a capsule that is still recording.
+        // A rewrite can only follow this session's own decode. The session
+        // reports rewriting through `phase` after `.decoding(.transcribing)`,
+        // so a history fix - which never writes this session's phase - cannot
+        // land here. The order is still enforced so a stray call during
+        // recording cannot skip the transcribing wait.
         guard !(work == .rewriting && state != .polishing(.transcribing)) else { return }
         generation += 1
         // The decoded words belong to the decode. Once the model has the text
@@ -525,8 +525,10 @@ final class CapsuleHUDViewModel: ObservableObject {
             beginConnecting()
         case .recording:
             beginRecording()
-        case .decoding:
+        case .decoding(.transcribing):
             beginPolishing(.transcribing)
+        case .decoding(.rewriting):
+            beginPolishing(.rewriting)
         case .awaitingChannelChoice:
             beginAwaitingChannelChoice()
         case .ended(let notice, let result):

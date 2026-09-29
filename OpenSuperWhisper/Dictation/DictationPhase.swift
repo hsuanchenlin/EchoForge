@@ -18,8 +18,12 @@ enum DictationPhase: Equatable {
     case connecting
     /// Capturing.
     case recording
-    /// The audio has stopped and the engine is turning it into text.
-    case decoding
+    /// The audio has stopped and the engine is turning it into text, or the
+    /// on-device model is rewriting what came out. The associated value is
+    /// which of those waits this is, so a surface following `phase` can say
+    /// "Polishing…" for this session's own rewrite without reading a global
+    /// flag.
+    case decoding(DictationDecodingWork)
     /// The words are read and the channel picker is on screen; what remains is
     /// the user's answer, not the app's work.
     case awaitingChannelChoice
@@ -28,6 +32,23 @@ enum DictationPhase: Equatable {
     /// every cancel, because they already know what they did. `result` carries
     /// the outcome the capsule presents when there is no notice.
     case ended(DictationNotice?, DictationResult?)
+
+    /// Whether the engine or the rewriting stage is still running.
+    var isDecoding: Bool {
+        if case .decoding = self { return true }
+        return false
+    }
+}
+
+/// The wait after the microphone has been given back.
+///
+/// Two cases rather than one label because they are two different waits with
+/// two different causes, and only one of them is affected by the Style pane.
+enum DictationDecodingWork: Equatable {
+    /// The speech engine is turning audio into words.
+    case transcribing
+    /// The on-device model is rewriting, translating, or applying a voice edit.
+    case rewriting
 }
 
 /// The short line a dictation leaves behind when it stops early.

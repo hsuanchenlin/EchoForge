@@ -148,7 +148,6 @@ enum SelectionEditRewrite {
             )
         }
 
-        await MainActor.run { StyleRewriteActivity.shared.begin() }
         let result = await apply(
             original: original,
             instruction: instruction,
@@ -158,7 +157,6 @@ enum SelectionEditRewrite {
             mustSurvive: TranscriptCorrection.mustSurviveTokens(in: original, terms: terms),
             fallbackChineseVariant: settings.chineseOutputScript
         )
-        await MainActor.run { StyleRewriteActivity.shared.end() }
         if let explanation = result.status.explanation(for: .selectionEdit),
            !result.status.didRewrite
         {

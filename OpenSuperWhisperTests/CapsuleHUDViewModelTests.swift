@@ -112,7 +112,7 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         viewModel.beginPolishing(.transcribing)
         viewModel.beginPolishing(.rewriting)
 
-        viewModel.follow(.decoding)
+        viewModel.follow(.decoding(.transcribing))
 
         XCTAssertEqual(
             viewModel.state, .polishing(.rewriting),
@@ -139,9 +139,9 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         viewModel.beginSession(mode: .dictate)
         XCTAssertEqual(viewModel.state, .connecting)
 
-        // A queue transcription - file drop, open-with, history regenerate -
-        // raises the global rewrite flag while this dictation is still being
-        // captured. Its rewrite is not this session's wait.
+        // A rewrite that is not this session's own decode - a history fix,
+        // a queue item - never writes this capsule's phase, so it cannot
+        // skip the transcribing wait either.
         viewModel.beginPolishing(.rewriting)
         XCTAssertEqual(viewModel.state, .connecting)
 
@@ -318,8 +318,11 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         viewModel.follow(.recording)
         XCTAssertEqual(viewModel.state, .recording)
 
-        viewModel.follow(.decoding)
+        viewModel.follow(.decoding(.transcribing))
         XCTAssertEqual(viewModel.state, .polishing(.transcribing))
+
+        viewModel.follow(.decoding(.rewriting))
+        XCTAssertEqual(viewModel.state, .polishing(.rewriting))
 
         viewModel.follow(.ended(.noMicrophone, nil))
         XCTAssertEqual(viewModel.state, .error("No microphone"))
@@ -356,7 +359,7 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         let viewModel = makeViewModel()
         viewModel.beginSession(mode: .dictate)
         viewModel.beginRecording()
-        viewModel.follow(.decoding)
+        viewModel.follow(.decoding(.transcribing))
         XCTAssertEqual(viewModel.state, .polishing(.transcribing))
 
         viewModel.follow(.awaitingChannelChoice)
@@ -555,15 +558,30 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.mode.label, "Translate Spanish")
     }
 
-    /// `SpokenIntentActivity` is global, and every transcription flow passes
-    /// through it. A queue item's routing - file drop, open-with, history
-    /// regenerate - must not relabel a recording that is still in progress, so
-    /// the chip only changes while the capsule is showing its own decode.
-    func testARoutingVerdictCannotRelabelASessionThatIsNotDecoding() {
+    /// Routing reports through the session this capsule is following. Another
+    /// session's verdict - a queue item, a history regenerate - never reaches
+    /// this view model, so its chip stays what `beginSession` promised.
+    func testARoutingVerdictOnAnotherSessionDoesNotRelabelThisCapsule() {
+        let followed = makeViewModel()
+        followed.beginSession(mode: .dictate)
+        followed.beginRecording()
+        followed.follow(.decoding(.transcribing))
+
+        let other = makeViewModel()
+        other.beginSession(mode: .dictate)
+        other.beginRecording()
+        other.follow(.decoding(.transcribing))
+        other.setMode(.ask)
+
+        XCTAssertEqual(followed.mode, .dictate)
+        XCTAssertEqual(other.mode, .ask)
+    }
+
+    /// A badge already on screen owns the rest of its life: a late verdict
+    /// after the session ended must not rename a checkmark or an error.
+    func testARoutingVerdictCannotRelabelAFinishedCapsule() {
         for arrange in [
             { (viewModel: CapsuleHUDViewModel) in },
-            { $0.beginSession(mode: .dictate) },
-            { $0.beginSession(mode: .dictate); $0.beginRecording() },
             { $0.beginSession(mode: .dictate); $0.beginRecording(); $0.complete() },
             { $0.beginSession(mode: .dictate); $0.beginRecording(); $0.fail("No speech detected") },
         ] {
@@ -575,6 +593,26 @@ final class CapsuleHUDViewModelTests: XCTestCase {
 
             XCTAssertEqual(viewModel.mode, before, "state \(viewModel.state) accepted a chip change")
         }
+    }
+
+    /// "Polishing…" is this session's own rewrite. A capsule following a
+    /// different session stays on "Transcribing…" while that other one polishes,
+    /// which is the history-fix leak the global flag used to cause.
+    func testPolishingAppearsOnlyForTheSessionTheCapsuleIsFollowing() {
+        let followed = makeViewModel()
+        followed.beginSession(mode: .dictate)
+        followed.beginRecording()
+        followed.follow(.decoding(.transcribing))
+
+        let other = makeViewModel()
+        other.beginSession(mode: .dictate)
+        other.beginRecording()
+        other.follow(.decoding(.transcribing))
+        other.follow(.decoding(.rewriting))
+
+        XCTAssertEqual(followed.state, .polishing(.transcribing))
+        XCTAssertEqual(other.state, .polishing(.rewriting))
+        XCTAssertEqual(CapsuleHUDWork.rewriting.label, "Polishing…")
     }
 
     /// A question's answer goes to the Ask panel, so the capsule has nothing

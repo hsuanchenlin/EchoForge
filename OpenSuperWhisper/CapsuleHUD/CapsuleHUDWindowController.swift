@@ -96,7 +96,7 @@ final class CapsuleHUDWindowController {
         // certain at the start: the key that started it said what it is for, so
         // the capsule says "YouTube" rather than promising a rewrite that is
         // never going to run. The channel is filled in later, once the words
-        // exist (`SpokenIntentActivity`).
+        // exist (`DictationSession.intentOutcome`).
         let mode: CapsuleHUDMode
         switch indicatorViewModel.purpose {
         case .youTubeCommand:
@@ -164,31 +164,12 @@ final class CapsuleHUDWindowController {
             }
             .store(in: &sessionCancellables)
 
-        // Only the transition into rewriting is followed. Its end means the
-        // transcription is finished, and the session's own outcome is what says
-        // so - stepping back to "Transcribing…" at that point would be a lie in
-        // the last half second of the wait.
-        //
-        // The flag is global - the transcription queue's rewrites raise it too,
-        // and a `@Published` even replays a rewrite already in flight at
-        // subscription time. The view model is what scopes it to this session:
-        // `beginPolishing(.rewriting)` is refused unless the capsule is already
-        // showing its own decode.
-        StyleRewriteActivity.shared.$isRewriting
-            .receive(on: RunLoop.main)
-            .sink { [weak self] isRewriting in
-                guard isRewriting else { return }
-                self?.viewModel.beginPolishing(.rewriting)
-            }
-            .store(in: &sessionCancellables)
-
         // The chip is set above from preferences, which is everything that can
         // be known before the words exist. A spoken command is only recognised
-        // once they do, and this is how the chip finds out - cleared first so a
-        // `@Published` cannot replay the previous dictation's command onto a
-        // capsule that has only just appeared.
-        SpokenIntentActivity.shared.clear()
-        SpokenIntentActivity.shared.$outcome
+        // once they do, and this session's own `intentOutcome` is how the chip
+        // finds out - never a global flag, so a queue transcription cannot
+        // relabel a recording that is still in progress.
+        indicatorViewModel.session.$intentOutcome
             .receive(on: RunLoop.main)
             .sink { [weak self] outcome in
                 guard let mode = outcome?.capsuleMode else { return }

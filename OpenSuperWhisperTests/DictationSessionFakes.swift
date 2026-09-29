@@ -110,15 +110,30 @@ final class FakeDictationTranscriber: DictationTranscribing {
         await withCheckedContinuation { self.gate = $0 }
     }
 
-    func transcribeAudio(url: URL, settings: Settings) async throws -> StyledTranscript {
+    /// Events this fake reports through `progress` before waiting on the gate,
+    /// so a test can observe `.decoding(.rewriting)` while the decode is still
+    /// in flight.
+    var progressToEmit: [StageEvent] = []
+
+    func transcribeAudio(
+        url: URL,
+        settings: Settings,
+        progress: @escaping @MainActor (StageEvent) -> Void
+    ) async throws -> StyledTranscript {
         wholeFileCalls.append(url)
         wholeFileSettings.append(settings)
+        for event in progressToEmit { progress(event) }
         await waitIfGated()
         return try wholeFileResult.get()
     }
 
-    func finishTranscribed(raw: String, settings: Settings) async throws -> StyledTranscript {
+    func finishTranscribed(
+        raw: String,
+        settings: Settings,
+        progress: @escaping @MainActor (StageEvent) -> Void
+    ) async throws -> StyledTranscript {
         finishedRaws.append(raw)
+        for event in progressToEmit { progress(event) }
         await waitIfGated()
         return try finishedResult.get()
     }

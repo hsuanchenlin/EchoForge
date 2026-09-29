@@ -36,14 +36,16 @@ ShortcutManager  ──► IndicatorWindowManager.prepare()
                           │  builds IndicatorViewModel, which builds the session
                           ▼
                      DictationSession ── @Published phase ──► IndicatorViewModel
-                                      └─ @Published liveTranscript ─┘   │
+                                      ├─ @Published liveTranscript      │
+                                      └─ @Published intentOutcome       │
                                                                         ▼
                                               DictationPhase ──► the card
                                                              └─► CapsuleHUDViewModel.follow(_:)
 ```
 
 `DictationPhase` is the session's own account: `idle`, `connecting`,
-`recording`, `decoding`, `awaitingChannelChoice`, and
+`recording`, `decoding(.transcribing)` / `decoding(.rewriting)`,
+`awaitingChannelChoice`, and
 `ended(DictationNotice?, DictationResult?)`. A `nil` notice means the session
 ended with nothing to add - every ordinary success, and every cancel, because
 the user knows what they did. The optional result lets the capsule distinguish
@@ -53,8 +55,11 @@ stays on screen is not the session's business**: `IndicatorViewModel` owns that
 timer, because it is a property of an overlay rather than of a recording.
 
 The card draws `DictationPhase` directly. The capsule follows the same phase
-through `CapsuleHUDViewModel.follow(_:)`: a notice becomes the error badge, and
-`.ended(nil, result)` supplies the outcome directly - see `docs/capsule-hud.md`.
+through `CapsuleHUDViewModel.follow(_:)`: `.decoding(.rewriting)` is
+"Polishing…", a notice becomes the error badge, and `.ended(nil, result)`
+supplies the outcome directly. The chip rename for a spoken command comes from
+this session's `intentOutcome`, which `finish(raw:settings:progress:)` fills
+in - see `docs/capsule-hud.md`.
 
 `DictationSessionRegistry.current` is the one answer to "is a dictation
 running?" Five ways of starting one and three of stopping one all ask it;
@@ -117,7 +122,8 @@ rewrite of the captured text and never the spoken instruction.
 ## What is left
 
 The main window's record button and the Ask panel's voice follow-up already
-run on `DictationSession` (`delivery: .historyOnly` / `.toPanel`). The
-remaining work from the architecture review is elsewhere: pipeline progress
-reported to the session rather than global rewrite flags, and a typed history
-change stream.
+run on `DictationSession` (`delivery: .historyOnly` / `.toPanel`). Pipeline
+progress (rewriting, spoken-intent routing) is reported through
+`TranscriptionService.finish(raw:settings:progress:)` onto this session's
+`phase` and `intentOutcome`. A typed history change stream is still
+outstanding.

@@ -197,10 +197,6 @@ enum TranscriptCorrection {
             )
         }
 
-        // The same marker the other two model stages raise, for the same reason:
-        // the capsule's "Polishing…" is about the model working, and a
-        // correction is the model working.
-        await MainActor.run { StyleRewriteActivity.shared.begin() }
         let result = await apply(
             to: request,
             languageCode: settings.selectedLanguage,
@@ -212,7 +208,6 @@ enum TranscriptCorrection {
             mustSurvive: mustSurviveTokens(in: request.text, terms: terms),
             fallbackChineseVariant: settings.chineseOutputScript
         )
-        await MainActor.run { StyleRewriteActivity.shared.end() }
         if let explanation = result.status.explanation(for: .correction), !result.status.didRewrite {
             print("Fix with AI: \(explanation)")
         }

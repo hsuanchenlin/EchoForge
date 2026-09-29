@@ -49,8 +49,16 @@ extension AudioRecorder: DictationRecording {
 protocol DictationTranscribing: AnyObject {
     /// Whether a transcription is running right now, anywhere in the app.
     var isTranscribing: Bool { get }
-    func transcribeAudio(url: URL, settings: Settings) async throws -> StyledTranscript
-    func finishTranscribed(raw: String, settings: Settings) async throws -> StyledTranscript
+    func transcribeAudio(
+        url: URL,
+        settings: Settings,
+        progress: @escaping @MainActor (StageEvent) -> Void
+    ) async throws -> StyledTranscript
+    func finishTranscribed(
+        raw: String,
+        settings: Settings,
+        progress: @escaping @MainActor (StageEvent) -> Void
+    ) async throws -> StyledTranscript
     /// Stops the transcription in flight. Never reached for a live session -
     /// see `DictationSession.cancelWorkInFlight`.
     func cancelTranscription()

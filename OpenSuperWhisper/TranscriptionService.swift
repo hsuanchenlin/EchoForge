@@ -729,14 +729,26 @@ class TranscriptionService: ObservableObject {
     /// being polished must still produce no transcript, and a dictation pressed
     /// then must still wait its turn, so the frame is not allowed to end at the
     /// engine.
+    ///
+    /// Whole-file transcription with no session to report progress to - the
+    /// queue, a regenerate, and tests. Dictation passes a callback so the
+    /// capsule can follow this session's own rewrite.
     func transcribeAudio(url: URL, settings: Settings) async throws -> StyledTranscript {
+        try await transcribeAudio(url: url, settings: settings, progress: { _ in })
+    }
+
+    func transcribeAudio(
+        url: URL,
+        settings: Settings,
+        progress: @escaping @MainActor (StageEvent) -> Void
+    ) async throws -> StyledTranscript {
         let timeoutOverride = decodeTimeoutOverride
         return try await runEngineTranscription(publishing: { $0.final }) { engine in
             let raw = try await self.decodeWithDeadline(
                 engine: engine, url: url, settings: settings,
                 timeoutOverride: timeoutOverride, reporting: false)
             try Task.checkCancellation()
-            return await Self.finish(raw: raw.text, settings: settings)
+            return await Self.finish(raw: raw.text, settings: settings, progress: progress)
         }
     }
 
@@ -836,8 +848,16 @@ class TranscriptionService: ObservableObject {
     /// decoded already - which is what makes this frame different from the
     /// other two.
     func finishTranscribed(raw: String, settings: Settings) async throws -> StyledTranscript {
+        try await finishTranscribed(raw: raw, settings: settings, progress: { _ in })
+    }
+
+    func finishTranscribed(
+        raw: String,
+        settings: Settings,
+        progress: @escaping @MainActor (StageEvent) -> Void
+    ) async throws -> StyledTranscript {
         try await runTranscription(publishing: { $0.final }, preparing: { _ in }) { _ in
-            await Self.finish(raw: raw, settings: settings)
+            await Self.finish(raw: raw, settings: settings, progress: progress)
         }
     }
 
@@ -855,9 +875,14 @@ class TranscriptionService: ObservableObject {
     /// Off the main actor on purpose: it is called from inside the detached
     /// transcription task, and the transcript stage's string work belongs there
     /// rather than on the thread that draws the overlay.
-    nonisolated static func finish(raw: String, settings: Settings) async -> StyledTranscript {
+    nonisolated static func finish(
+        raw: String,
+        settings: Settings,
+        progress: @escaping @MainActor (StageEvent) -> Void = { _ in }
+    ) async -> StyledTranscript {
         let processed = TextPostProcessor.process(raw, settings: settings)
-        return await SpokenIntentPipeline.apply(to: processed, settings: settings)
+        return await SpokenIntentPipeline.apply(
+            to: processed, settings: settings, progress: progress)
     }
 
     /// The frame for work that needs the engine: `runTranscription` with the

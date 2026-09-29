@@ -93,7 +93,7 @@ class IndicatorViewModel: ObservableObject {
         case .decoding:
             resetCancelConfirmation()
             stopBlinking()
-            state = .decoding
+            state = phase
         case .awaitingChannelChoice:
             state = .awaitingChannelChoice
         case .ended(let notice, _):
@@ -508,7 +508,7 @@ struct IndicatorWindowPreview: View {
     
     @StateObject private var decodingVM = {
         let vm = IndicatorViewModel()
-        vm.state = .decoding
+        vm.state = .decoding(.transcribing)
         return vm
     }()
     

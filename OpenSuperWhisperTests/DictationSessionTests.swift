@@ -244,7 +244,7 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
         session.start()
 
         session.stop()
-        XCTAssertEqual(session.phase, .decoding)
+        XCTAssertEqual(session.phase, .decoding(.transcribing))
         await waitForEnd(session)
 
         XCTAssertEqual(endedNotice(session), nil)
@@ -776,7 +776,7 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
 
         session.stop()
         try? await Task.sleep(nanoseconds: 20_000_000)
-        XCTAssertEqual(session.phase, .decoding)
+        XCTAssertEqual(session.phase, .decoding(.transcribing))
 
         session.cancelWorkInFlight()
         XCTAssertEqual(transcriber.cancelCount, 1)
@@ -800,7 +800,7 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
 
         session.stop()
         try? await Task.sleep(nanoseconds: 20_000_000)
-        XCTAssertEqual(session.phase, .decoding)
+        XCTAssertEqual(session.phase, .decoding(.transcribing))
 
         session.cancelWorkInFlight()
         XCTAssertEqual(
@@ -863,5 +863,107 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
         try? await Task.sleep(nanoseconds: 10_000_000)
 
         XCTAssertEqual(session.liveTranscript?.text, "hello")
+    }
+
+    // MARK: - Pipeline progress stays on this session
+
+    /// `finish` reports rewriting through this session's own handler, so the
+    /// capsule following it can say "Polishing…" without a global flag.
+    func testFinishRewritingIsPublishedOnThisSession() async {
+        recorder.stoppedURL = makeTemporaryAudio()
+        transcriber.progressToEmit = [.rewriting]
+        transcriber.holdNextDecode()
+        let session = makeSession()
+        session.start()
+
+        session.stop()
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(session.phase, .decoding(.rewriting))
+
+        transcriber.releaseDecode()
+        await waitForEnd(session)
+    }
+
+    /// A history "Fix with AI" has no callback into this session. Running one
+    /// while a dictation is still decoding cannot flip this session to
+    /// rewriting, which is the leak `StyleRewriteActivity` used to allow.
+    func testAHistoryFixDoesNotMarkThisSessionAsRewriting() async {
+        recorder.stoppedURL = makeTemporaryAudio()
+        transcriber.holdNextDecode()
+        let session = makeSession()
+        session.start()
+
+        session.stop()
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(session.phase, .decoding(.transcribing))
+
+        _ = await TranscriptCorrection.apply(
+            to: TranscriptCorrectionRequest(
+                recordingID: UUID(), text: "hello", original: "hello"),
+            settings: Settings(),
+            terms: []
+        )
+        XCTAssertEqual(session.phase, .decoding(.transcribing))
+        XCTAssertNil(session.intentOutcome)
+
+        transcriber.releaseDecode()
+        await waitForEnd(session)
+    }
+
+    /// Two dictations, two handlers. B's rewrite cannot move A's phase.
+    func testAnotherSessionsRewritingDoesNotMoveThisSession() async {
+        recorder.stoppedURL = makeTemporaryAudio()
+        transcriber.holdNextDecode()
+        let session = makeSession()
+        session.start()
+        session.stop()
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(session.phase, .decoding(.transcribing))
+
+        let otherRecorder = FakeDictationRecorder()
+        otherRecorder.stoppedURL = makeTemporaryAudio()
+        let otherTranscriber = FakeDictationTranscriber()
+        otherTranscriber.progressToEmit = [.rewriting]
+        otherTranscriber.holdNextDecode()
+        let other = DictationSession(
+            purpose: .dictation,
+            dictationTarget: nil,
+            recorder: otherRecorder,
+            transcriber: otherTranscriber,
+            history: history,
+            queue: queue,
+            insertion: insertion,
+            asking: asking,
+            selectionEditor: editor,
+            measurement: FixedAudioDuration(seconds: 3),
+            makeLiveSession: { _, _, _ in nil }
+        )
+        other.start()
+        other.stop()
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        XCTAssertEqual(other.phase, .decoding(.rewriting))
+        XCTAssertEqual(session.phase, .decoding(.transcribing))
+
+        otherTranscriber.releaseDecode()
+        transcriber.releaseDecode()
+        await waitForEnd(other)
+        await waitForEnd(session)
+    }
+
+    /// A spoken command is this session's `intentOutcome`, not a global flag.
+    func testSpokenIntentLandsOnThisSessionOnly() async {
+        recorder.stoppedURL = makeTemporaryAudio()
+        transcriber.progressToEmit = [.intent(.ask(query: "why"))]
+        transcriber.holdNextDecode()
+        let session = makeSession()
+        session.start()
+
+        session.stop()
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(session.intentOutcome, .ask(query: "why"))
+
+        transcriber.releaseDecode()
+        await waitForEnd(session)
     }
 }
