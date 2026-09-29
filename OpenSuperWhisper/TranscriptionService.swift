@@ -730,17 +730,13 @@ class TranscriptionService: ObservableObject {
     /// then must still wait its turn, so the frame is not allowed to end at the
     /// engine.
     ///
-    /// Whole-file transcription with no session to report progress to - the
-    /// queue, a regenerate, and tests. Dictation passes a callback so the
-    /// capsule can follow this session's own rewrite.
-    func transcribeAudio(url: URL, settings: Settings) async throws -> StyledTranscript {
-        try await transcribeAudio(url: url, settings: settings, progress: { _ in })
-    }
-
+    /// Whole-file transcription. Dictation passes a callback so the capsule can
+    /// follow this session's own rewrite; the queue, a regenerate, and tests
+    /// take the default no-op.
     func transcribeAudio(
         url: URL,
         settings: Settings,
-        progress: @escaping @MainActor (StageEvent) -> Void
+        progress: @escaping @MainActor (StageEvent) -> Void = { _ in }
     ) async throws -> StyledTranscript {
         let timeoutOverride = decodeTimeoutOverride
         return try await runEngineTranscription(publishing: { $0.final }) { engine in
@@ -847,14 +843,10 @@ class TranscriptionService: ObservableObject {
     /// whole-file dictation. No engine is loaded or touched - the pieces were
     /// decoded already - which is what makes this frame different from the
     /// other two.
-    func finishTranscribed(raw: String, settings: Settings) async throws -> StyledTranscript {
-        try await finishTranscribed(raw: raw, settings: settings, progress: { _ in })
-    }
-
     func finishTranscribed(
         raw: String,
         settings: Settings,
-        progress: @escaping @MainActor (StageEvent) -> Void
+        progress: @escaping @MainActor (StageEvent) -> Void = { _ in }
     ) async throws -> StyledTranscript {
         try await runTranscription(publishing: { $0.final }, preparing: { _ in }) { _ in
             await Self.finish(raw: raw, settings: settings, progress: progress)

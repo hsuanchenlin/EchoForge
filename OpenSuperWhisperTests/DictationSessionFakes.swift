@@ -273,6 +273,34 @@ struct FixedAudioDuration: DictationAudioMeasuring {
     func duration(of url: URL) async -> TimeInterval { seconds }
 }
 
+/// A session against the fakes above, for tests that need two of them.
+@MainActor
+func makeFakeDictationSession(
+    recorder: FakeDictationRecorder,
+    transcriber: FakeDictationTranscriber
+) -> DictationSession {
+    DictationSession(
+        purpose: .dictation,
+        dictationTarget: nil,
+        recorder: recorder,
+        transcriber: transcriber,
+        history: FakeDictationHistory(),
+        queue: FakeDictationQueue(),
+        insertion: FakeDictationInsertion(),
+        asking: FakeDictationAsking(),
+        selectionEditor: FakeSelectionEditing(),
+        measurement: FixedAudioDuration(seconds: 3),
+        makeLiveSession: { _, _, _ in nil }
+    )
+}
+
+/// Lets Combine hops posted to the main run loop land inside the test.
+func pumpMainRunLoop() {
+    for _ in 0 ..< 8 {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+    }
+}
+
 // MARK: - .toPanel delivery
 
 @MainActor

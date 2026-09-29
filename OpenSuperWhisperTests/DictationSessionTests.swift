@@ -108,6 +108,18 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
         return notice
     }
 
+    /// A rewriter that actually runs, so a history-fix test cannot pass by
+    /// skipping the rewrite stage under `isRunningTests`.
+    private final class HistoryFixRewriter: StyleRewriting, @unchecked Sendable {
+        let output: String
+        private(set) var didRewrite = false
+        init(output: String) { self.output = output }
+        func rewrite(_ request: StyleRewriteRequest) async throws -> String {
+            didRewrite = true
+            return output
+        }
+    }
+
     // MARK: - Starting
 
     func testStartWithNoMicrophone_refusesAndNeverClaimsOne() {
@@ -897,12 +909,17 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
         try? await Task.sleep(nanoseconds: 20_000_000)
         XCTAssertEqual(session.phase, .decoding(.transcribing))
 
-        _ = await TranscriptCorrection.apply(
+        let rewriter = HistoryFixRewriter(output: "我在開會")
+        let styled = await TranscriptCorrection.apply(
             to: TranscriptCorrectionRequest(
-                recordingID: UUID(), text: "hello", original: "hello"),
-            settings: Settings(),
-            terms: []
+                recordingID: UUID(), text: "我再開會", original: "我再開會"),
+            languageCode: "zh",
+            availability: .available,
+            rewriter: rewriter,
+            budgetOverride: 5
         )
+        XCTAssertTrue(rewriter.didRewrite, "the correction has to actually run the rewrite stage")
+        XCTAssertEqual(styled.status, .applied(styleID: TranscriptCorrection.styleID))
         XCTAssertEqual(session.phase, .decoding(.transcribing))
         XCTAssertNil(session.intentOutcome)
 
