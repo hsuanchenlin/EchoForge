@@ -299,4 +299,21 @@ final class SpokenIntentRouterSnippetTests: IsolatedPreferencesTestCase {
         XCTAssertEqual(followed.mode.label, "Dictate")
         XCTAssertEqual(other.mode.label, "Snippet: email signoff")
     }
+
+    /// The chip is set once the words exist, and only while the capsule is
+    /// showing its own decode - a snippet fired by a queued file must not
+    /// relabel a recording that is still in progress.
+    @MainActor
+    func testTheChipOnlyChangesDuringThisSessionsDecode() {
+        let viewModel = CapsuleHUDViewModel(now: { Date() }, schedule: { _, _ in })
+        viewModel.beginSession(mode: .dictate)
+        viewModel.beginRecording()
+
+        viewModel.setMode(.snippet(named: "email signoff"))
+        XCTAssertEqual(viewModel.mode.label, "Dictate")
+
+        viewModel.beginPolishing(.transcribing)
+        viewModel.setMode(.snippet(named: "email signoff"))
+        XCTAssertEqual(viewModel.mode.label, "Snippet: email signoff")
+    }
 }

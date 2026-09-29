@@ -577,11 +577,14 @@ final class CapsuleHUDViewModelTests: XCTestCase {
         XCTAssertEqual(other.mode, .ask)
     }
 
-    /// A badge already on screen owns the rest of its life: a late verdict
-    /// after the session ended must not rename a checkmark or an error.
-    func testARoutingVerdictCannotRelabelAFinishedCapsule() {
+    /// The chip only changes while the capsule is showing its own decode, so a
+    /// routing verdict cannot relabel a recording, a connecting wait, or a
+    /// badge already on screen.
+    func testARoutingVerdictCannotRelabelASessionThatIsNotDecoding() {
         for arrange in [
             { (viewModel: CapsuleHUDViewModel) in },
+            { $0.beginSession(mode: .dictate) },
+            { $0.beginSession(mode: .dictate); $0.beginRecording() },
             { $0.beginSession(mode: .dictate); $0.beginRecording(); $0.complete() },
             { $0.beginSession(mode: .dictate); $0.beginRecording(); $0.fail("No speech detected") },
         ] {

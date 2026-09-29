@@ -313,12 +313,14 @@ final class CapsuleHUDViewModel: ObservableObject {
     /// The chip is normally set at `beginSession`, from preferences, because
     /// that is when what is going to happen can be known. A spoken command is
     /// the one thing that cannot be known until the transcript exists, so this
-    /// is the exception. The session that produced the verdict is the only
-    /// caller: `finish` reports it through that session's progress handler, and
-    /// the window controller forwards it from the session this capsule is
-    /// following. A queue transcription has no path here.
+    /// is the exception - and it is scoped the same way `beginPolishing`'s
+    /// rewrite step is: only while the capsule is showing **its own** decode.
+    /// The session that produced the verdict is the only caller (`finish`
+    /// reports it through that session's progress handler), and this guard
+    /// keeps a chip rename from landing during recording, connecting, or a
+    /// badge already on screen.
     func setMode(_ mode: CapsuleHUDMode) {
-        guard !state.isTerminalBadge, state != .idle else { return }
+        guard state == .polishing(.transcribing) else { return }
         self.mode = mode
     }
 
