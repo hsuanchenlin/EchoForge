@@ -178,10 +178,11 @@ final class CapsuleHUDWindowController {
             .store(in: &sessionCancellables)
 
         // What the engine has decoded so far, for the engines that can say.
-        // Scoped by the view model the same way the rewrite flag is - the
-        // service's publisher is global, so a queue transcription's words must
-        // not appear on a recording capsule - and it simply never fires for the
-        // three engines that decode to one final string.
+        // Scoped by the view model, which refuses it unless the capsule is
+        // showing its own decode - the service's publisher is global, so a queue
+        // transcription's words must not appear on a recording capsule - and it
+        // simply never fires for the three engines that decode to one final
+        // string.
         TranscriptionService.shared.$partialTranscript
             .receive(on: RunLoop.main)
             .sink { [weak self] partial in

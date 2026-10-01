@@ -214,10 +214,10 @@ final class CapsuleHUDViewModel: ObservableObject {
     /// show.
     ///
     /// Only ever set while this capsule is showing **its own** decode, the same
-    /// scoping `setMode` applies and for the same reason: the service's
-    /// published value is global, so a queue transcription (file drop,
-    /// open-with, history regenerate) must not write its words onto a recording
-    /// that is still in progress.
+    /// scoping `setMode` applies - here because the service's published value is
+    /// global, so a queue transcription (file drop, open-with, history
+    /// regenerate) must not write its words onto a recording that is still in
+    /// progress.
     ///
     /// Nil for three of this app's four local engines, which decode to one final
     /// string and have nothing to report along the way. The capsule shows the
@@ -326,10 +326,11 @@ final class CapsuleHUDViewModel: ObservableObject {
 
     /// Shows what the engine has decoded so far.
     ///
-    /// Refused unless this capsule is showing its own decode, for the reason
-    /// `setMode` is refused: the source is a global publisher. Refused for an
-    /// empty value too, so a decode that has produced only silence leaves the
-    /// pill the size it was rather than growing a blank second line.
+    /// Refused unless this capsule is showing its own decode - the scoping
+    /// `setMode` uses, needed here because the source is a global publisher
+    /// every transcription writes to. Refused for an empty value too, so a
+    /// decode that has produced only silence leaves the pill the size it was
+    /// rather than growing a blank second line.
     func showPartialTranscript(_ text: String?) {
         guard state == .polishing(.transcribing), !showsLiveTranscript else { return }
         let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)

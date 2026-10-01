@@ -96,12 +96,12 @@ Five rules in it are load-bearing:
   A history fix or a queue transcription has its own callback, or none, so
   `beginPolishing(.rewriting)` is refused unless the capsule is already
   showing `.polishing(.transcribing)` - this session's own decode.
-- **So may decoded words**, and for exactly the same reason:
-  `TranscriptionService.partialTranscript` is global too, so
-  `showPartialTranscript` is refused unless the capsule is showing its own
-  decode, and cleared when the rewrite starts - the pill then says what it is
-  doing with the text rather than keeping a line of transcript beside a different
-  promise.
+- **So may decoded words**, and here the reason is still a global publisher:
+  `TranscriptionService.partialTranscript` carries every transcription's
+  segments, so `showPartialTranscript` is refused unless the capsule is showing
+  its own decode, and cleared when the rewrite starts - the pill then says what
+  it is doing with the text rather than keeping a line of transcript beside a
+  different promise.
 
 ### The decoded-so-far line
 
