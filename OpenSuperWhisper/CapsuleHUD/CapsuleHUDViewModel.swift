@@ -214,10 +214,10 @@ final class CapsuleHUDViewModel: ObservableObject {
     /// show.
     ///
     /// Only ever set while this capsule is showing **its own** decode, the same
-    /// scoping `setMode` applies and for the same reason: the service's
-    /// published value is global, so a queue transcription (file drop,
-    /// open-with, history regenerate) must not write its words onto a recording
-    /// that is still in progress.
+    /// scoping `setMode` applies - here because the service's published value is
+    /// global, so a queue transcription (file drop, open-with, history
+    /// regenerate) must not write its words onto a recording that is still in
+    /// progress.
     ///
     /// Nil for three of this app's four local engines, which decode to one final
     /// string and have nothing to report along the way. The capsule shows the
@@ -315,9 +315,10 @@ final class CapsuleHUDViewModel: ObservableObject {
     /// the one thing that cannot be known until the transcript exists, so this
     /// is the exception - and it is scoped the same way `beginPolishing`'s
     /// rewrite step is: only while the capsule is showing **its own** decode.
-    /// `SpokenIntentActivity` is global, so a queue transcription's routing
-    /// (file drop, open-with, history regenerate) must not relabel a recording
-    /// that is still in progress.
+    /// The session that produced the verdict is the only caller (`finish`
+    /// reports it through that session's progress handler), and this guard
+    /// keeps a chip rename from landing during recording, connecting, or a
+    /// badge already on screen.
     func setMode(_ mode: CapsuleHUDMode) {
         guard state == .polishing(.transcribing) else { return }
         self.mode = mode
@@ -325,10 +326,11 @@ final class CapsuleHUDViewModel: ObservableObject {
 
     /// Shows what the engine has decoded so far.
     ///
-    /// Refused unless this capsule is showing its own decode, for the reason
-    /// `setMode` is refused: the source is a global publisher. Refused for an
-    /// empty value too, so a decode that has produced only silence leaves the
-    /// pill the size it was rather than growing a blank second line.
+    /// Refused unless this capsule is showing its own decode - the scoping
+    /// `setMode` uses, needed here because the source is a global publisher
+    /// every transcription writes to. Refused for an empty value too, so a
+    /// decode that has produced only silence leaves the pill the size it was
+    /// rather than growing a blank second line.
     func showPartialTranscript(_ text: String?) {
         guard state == .polishing(.transcribing), !showsLiveTranscript else { return }
         let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -392,10 +394,11 @@ final class CapsuleHUDViewModel: ObservableObject {
         // A repeated decoding notification arriving after the rewrite started
         // must not tell the user the engine is still going.
         guard !(state == .polishing(.rewriting) && work == .transcribing) else { return }
-        // A rewrite can only follow this session's own decode.
-        // `StyleRewriteActivity` is global and every transcription flow passes
-        // through it, so a queue item's rewrite - file drop, open-with, history
-        // regenerate - would otherwise hijack a capsule that is still recording.
+        // A rewrite can only follow this session's own decode. The session
+        // reports rewriting through `phase` after `.decoding(.transcribing)`,
+        // so a history fix - which never writes this session's phase - cannot
+        // land here. The order is still enforced so a stray call during
+        // recording cannot skip the transcribing wait.
         guard !(work == .rewriting && state != .polishing(.transcribing)) else { return }
         generation += 1
         // The decoded words belong to the decode. Once the model has the text
@@ -525,8 +528,10 @@ final class CapsuleHUDViewModel: ObservableObject {
             beginConnecting()
         case .recording:
             beginRecording()
-        case .decoding:
+        case .decoding(.transcribing):
             beginPolishing(.transcribing)
+        case .decoding(.rewriting):
+            beginPolishing(.rewriting)
         case .awaitingChannelChoice:
             beginAwaitingChannelChoice()
         case .ended(let notice, let result):

@@ -167,7 +167,10 @@ enum TranslationRewrite {
     /// Tests never reach the model through here, the same rule the engine loader
     /// and the rewriting stage follow.
     static func apply(
-        to processed: ProcessedText, body: String, target: SpokenTranslationTarget
+        to processed: ProcessedText,
+        body: String,
+        target: SpokenTranslationTarget,
+        progress: @escaping @MainActor (StageEvent) -> Void = { _ in }
     ) async -> StyledTranscript {
         let isRunningTests = await MainActor.run { OpenSuperWhisperApp.isRunningTests }
         guard !isRunningTests else {
@@ -180,10 +183,11 @@ enum TranslationRewrite {
             )
         }
 
-        // The same marker the rewriting stage raises, for the same reason: the
+        // The same event the rewriting stage raises, for the same reason: the
         // capsule's "Polishing…" is about the model working, and a translation
-        // is the model working.
-        await MainActor.run { StyleRewriteActivity.shared.begin() }
+        // is the model working. It goes to the session that asked for this
+        // finish, so a history fix cannot paint this dictation's overlay.
+        await progress(.rewriting)
         // Asked *for translation* rather than in general, which is the one line
         // that makes this stage's backend the user's choice: with the Cloud pane
         // set to Local - the default - both calls answer exactly as they did
@@ -195,7 +199,6 @@ enum TranslationRewrite {
             availability: StyleRewriterFactory.availability(for: .translation),
             rewriter: StyleRewriterFactory.makeRewriter(for: .translation)
         )
-        await MainActor.run { StyleRewriteActivity.shared.end() }
         if let explanation = result.status.explanation(for: .translation), !result.status.didRewrite {
             print("Translation: \(explanation)")
         }

@@ -219,21 +219,21 @@ final class SpokenIntentPipelineTests: IsolatedPreferencesTestCase {
     // MARK: - Telling the capsule
 
     @MainActor
-    func testTheCapsuleIsToldWhatTheRoutingDecided() async {
+    func testTheSessionIsToldWhatTheRoutingDecided() async {
         AppPreferences.shared.spokenIntentsEnabled = true
-        SpokenIntentActivity.shared.clear()
-        XCTAssertNil(SpokenIntentActivity.shared.outcome)
+        var events: [StageEvent] = []
 
         _ = await SpokenIntentPipeline.apply(
-            to: processed("Ask: why"), settings: Settings(routesSpokenIntents: true)
-        )
-        XCTAssertEqual(SpokenIntentActivity.shared.outcome, .ask(query: "why"))
+            to: processed("Ask: why"),
+            settings: Settings(routesSpokenIntents: true)
+        ) { events.append($0) }
+        XCTAssertEqual(events, [.intent(.ask(query: "why"))])
 
+        events = []
         _ = await SpokenIntentPipeline.apply(
-            to: processed("hello there"), settings: Settings(routesSpokenIntents: true)
-        )
-        XCTAssertEqual(SpokenIntentActivity.shared.outcome, .dictation)
-
-        SpokenIntentActivity.shared.clear()
+            to: processed("hello there"),
+            settings: Settings(routesSpokenIntents: true)
+        ) { events.append($0) }
+        XCTAssertEqual(events, [.intent(.dictation)])
     }
 }

@@ -137,12 +137,16 @@ extension SpokenIntentOutcome {
 /// came from.
 enum SpokenIntentPipeline {
 
-    static func apply(to processed: ProcessedText, settings: Settings) async -> StyledTranscript {
+    static func apply(
+        to processed: ProcessedText,
+        settings: Settings,
+        progress: @escaping @MainActor (StageEvent) -> Void = { _ in }
+    ) async -> StyledTranscript {
         // The command hotkey's capture leaves here before anything else runs.
         // It is not a dictation, so nothing below applies to it: no style, no
         // question, no snippet, no translation, and no text on its way out.
         if settings.purpose == .youTubeCommand {
-            return await youTubeCommand(to: processed, settings: settings)
+            return await youTubeCommand(to: processed, settings: settings, progress: progress)
         }
         // The voice-edit hotkey's capture leaves here before anything else
         // runs. The spoken words are the instruction, not the text to insert,
@@ -160,7 +164,8 @@ enum SpokenIntentPipeline {
         }
 
         guard settings.routesSpokenIntents else {
-            return await StyleRewriteService.apply(to: processed, settings: settings)
+            return await StyleRewriteService.apply(
+                to: processed, settings: settings, progress: progress)
         }
 
         let intent = SpokenIntentRouter.route(
@@ -172,11 +177,12 @@ enum SpokenIntentPipeline {
             // could answer a Traditional user's translation in Simplified.
             fallbackChineseVariant: settings.chineseOutputScript
         )
-        await MainActor.run { SpokenIntentActivity.shared.resolved(intent.outcome) }
+        await progress(.intent(intent.outcome))
 
         switch intent {
         case .dictate:
-            return await StyleRewriteService.apply(to: processed, settings: settings)
+            return await StyleRewriteService.apply(
+                to: processed, settings: settings, progress: progress)
         case .ask(let query):
             // The rewriting stage is deliberately skipped: restyling a question
             // on its way to a model that is about to answer it changes what was
@@ -189,7 +195,8 @@ enum SpokenIntentPipeline {
                 intent: .ask(query: query)
             )
         case .translate(let target, let text):
-            return await TranslationRewrite.apply(to: processed, body: text, target: target)
+            return await TranslationRewrite.apply(
+                to: processed, body: text, target: target, progress: progress)
         case .snippet(let keyword, let expansion):
             // The rewriting stage is skipped, and skipping it is the feature.
             // A template's blank lines, indentation and deliberate lack of a
@@ -215,7 +222,9 @@ enum SpokenIntentPipeline {
     /// `SpokenIntentOutcome.insertsText` is false for it, so nothing downstream
     /// can paste them.
     private static func youTubeCommand(
-        to processed: ProcessedText, settings: Settings
+        to processed: ProcessedText,
+        settings: Settings,
+        progress: @escaping @MainActor (StageEvent) -> Void
     ) async -> StyledTranscript {
         func result(_ command: YouTubeCommandResolution) -> StyledTranscript {
             StyledTranscript(
@@ -237,9 +246,7 @@ enum SpokenIntentPipeline {
         }
 
         let resolution = YouTubeCommandRouter.resolve(processed.final, channels: channels)
-        await MainActor.run {
-            SpokenIntentActivity.shared.resolved(.openLatestVideo(resolution))
-        }
+        await progress(.intent(.openLatestVideo(resolution)))
 
         // The list the lookup was made against travels with the answer, so the
         // recovery picker can only ever offer rows this command itself could
@@ -251,9 +258,7 @@ enum SpokenIntentPipeline {
             isEnabled: settings.youTubeChannelModelMatch
         ).withCandidates(channels.reachable)
         if resolved.resolution != resolution {
-            await MainActor.run {
-                SpokenIntentActivity.shared.resolved(.openLatestVideo(resolved))
-            }
+            await progress(.intent(.openLatestVideo(resolved)))
         }
         return result(resolved)
     }
@@ -268,37 +273,5 @@ extension SpokenIntent {
         case .translate(let target, _): return .translated(target)
         case .snippet(let keyword, _): return .snippet(keyword: keyword)
         }
-    }
-}
-
-/// Announces that a dictation in flight turned out to be a command.
-///
-/// The capsule HUD's chip is set when the session starts, from preferences,
-/// because that is when it can be: what the chip promises has to be what the
-/// pipeline is about to do. A spoken command is the one thing that is not known
-/// until the words exist, so the chip has to be told - and this is the same
-/// shape `StyleRewriteActivity` uses for the same reason.
-///
-/// Like that flag it is global, and like that flag the scoping is the view
-/// model's job: `CapsuleHUDViewModel.setMode` refuses a change unless the
-/// capsule is showing its own decode, so a queue transcription cannot relabel a
-/// recording that is still in progress.
-@MainActor
-final class SpokenIntentActivity: ObservableObject {
-    static let shared = SpokenIntentActivity()
-
-    /// The last routing verdict, or nil before anything has been routed.
-    @Published private(set) var outcome: SpokenIntentOutcome?
-
-    private init() {}
-
-    func resolved(_ outcome: SpokenIntentOutcome) {
-        self.outcome = outcome
-    }
-
-    /// Forgets the last verdict, so a new session does not subscribe to a
-    /// `@Published` that immediately replays the previous dictation's command.
-    func clear() {
-        outcome = nil
     }
 }

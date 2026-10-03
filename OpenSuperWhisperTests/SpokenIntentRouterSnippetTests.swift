@@ -20,6 +20,35 @@ final class SpokenIntentRouterSnippetTests: IsolatedPreferencesTestCase {
     private let minutes = VoiceSnippet(keyword: "會議記錄", expansion: "會議記錄\n\n出席：\n")
 
     private var snippets: [VoiceSnippet] { [signoff, meeting, minutes] }
+    private var temporaryFiles: [URL] = []
+
+    override func tearDown() {
+        for url in temporaryFiles { try? FileManager.default.removeItem(at: url) }
+        temporaryFiles = []
+        super.tearDown()
+    }
+
+    private func makeTemporaryAudio() -> URL {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("snippet-hud-\(UUID().uuidString).wav")
+        FileManager.default.createFile(atPath: url.path, contents: Data([0x00]))
+        temporaryFiles.append(url)
+        return url
+    }
+
+    @MainActor
+    private func gatedSession(
+        progressToEmit: [StageEvent] = []
+    ) -> (session: DictationSession, transcriber: FakeDictationTranscriber) {
+        let recorder = FakeDictationRecorder()
+        recorder.stoppedURL = makeTemporaryAudio()
+        let transcriber = FakeDictationTranscriber()
+        transcriber.progressToEmit = progressToEmit
+        transcriber.holdNextDecode()
+        let session = makeFakeDictationSession(recorder: recorder, transcriber: transcriber)
+        session.start()
+        return (session, transcriber)
+    }
 
     private func route(_ transcript: String) -> SpokenIntent {
         SpokenIntentRouter.route(transcript, snippets: snippets)
@@ -249,17 +278,16 @@ final class SpokenIntentRouterSnippetTests: IsolatedPreferencesTestCase {
     }
 
     @MainActor
-    func testTheCapsuleIsToldASnippetFired() async throws {
+    func testTheSessionIsToldASnippetFired() async throws {
         try enableRouting()
-        SpokenIntentActivity.shared.clear()
+        var events: [StageEvent] = []
 
         _ = await SpokenIntentPipeline.apply(
             to: processed("insert email signoff"),
             settings: Settings(routesSpokenIntents: true)
-        )
+        ) { events.append($0) }
 
-        XCTAssertEqual(SpokenIntentActivity.shared.outcome, .snippet(keyword: "email signoff"))
-        SpokenIntentActivity.shared.clear()
+        XCTAssertEqual(events, [.intent(.snippet(keyword: "email signoff"))])
     }
 
     // MARK: - The chip
@@ -279,6 +307,38 @@ final class SpokenIntentRouterSnippetTests: IsolatedPreferencesTestCase {
 
         XCTAssertEqual(CapsuleHUDMode.snippet(named: long).label, "Snippet")
         XCTAssertEqual(CapsuleHUDMode.snippet(named: "   ").label, "Snippet")
+    }
+
+    /// A snippet fired on another session's capsule must not relabel the one
+    /// this session is following. Routing reports through the session's own
+    /// progress handler, so the chip only changes on the HUD that received it.
+    @MainActor
+    func testTheChipOnlyChangesOnTheSessionThatRoutedTheSnippet() async {
+        let followed = gatedSession()
+        let hud = CapsuleHUDWindowController()
+        hud.beginSession(for: IndicatorViewModel(session: followed.session))
+        pumpMainRunLoop()
+
+        followed.session.stop()
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        pumpMainRunLoop()
+        XCTAssertEqual(hud.viewModel.state, .polishing(.transcribing))
+        let followedLabel = hud.viewModel.mode.label
+
+        let other = gatedSession(
+            progressToEmit: [.intent(.snippet(keyword: "email signoff"))]
+        )
+        other.session.stop()
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        pumpMainRunLoop()
+
+        XCTAssertEqual(other.session.intentOutcome, .snippet(keyword: "email signoff"))
+        XCTAssertEqual(hud.viewModel.mode.label, followedLabel)
+        XCTAssertNotEqual(hud.viewModel.mode.label, "Snippet: email signoff")
+
+        other.transcriber.releaseDecode()
+        followed.transcriber.releaseDecode()
+        hud.dismiss()
     }
 
     /// The chip is set once the words exist, and only while the capsule is

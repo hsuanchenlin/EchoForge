@@ -1692,7 +1692,7 @@ final class EscapeCancelConfirmationTests: IsolatedPreferencesTestCase {
 
     func testDecodingState_cancelsImmediately() {
         let viewModel = IndicatorViewModel()
-        viewModel.state = .decoding
+        viewModel.state = .decoding(.transcribing)
         viewModel.recordingStartedAt = Date().addingTimeInterval(-15)
 
         XCTAssertTrue(viewModel.handleCancelRequest(),

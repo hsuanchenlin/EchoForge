@@ -259,7 +259,11 @@ enum StyleRewriteService {
     /// Tests never reach the model through here - the same rule the engine
     /// loader follows, and for the same reason: a test host must not be able to
     /// start work that depends on the machine it happens to be running on.
-    static func apply(to processed: ProcessedText, settings: Settings) async -> StyledTranscript {
+    static func apply(
+        to processed: ProcessedText,
+        settings: Settings,
+        progress: @escaping @MainActor (StageEvent) -> Void = { _ in }
+    ) async -> StyledTranscript {
         let isRunningTests = await MainActor.run { OpenSuperWhisperApp.isRunningTests }
         guard !isRunningTests else {
             return .unrewritten(processed, status: .notRequested)
@@ -269,10 +273,12 @@ enum StyleRewriteService {
         }
 
         let availability = StyleRewriterFactory.availability()
-        // Marked around the attempt, not around the whole function: the guards
+        // Reported around the attempt, not around the whole function: the guards
         // above are instant, and a HUD that says "Polishing…" for a rewrite that
-        // was never attempted is a lie about where the user's wait went.
-        await MainActor.run { StyleRewriteActivity.shared.begin() }
+        // was never attempted is a lie about where the user's wait went. The
+        // session that asked for this finish is the only listener; a history
+        // fix or a queue rewrite has its own callback, or none.
+        await progress(.rewriting)
         let result = await apply(
             to: processed,
             configuration: settings.styleRewrite,
@@ -281,7 +287,6 @@ enum StyleRewriteService {
             rewriter: StyleRewriterFactory.makeRewriter(),
             fallbackChineseVariant: settings.chineseOutputScript
         )
-        await MainActor.run { StyleRewriteActivity.shared.end() }
         if let explanation = result.status.explanation, !result.status.didRewrite {
             print("Style rewrite: \(explanation)")
         }

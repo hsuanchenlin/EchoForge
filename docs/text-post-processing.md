@@ -23,8 +23,10 @@ TranscriptionEngine.transcribeAudio()      WhisperEngine | FluidAudioEngine
 TranscriptionService.decodeRaw()           the engine and nothing after it
         │
         ▼
-TranscriptionService.finish()              single choke point: every stage
-        │                                  below runs here and nowhere else
+TranscriptionService.finish(progress:)     single choke point: every stage
+        │                                  below runs here and nowhere else;
+        │                                  progress goes to the session that
+        │                                  asked, never a global flag
         ▼
 TextPostProcessor.process()                TRANSCRIPT STAGE
         │                                  shared by every engine and caller
@@ -195,12 +197,15 @@ the second one cannot keep the first.
 
 `transcribeAudio` is two named halves run inside one serialised transcription:
 `decodeRaw(url:settings:)` is the engine and nothing after it, and
-`finish(raw:settings:)` is every stage above, run once over a raw transcript.
+`finish(raw:settings:progress:)` is every stage above, run once over a raw transcript.
+The optional `progress` callback is how the session that asked for this finish
+hears rewriting and spoken-intent routing; a queue transcription or a history
+fix passes a no-op, so those cannot paint another session's overlay.
 The halves exist so that a caller can decode pieces of a dictation separately
 and finish the joined text once - the stages run over a whole transcript, never
 over a piece - and `TranscriptionDecodeAndFinishTests` holds them to it: a decode
 returns the engine's words byte for byte, and a decode shares the engine's
 serialisation and cancellation with whole-file work rather than running beside it.
 That caller is live transcription (`docs/live-dictation.md`), and
-`finishTranscribed(raw:settings:)` is the frame it finishes in: the same
+`finishTranscribed(raw:settings:progress:)` is the frame it finishes in: the same
 serialised, cancellable frame around `finish` alone, with no engine touched.

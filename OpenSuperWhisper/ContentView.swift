@@ -338,7 +338,7 @@ class ContentViewModel: ObservableObject {
             recordingDuration = 0
             startDurationTimerIfNeeded()
         case .decoding:
-            state = .decoding
+            state = phase
             stopBlinking()
             stopDurationTimer()
             IndicatorWindowManager.shared.hide()
@@ -711,7 +711,7 @@ struct ContentView: View {
                                 viewModel.startRecording()
                             }
                         }) {
-                            if viewModel.state == .decoding || viewModel.state == .connecting {
+                            if viewModel.state.isDecoding || viewModel.state == .connecting {
                                 ProgressView()
                                     .scaleEffect(1.0)
                                     .frame(width: 48, height: 48)
@@ -726,7 +726,7 @@ struct ContentView: View {
                         // model at all, which is what `isEngineConfigured` now
                         // means. A download running in the background is not a
                         // reason to take the record button away.
-                        .disabled(!viewModel.isEngineConfigured || viewModel.transcriptionService.isTranscribing || viewModel.transcriptionQueue.isProcessing || viewModel.state == .decoding || viewModel.microphoneService.availableMicrophones.isEmpty)
+                        .disabled(!viewModel.isEngineConfigured || viewModel.transcriptionService.isTranscribing || viewModel.transcriptionQueue.isProcessing || viewModel.state.isDecoding || viewModel.microphoneService.availableMicrophones.isEmpty)
                         .padding(.top, 24)
                         .padding(.bottom, 16)
                         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: viewModel.isRecording)

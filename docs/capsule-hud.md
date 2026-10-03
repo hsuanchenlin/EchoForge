@@ -91,16 +91,17 @@ Five rules in it are load-bearing:
 - **`endWithoutBadge()` leaves a badge alone.** When a session ends while a
   message is up, that message's own timer owns the rest of its life.
 - **A rewrite may only follow this session's own decode.**
-  `StyleRewriteActivity` is global - the transcription queue's rewrites (file
-  drop, open-with, history regenerate) raise it too, and a `@Published` replays
-  one already in flight at subscription time - so `beginPolishing(.rewriting)`
-  is refused unless the capsule is already showing `.polishing(.transcribing)`.
-- **So may decoded words**, and for exactly the same reason:
-  `TranscriptionService.partialTranscript` is global too, so
-  `showPartialTranscript` is refused unless the capsule is showing its own
-  decode, and cleared when the rewrite starts - the pill then says what it is
-  doing with the text rather than keeping a line of transcript beside a different
-  promise.
+  `TranscriptionService.finish` reports rewriting through the session's
+  progress callback, which becomes `DictationPhase.decoding(.rewriting)`.
+  A history fix or a queue transcription has its own callback, or none, so
+  `beginPolishing(.rewriting)` is refused unless the capsule is already
+  showing `.polishing(.transcribing)` - this session's own decode.
+- **So may decoded words**, and here the reason is still a global publisher:
+  `TranscriptionService.partialTranscript` carries every transcription's
+  segments, so `showPartialTranscript` is refused unless the capsule is showing
+  its own decode, and cleared when the rewrite starts - the pill then says what
+  it is doing with the text rather than keeping a line of transcript beside a
+  different promise.
 
 ### The decoded-so-far line
 
@@ -150,8 +151,10 @@ The Esc cancel-confirmation is the card's, not the capsule's:
 capsule only mirrors `isConfirmingCancel`, swapping the meter for "Press Esc to
 cancel" over the card's own `CancelConfirmationBar` countdown.
 
-`CapsuleHUDViewModel.follow(_:)` takes the session's `DictationPhase`. A notice
-on `.ended` is the error badge; `.ended(nil, result)` carries the
+`CapsuleHUDViewModel.follow(_:)` takes the session's `DictationPhase`.
+`.decoding(.transcribing)` and `.decoding(.rewriting)` are the two waits after
+the audio stops, reported by that session's own `finish` progress callback. A
+notice on `.ended` is the error badge; `.ended(nil, result)` carries the
 `DictationResult` directly. The card never needed that result - it
 decodes, hides, and says nothing either way - but a HUD has to tell a silent
 recording and a failed transcription apart from a successful one. `.inserted`
@@ -201,11 +204,10 @@ they cannot disagree about which app it was.
 Everything else is read from preferences before the recording starts;
 "Ask: …" only exists once the transcript does. So `setMode` renames the chip
 during the decode - which is why the chip is drawn in `.polishing` as well as
-while recording - and is refused unless the capsule is showing **its own**
-`.polishing(.transcribing)`. `SpokenIntentActivity` is global, exactly like
-`StyleRewriteActivity`, so without that scope a queue transcription's routing
-would relabel a recording still in progress. `docs/spoken-intents.md` is the
-router's story.
+while recording - from this session's `intentOutcome`. `finish` reports the
+verdict through that session's progress callback, so a queue transcription's
+routing cannot relabel a recording still in progress. `docs/spoken-intents.md`
+is the router's story.
 
 A dictation that turned out to be a question ends on `DictationResult.asked`,
 which the capsule shows as no badge at all: the Ask panel is on screen with the

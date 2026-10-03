@@ -47,6 +47,13 @@ final class DictationSession: ObservableObject {
     /// Where this dictation has got to. The one value an overlay follows.
     @Published private(set) var phase: DictationPhase = .idle
 
+    /// The spoken-intent verdict for this session, once the words exist.
+    ///
+    /// Nil until `finish` reports one, and never anybody else's: the pipeline
+    /// writes it through this session's own progress handler, so a queue
+    /// transcription cannot relabel a recording that is still in progress.
+    @Published private(set) var intentOutcome: SpokenIntentOutcome?
+
     /// What the live decoder has committed so far, republished from the session
     /// so an overlay can draw it without knowing the session exists. Nil while
     /// nothing is committed, and nil again the moment the session falls back.
@@ -393,7 +400,8 @@ final class DictationSession: ObservableObject {
             return
         }
 
-        phase = .decoding
+        intentOutcome = nil
+        phase = .decoding(.transcribing)
 
         Task { [weak self] in
             guard let self else { return }
@@ -630,14 +638,20 @@ final class DictationSession: ObservableObject {
     ) async throws -> StyledTranscript {
         guard !didCancelWorkInFlight else { throw TranscriptionError.processingFailed }
         let styled: StyledTranscript
+        let progress: @MainActor (StageEvent) -> Void = { [weak self] event in
+            self?.handlePipelineProgress(event)
+        }
         switch liveOutcome {
         case .committed(let raw):
-            styled = try await transcriber.finishTranscribed(raw: raw, settings: settings)
+            styled = try await transcriber.finishTranscribed(
+                raw: raw, settings: settings, progress: progress)
         case .fallback(let reason):
             print("Live dictation fell back to the whole-file decode: \(reason)")
-            styled = try await transcriber.transcribeAudio(url: tempURL, settings: settings)
+            styled = try await transcriber.transcribeAudio(
+                url: tempURL, settings: settings, progress: progress)
         case nil:
-            styled = try await transcriber.transcribeAudio(url: tempURL, settings: settings)
+            styled = try await transcriber.transcribeAudio(
+                url: tempURL, settings: settings, progress: progress)
         }
         guard !didCancelWorkInFlight else { throw TranscriptionError.processingFailed }
         return styled
@@ -722,6 +736,10 @@ final class DictationSession: ObservableObject {
         }
 
         let settings = Settings(purpose: .selectionEdit, dictationTarget: dictationTarget)
+        // The spoken words are already decoded; what remains is the model
+        // rewriting the captured text. Reported on this session so the capsule
+        // following it can say "Polishing…" without a global flag.
+        handlePipelineProgress(.rewriting)
         let styled = await selectionEditor.rewrite(
             original: capture.text, instruction: instruction, settings: settings)
 
@@ -797,7 +815,7 @@ final class DictationSession: ObservableObject {
     /// work on the live one, where nothing on the engine is interrupted because
     /// the frame in flight may not be this dictation's.
     func cancelWorkInFlight() {
-        guard phase == .decoding else { return }
+        guard phase.isDecoding else { return }
         didCancelWorkInFlight = true
         if !isDecodingLiveSession {
             transcriber.cancelTranscription()
@@ -817,6 +835,21 @@ final class DictationSession: ObservableObject {
     /// publishes the phase that says so.
     private func end(with notice: DictationNotice?) {
         phase = .ended(notice, result)
+    }
+
+    /// Applies one pipeline event to this session's own published state.
+    ///
+    /// Called from `finish`'s progress callback, on the main actor, so a
+    /// rewrite or a spoken command lands on the overlay that is following
+    /// *this* session. A history fix never reaches here.
+    private func handlePipelineProgress(_ event: StageEvent) {
+        switch event {
+        case .rewriting:
+            guard phase.isDecoding else { return }
+            phase = .decoding(.rewriting)
+        case .intent(let outcome):
+            intentOutcome = outcome
+        }
     }
 
     // MARK: - Words

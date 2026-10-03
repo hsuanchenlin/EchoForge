@@ -110,15 +110,30 @@ final class FakeDictationTranscriber: DictationTranscribing {
         await withCheckedContinuation { self.gate = $0 }
     }
 
-    func transcribeAudio(url: URL, settings: Settings) async throws -> StyledTranscript {
+    /// Events this fake reports through `progress` before waiting on the gate,
+    /// so a test can observe `.decoding(.rewriting)` while the decode is still
+    /// in flight.
+    var progressToEmit: [StageEvent] = []
+
+    func transcribeAudio(
+        url: URL,
+        settings: Settings,
+        progress: @escaping @MainActor (StageEvent) -> Void
+    ) async throws -> StyledTranscript {
         wholeFileCalls.append(url)
         wholeFileSettings.append(settings)
+        for event in progressToEmit { progress(event) }
         await waitIfGated()
         return try wholeFileResult.get()
     }
 
-    func finishTranscribed(raw: String, settings: Settings) async throws -> StyledTranscript {
+    func finishTranscribed(
+        raw: String,
+        settings: Settings,
+        progress: @escaping @MainActor (StageEvent) -> Void
+    ) async throws -> StyledTranscript {
         finishedRaws.append(raw)
+        for event in progressToEmit { progress(event) }
         await waitIfGated()
         return try finishedResult.get()
     }
@@ -256,6 +271,34 @@ final class FakeSelectionEditing: DictationSelectionEditing, @unchecked Sendable
 struct FixedAudioDuration: DictationAudioMeasuring {
     var seconds: TimeInterval = 3
     func duration(of url: URL) async -> TimeInterval { seconds }
+}
+
+/// A session against the fakes above, for tests that need two of them.
+@MainActor
+func makeFakeDictationSession(
+    recorder: FakeDictationRecorder,
+    transcriber: FakeDictationTranscriber
+) -> DictationSession {
+    DictationSession(
+        purpose: .dictation,
+        dictationTarget: nil,
+        recorder: recorder,
+        transcriber: transcriber,
+        history: FakeDictationHistory(),
+        queue: FakeDictationQueue(),
+        insertion: FakeDictationInsertion(),
+        asking: FakeDictationAsking(),
+        selectionEditor: FakeSelectionEditing(),
+        measurement: FixedAudioDuration(seconds: 3),
+        makeLiveSession: { _, _, _ in nil }
+    )
+}
+
+/// Lets Combine hops posted to the main run loop land inside the test.
+func pumpMainRunLoop() {
+    for _ in 0 ..< 8 {
+        RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+    }
 }
 
 // MARK: - .toPanel delivery
