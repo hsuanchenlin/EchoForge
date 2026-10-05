@@ -233,7 +233,6 @@ final class LiveDictationSession: ObservableObject {
 
     private let buffer = LiveSampleBuffer()
     private var committed = CommittedTranscript()
-    private var transcriptPreviewScript = TranscriptPreviewScript()
     private var hasStarted = false
 
     /// Set once `start` has seen the tap come up. Until then the tap is not
@@ -536,13 +535,22 @@ final class LiveDictationSession: ObservableObject {
     /// raw transcript `finish` hands back, and converting it here would move
     /// the conversion out of the one transcript stage every path shares. The
     /// language is the one the decode actually ran in, so a session pinned to
-    /// Japanese keeps its kanji - and a session still detecting is shown the
-    /// engine's own characters, since `auto` has not said Chinese yet. On a
-    /// Mandarin utterance the pin lands in `decode` above, before this runs,
-    /// so the first words on the line are already in the chosen script. See
-    /// `TranscriptPreviewScript`.
+    /// Japanese keeps its kanji, and a session whose language has not said
+    /// Chinese is shown the engine's own characters.
+    ///
+    /// Which of those a Mandarin speaker on `auto` gets depends on the engine.
+    /// `LiveLanguagePin` can only pin what an engine reports, and
+    /// `DecodeLanguageReporting` is Whisper's alone: on Whisper the pin lands
+    /// in `decode` above - on the first utterance's decode, before that
+    /// utterance is published - so the first words on the line are already in
+    /// the chosen script. On SenseVoice, Paraformer or Parakeet nothing is ever
+    /// reported, `decodeLanguage` stays `auto`, and an `auto` session's preview
+    /// is the engine's own script for the whole recording. Those engines'
+    /// Chinese users are not on `auto`, though: Paraformer offers `zh` and
+    /// nothing else, and SenseVoice's own default is `zh`
+    /// (`LanguageUtil.fallbackLanguage`). See `TranscriptPreviewScript`.
     private func previewScript(_ partial: PartialTranscript) -> PartialTranscript {
-        transcriptPreviewScript.normalized(
+        TranscriptPreviewScript.normalized(
             partial,
             to: settings.chineseOutputScript,
             languageCode: languagePin.decodeLanguage)

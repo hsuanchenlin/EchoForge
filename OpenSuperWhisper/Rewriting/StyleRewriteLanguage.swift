@@ -54,9 +54,12 @@ enum StyleRewriteLanguage: Equatable, Sendable {
         transcript: String,
         fallbackVariant: ChineseScriptVariant = ChineseScriptVariant.systemPreferred
     ) -> StyleRewriteLanguage {
-        // The same predicate `ChineseScriptNormalizer` gated on, deliberately:
-        // the stage that writes the transcript's script and the stage that asks
-        // the model about it must not disagree about whether it is Chinese.
+        // Whether the *utterance* is Chinese, which is the question a stage
+        // about to address a model in a language has to ask: English spoken
+        // with the dictation language left on Chinese must be asked for in
+        // English. `ChineseScriptNormalizer` asks the narrower
+        // `isChineseOutput` instead, because converting Han characters into the
+        // user's own script is right for that same English sentence.
         guard ChineseScriptVariant.isChineseText(transcript, languageCode: languageCode) else {
             return .other
         }

@@ -178,6 +178,38 @@ final class ChineseScriptVariantTests: XCTestCase {
         }
     }
 
+    /// The two questions this type answers about the same text, and why they
+    /// differ. `isChineseText` asks whether the *utterance* is Chinese, which
+    /// is what a stage about to address a model in a language needs;
+    /// `isChineseOutput` asks whether the text's Han characters may be written
+    /// in the user's chosen script, which a Chinese dictation language settles
+    /// on its own because the conversion touches nothing else.
+    func testTheOutputGateTrustsAChineseLanguageWhereTheUtteranceGateDoesNot() {
+        let englishWithAName = "We should ask 张 about the deploy tomorrow morning."
+
+        XCTAssertFalse(ChineseScriptVariant.isChineseText(englishWithAName, languageCode: "zh"))
+        XCTAssertTrue(ChineseScriptVariant.isChineseOutput(englishWithAName, languageCode: "zh"))
+
+        // A Chinese language needs no evidence from the text at all - not even
+        // a Han character in it.
+        XCTAssertTrue(ChineseScriptVariant.isChineseOutput("", languageCode: "yue"))
+
+        // Japanese and Korean cannot reach that branch, however Han-dominant
+        // their text is, because no Chinese code is theirs.
+        for language in ["ja", "ko"] {
+            XCTAssertTrue(ChineseScriptVariant.isHanDominant("東京都庁見学"))
+            XCTAssertFalse(
+                ChineseScriptVariant.isChineseOutput("東京都庁見学", languageCode: language),
+                language)
+        }
+
+        // And a language that has not said still has to earn it from the text,
+        // which is the share test doing the only job it has left.
+        XCTAssertTrue(ChineseScriptVariant.isChineseOutput("我们开会", languageCode: "auto"))
+        XCTAssertFalse(
+            ChineseScriptVariant.isChineseOutput(englishWithAName, languageCode: "auto"))
+    }
+
     // MARK: - The user's own preference
 
     func testPrefersTheVariantOfTheUsersOwnChineseLanguage() {

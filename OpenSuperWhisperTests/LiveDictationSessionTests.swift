@@ -923,6 +923,48 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
         XCTAssertEqual(live.transcript?.segment, "討論這個項目。")
     }
 
+    /// The same session, opening with the code-switched utterance this app is
+    /// for: `这个 PR should be ready by Friday` is 2 Han against 6 English
+    /// words, below `hanShareThreshold`, and the Mandarin that follows takes
+    /// the joined line well above it.
+    ///
+    /// Both lines are in the user's script, and - the part that matters - the
+    /// first line is still exactly what it was once the second has landed. A
+    /// preview whose verdict read the joined text would have shown `这个` and
+    /// then rewritten it to `這個` under the user's eyes.
+    func testACodeSwitchedOpeningIsConvertedAndNeverRewritten() async {
+        AppPreferences.shared.chineseOutputScript = .traditional
+        decoder.answers = ["这个 PR should be ready by Friday", "我们明天开会讨论"]
+        let live = makeSession(language: "zh")
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        let opening = live.transcript?.text
+        XCTAssertEqual(opening, "這個 PR should be ready by Friday")
+
+        tap.push(Self.speech(seconds: 1.2) + Self.silence(seconds: 0.6))
+        await live.poll()
+        // No space at the seam: `CommittedTranscript` puts one there only when
+        // neither side is a script written without word spaces.
+        XCTAssertEqual(live.transcript?.text, "這個 PR should be ready by Friday我們明天開會討論")
+        XCTAssertTrue(
+            live.transcript?.text.hasPrefix(opening ?? "") == true,
+            "the line already on screen was rewritten: \(live.transcript?.text ?? "nil")")
+
+        // And the paste agrees: the raw transcript handed back is the engine's
+        // own, and the transcript stage writes it in the same script the line
+        // was shown in.
+        let raw = "这个 PR should be ready by Friday我们明天开会讨论"
+        tap.push(Self.silence(seconds: 0.3))
+        let outcome = await live.finish(session)
+        XCTAssertEqual(outcome, .committed(raw: raw))
+        XCTAssertEqual(
+            ChineseScriptNormalizer.normalized(raw, to: .traditional, languageCode: "zh"),
+            "這個 PR should be ready by Friday我們明天開會討論",
+            "the transcript stage left the line's script behind")
+    }
+
     /// And the other half of the claim: the preview is a copy made for the
     /// screen. What `finish` hands back is the engine's own text, because that
     /// is the *raw* transcript and the conversion that reaches the clipboard is

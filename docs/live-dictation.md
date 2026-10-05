@@ -129,27 +129,34 @@ whose whisper segments are what shows after a fallback. Three things hold it:
   the engine's own words, `finish` hands those back, and the conversion that reaches the
   clipboard is still the transcript stage's, over that raw transcript. A preview has no way to
   reach the paste or History.
-- **It uses the same Chinese predicate and transform, and waits for the language to say
-  Chinese.** `ChineseScriptVariant.isChineseText` gates it and `ChineseScriptNormalizer`
-  performs it, over the language the decode actually ran in -
-  `LiveLanguagePin.decodeLanguage` - and only once that language *is* Chinese
-  (`ChineseScriptVariant.isChineseLanguage`). A session pinned to Japanese shows kanji as the
-  engine returned them, and so does one still detecting: the transcript stage settles for
-  "Chinese is not ruled out" because it reads a finished transcript, while a preview has a
-  prefix, and under `auto` a Han-only prefix is as readily the opening of a Japanese sentence.
-  This costs the Mandarin speaker nothing in practice - the pin lands on the first utterance's
-  decode, before that utterance is published, so the first words on the line are already in
-  their script - and a session that never pins is shown exactly what it was shown before any
-  of this existed.
-- **One verdict covers the whole preview.** `text` and `segment` are two views of one decode,
-  so Han-dominance is asked once, of the joined text, and the segment follows it. Asking
-  separately would let a two-character segment fail a test its own sentence passes and the line
-  would convert in pieces.
+- **The language decides, and the text is never consulted.**
+  `ChineseScriptVariant.isChineseLanguage` is the whole gate, asked of the language the decode
+  actually ran in (`LiveLanguagePin.decodeLanguage`), and `ChineseScriptNormalizer` performs
+  the conversion. A session pinned to Japanese shows kanji as the engine returned them, and so
+  does one whose language has not said Chinese at all. Reading the text here is what a preview
+  cannot afford: the share test the transcript stage falls back to (`isHanDominant`) is asked
+  of the whole joined line, so its answer moves as the line grows, and a verdict that moves
+  rewrites characters already on screen.
+- **So the line is monotone by construction.** One input that cannot change during a session,
+  and a character-wise conversion, means every prefix already shown comes out of the next call
+  exactly as it came out of the last. There is no sticky verdict and nothing to latch - the
+  property is structural rather than defended.
 
-Once a session is identified as Chinese, that verdict is sticky for the rest of the session.
-Together with character-wise conversion, this keeps every prefix already on screen unchanged
-when later code-switched English lowers the joined text's Han share. The verdict latches one
-way only: an utterance of English does not close Chinese for the rest of a Chinese session.
+**What a Mandarin speaker on `auto` sees depends on the engine.** `LiveLanguagePin` can only
+pin a language an engine reports, and `DecodeLanguageReporting` is Whisper's alone. On Whisper
+the pin lands on the first utterance's decode, before that utterance is published, so the first
+words on the line are already in the user's script. On SenseVoice, Paraformer or Parakeet
+nothing is ever reported, `decodeLanguage` stays `auto`, and the preview is the engine's own
+script for the whole recording - as it was before any of this existed. Those engines' Chinese
+users are not on `auto` in practice: Paraformer offers `zh` and nothing else, and SenseVoice's
+own default is `zh` (`LanguageUtil.fallbackLanguage`). A Whisper detection below
+`LiveLanguagePin.minimumConfidence` does not pin either, and lands in the same place.
+
+Because a Chinese language is also the branch of `ChineseScriptVariant.isChineseOutput` that
+needs no evidence, **the preview can never show a script the paste will not produce**: wherever
+it converts, the transcript stage converts the same characters the same way. The one place the
+two part is a language that has not said - `auto`, or a code the app does not know - where the
+transcript stage may still convert on the text's own evidence and the preview does not.
 `TranscriptPreviewScriptTests` holds each clause, and the live and service paths have their own
 cases in `LiveDictationSessionTests` and `PartialTranscriptTests`.
 

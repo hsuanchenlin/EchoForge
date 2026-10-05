@@ -20,8 +20,7 @@ final class TranscriptPreviewScriptTests: XCTestCase {
         _ partial: PartialTranscript, to variant: ChineseScriptVariant,
         languageCode: String
     ) -> PartialTranscript {
-        var script = TranscriptPreviewScript()
-        return script.normalized(partial, to: variant, languageCode: languageCode)
+        TranscriptPreviewScript.normalized(partial, to: variant, languageCode: languageCode)
     }
 
     // MARK: - The conversion
@@ -69,10 +68,9 @@ final class TranscriptPreviewScriptTests: XCTestCase {
     /// leave that true: it is character-wise, so every prefix already on screen
     /// comes out of a later call exactly as it did out of the earlier one.
     func testAGrowingPreviewNeverRewritesWhatIsAlreadyShown() {
-        var script = TranscriptPreviewScript()
-        let first = script.normalized(
+        let first = shown(
             preview("我们开会。"), to: .traditional, languageCode: "zh")
-        let second = script.normalized(
+        let second = shown(
             preview("我们开会。然后发布。", segment: "然后发布。"),
             to: .traditional, languageCode: "zh")
 
@@ -80,18 +78,45 @@ final class TranscriptPreviewScriptTests: XCTestCase {
         XCTAssertEqual(second.segment, "然後發布。")
     }
 
-    func testConversionStaysTriggeredWhenLaterEnglishLowersTheHanShare() {
-        var script = TranscriptPreviewScript()
-        let first = script.normalized(
-            preview("这个 PR"), to: .traditional, languageCode: "zh")
-        let second = script.normalized(
+    /// The same property where it used to break, in both directions, because
+    /// this is the whole reason the gate does not read the text.
+    ///
+    /// Both of these sequences cross `hanShareThreshold` - the first upwards,
+    /// the second downwards - as the line grows, so a verdict asked of the
+    /// joined text would flip mid-session and rewrite the prefix already on
+    /// screen. The share of the line is not an input here, so neither does.
+    func testCrossingTheHanShareThresholdMidSessionChangesNothingOnScreen() {
+        // Upwards: utterance 1 is 2 Han against 6 English words - 0.25, below
+        // the threshold - and utterance 2 takes the joined line to 0.63.
+        let openingBelow = shown(
+            preview("这个 PR should be ready by Friday"),
+            to: .traditional, languageCode: "zh")
+        let joinedAbove = shown(
+            preview(
+                "这个 PR should be ready by Friday 我们明天开会讨论",
+                segment: "我们明天开会讨论"),
+            to: .traditional, languageCode: "zh")
+
+        XCTAssertEqual(openingBelow.text, "這個 PR should be ready by Friday")
+        XCTAssertTrue(
+            joinedAbove.text.hasPrefix(openingBelow.text),
+            "the prefix on screen was rewritten when the line rose above the threshold: "
+                + joinedAbove.text)
+
+        // Downwards: the line starts Chinese and a long English clause drags
+        // the joined share to 0.15.
+        let openingAbove = shown(preview("这个 PR"), to: .traditional, languageCode: "zh")
+        let joinedBelow = shown(
             preview(
                 "这个 PR we should land it before Friday and tell the team",
                 segment: "we should land it before Friday and tell the team"),
             to: .traditional, languageCode: "zh")
 
-        XCTAssertEqual(first.text, "這個 PR")
-        XCTAssertTrue(second.text.hasPrefix(first.text))
+        XCTAssertEqual(openingAbove.text, "這個 PR")
+        XCTAssertTrue(
+            joinedBelow.text.hasPrefix(openingAbove.text),
+            "the prefix on screen was rewritten when the line fell below the threshold: "
+                + joinedBelow.text)
     }
 
     /// `segmentCount` is the engine's count of what it has committed, not
@@ -104,14 +129,13 @@ final class TranscriptPreviewScriptTests: XCTestCase {
         XCTAssertEqual(shown.segmentCount, 7)
     }
 
-    /// The verdict latches one way only. A Chinese session that opens with a
-    /// sentence of English must still convert the Chinese that follows, or the
-    /// first words would decide the whole recording.
+    /// A Chinese session that opens with a sentence of English still converts
+    /// the Chinese that follows: the first words do not get to decide the
+    /// recording, because no words decide anything here.
     func testAnOpeningEnglishUtteranceDoesNotCloseChinese() {
-        var script = TranscriptPreviewScript()
-        let first = script.normalized(
+        let first = shown(
             preview("OK let's start."), to: .traditional, languageCode: "zh")
-        let second = script.normalized(
+        let second = shown(
             preview("OK let's start. 我们开会讨论这个项目", segment: "我们开会讨论这个项目"),
             to: .traditional, languageCode: "zh")
 
@@ -132,16 +156,13 @@ final class TranscriptPreviewScriptTests: XCTestCase {
             partial)
     }
 
-    /// The defect this gate exists for. Under `auto`, a Han-only prefix used to
-    /// trigger the sticky verdict, and the stickiness then carried the
-    /// conversion past the kana that rules Chinese out - so a Traditional user
-    /// dictating Japanese saw `學校に行きます`, characters no stage of this app
-    /// would ever write and the paste would never produce.
+    /// A kanji-only prefix under `auto` is the case that forced the language to
+    /// be the only input: the text says "Han-dominant" and means nothing, and
+    /// converting on it showed a Traditional user `學校に行きます` - characters
+    /// no stage of this app would write and the paste would never produce.
     func testAnAutoJapaneseSentenceIsNeverConvertedByItsKanjiOnlyPrefix() {
-        var script = TranscriptPreviewScript()
-        let first = script.normalized(
-            preview("学校"), to: .traditional, languageCode: "auto")
-        let second = script.normalized(
+        let first = shown(preview("学校"), to: .traditional, languageCode: "auto")
+        let second = shown(
             preview("学校に行きます", segment: "に行きます"),
             to: .traditional, languageCode: "auto")
 
@@ -169,8 +190,8 @@ final class TranscriptPreviewScriptTests: XCTestCase {
     }
 
     /// A user whose dictation language is Chinese but who said a sentence of
-    /// English gets their English back, the same clause the transcript stage
-    /// holds.
+    /// English gets their English back - not because the sentence was judged,
+    /// but because the conversion has no Han character to touch.
     func testAnEnglishSentenceUnderAChineseLanguageIsLeftAlone() {
         let partial = preview("We ship the release on Friday.")
         XCTAssertEqual(
@@ -181,8 +202,17 @@ final class TranscriptPreviewScriptTests: XCTestCase {
     /// Kanji and hanja are Han characters too, and 学 → 學 in a Japanese
     /// preview is a corruption rather than a normalization. A live session
     /// pinned to Japanese asks with `ja`, which is what closes this.
+    ///
+    /// Both fixtures are deliberately **kanji- and hanja-only**: a single kana
+    /// or Hangul character makes `isHanDominant` refuse on its own, which would
+    /// let these assertions hold with the language gate deleted. These are
+    /// Han-dominant, so the language code is the only thing standing between
+    /// 学 and 學.
     func testJapaneseAndKoreanAreNeverConverted() {
-        for (text, language) in [("今日は学校に行きます", "ja"), ("韓國語 학교", "ko")] {
+        for (text, language) in [("東京都庁見学", "ja"), ("大韓民國", "ko")] {
+            XCTAssertTrue(
+                ChineseScriptVariant.isHanDominant(text),
+                "\(text) is not Han-dominant, so this case would pass without the language gate")
             let partial = preview(text)
             XCTAssertEqual(
                 shown(
@@ -211,11 +241,12 @@ final class TranscriptPreviewScriptTests: XCTestCase {
 
     // MARK: - One verdict for the whole preview
 
-    /// `text` and `segment` are two views of one decode, so the Han-dominance
-    /// test is asked once, of the joined text. A two-character segment of a
-    /// Chinese sentence would fail that test on its own, and the line would
-    /// then convert in pieces: the sentence in the user's script and the newest
-    /// words in the engine's.
+    /// `text` and `segment` are two views of one decode and cannot disagree
+    /// about the script, because the verdict is the language and neither of
+    /// them is consulted. Judged separately on their own characters, a
+    /// two-character segment would fail a test its own sentence passes and the
+    /// line would convert in pieces: the sentence in the user's script and the
+    /// newest words in the engine's.
     func testTheSegmentFollowsTheWholePreviewsVerdict() {
         let shown = shown(
             PartialTranscript(
@@ -229,14 +260,22 @@ final class TranscriptPreviewScriptTests: XCTestCase {
     // MARK: - The shared conversion rule
 
     /// Once the language has said, the preview and the paste must never
-    /// disagree, so both ask `ChineseScriptVariant` whether the text is Chinese
-    /// and both convert with `ChineseScriptNormalizer`. This checks the two
-    /// answers line up over a range of inputs rather than trusting that they
-    /// were written to.
+    /// disagree - a user who watches the script change at the paste is looking
+    /// at the same bug this feature exists to remove, pointed the other way. So
+    /// a Chinese dictation language is the branch of
+    /// `ChineseScriptVariant.isChineseOutput` that needs no evidence, and this
+    /// checks the two stages line up over a range of inputs rather than
+    /// trusting that they were written to.
+    ///
+    /// The fourth case is the one that used to fail: a sentence whose Han share
+    /// is 0.15 was converted on the preview and left alone at the paste.
     func testThePreviewAgreesWithTheTranscriptStage() {
         let cases = [
             ("我们开会", "zh"), ("我們開會", "zh"), ("We ship on Friday.", "en"),
-            ("今日は学校に行きます", "ja"), ("把 PR 开到 feature/login", "zh"),
+            ("这个 PR we should land it before Friday and tell the team", "zh"),
+            ("这个 PR should be ready by Friday", "zh"),
+            ("We should ask 张 about the deploy tomorrow morning.", "zh"),
+            ("東京都庁見学", "ja"), ("把 PR 开到 feature/login", "zh"),
             ("第一句。第二句。", "zh"), ("我们开会", "ko"),
         ]
         for (text, language) in cases {

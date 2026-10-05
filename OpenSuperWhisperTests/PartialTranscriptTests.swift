@@ -142,10 +142,17 @@ final class ServicePartialTranscriptScriptTests: IsolatedPreferencesTestCase {
     /// The dictation language is read from the settings the transcription ran
     /// under, so a Japanese decode is no more converted here than anywhere
     /// else.
+    ///
+    /// Kanji-only on purpose: `isHanDominant` refuses on the first kana scalar
+    /// whatever the language, so a fixture with kana in it would pass with the
+    /// language gate deleted. `東京都庁見学` is Han-dominant, which leaves `ja`
+    /// as the only thing keeping 学 from becoming 學.
     func testAJapaneseSegmentIsNeverConverted() async {
-        let shown = await published("学校に行きます", language: "ja", script: .traditional)
+        XCTAssertTrue(ChineseScriptVariant.isHanDominant("東京都庁見学"))
 
-        XCTAssertEqual(shown?.text, "学校に行きます")
+        let shown = await published("東京都庁見学", language: "ja", script: .traditional)
+
+        XCTAssertEqual(shown?.text, "東京都庁見学")
     }
 
     /// This path has no detection to read - whisper detects inside

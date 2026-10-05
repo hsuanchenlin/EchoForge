@@ -176,11 +176,18 @@ final class BilingualDictationTests: IsolatedPreferencesTestCase {
         }
     }
 
-    /// The gate is a share, so it has two sides, and the side that must not move
-    /// is English dictation. A sentence that is English with a Chinese name in it
-    /// is English, and the existing promise that English dictation comes back as
-    /// English is not weakened by counting words.
-    func testEnglishDictationWithAChineseNameIsStillEnglish() {
+    /// The share test has two sides, and the side that must not move is which
+    /// *utterances* count as Chinese: a sentence that is English with a Chinese
+    /// name in it is an English utterance, and `isChineseText` - the question
+    /// `StyleRewriteLanguage` asks before addressing a model in a language -
+    /// still says so.
+    ///
+    /// The output script is a different question (`isChineseOutput`), and under
+    /// a Chinese dictation language it does not consult the share at all: the
+    /// English comes back byte for byte either way, because the conversion only
+    /// touches Han characters, and the Han characters come back in the script
+    /// the user chose. `ChineseScriptNormalizerTests` holds that clause.
+    func testEnglishDictationWithAChineseNameIsStillAnEnglishUtterance() {
         for text in [
             "We should ask 张 about the deploy tomorrow morning.",
             "Please merge the 主 branch before you leave today.",
@@ -190,7 +197,15 @@ final class BilingualDictationTests: IsolatedPreferencesTestCase {
                 ChineseScriptVariant.isChineseText(text, languageCode: "zh"),
                 "an English sentence was read as Chinese: \(text)"
             )
-            XCTAssertEqual(transcriptStage(text), text)
+            // Every Latin word, digit and mark survives the transcript stage.
+            let converted = transcriptStage(text)
+            for word in text.split(separator: " ") where word.allSatisfy({ $0.isASCII }) {
+                XCTAssertTrue(
+                    converted.contains(word),
+                    "the transcript stage altered the English in \(text): \(converted)"
+                )
+            }
+            XCTAssertEqual(converted.count, text.count)
         }
     }
 

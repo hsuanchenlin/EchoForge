@@ -20,29 +20,31 @@ import Foundation
 ///    hands back for post-processing is the engine's own, untouched: the paste
 ///    still comes from the one transcript stage, over the raw transcript, and
 ///    this has no way to reach it. A preview is a copy made for the screen.
-/// 2. **It uses the transcript stage's predicate and transform.**
-///    `ChineseScriptVariant` gates it and `ChineseScriptNormalizer` performs
-///    it, and it converts nothing until the language itself says Chinese -
-///    the user's own choice of a Chinese dictation language, or the one a live
-///    session's detection pinned (`ChineseScriptVariant.isChineseLanguage`).
-///    The transcript stage settles for `mayBeChinese` because it reads a
-///    finished transcript; a preview is a prefix, and under `auto` a Han-only
-///    prefix is as readily the opening of a Japanese sentence - the kana that
-///    would rule Chinese out has not been spoken yet. So an unsettled `auto`
-///    preview is shown exactly as the engine wrote it, which is what it did
-///    before this existed.
-/// 3. **One verdict covers the whole preview.** `text` and `segment` are two
-///    views of one decode, so the Han-dominance test is asked once, of the
-///    joined text, and the segment follows it. Asking separately would let a
-///    two-character segment fail a test its own sentence passes, and the line
-///    would convert in pieces. Once conversion starts, the verdict remains
-///    true for the session so later code-switched English cannot rewrite an
-///    already displayed prefix.
-struct TranscriptPreviewScript {
-    private var conversionTriggered = false
+/// 2. **The language decides, and the text is never consulted.**
+///    `ChineseScriptVariant.isChineseLanguage` is the whole gate - the user's
+///    own choice of a Chinese dictation language, or the one a live session's
+///    detection pinned - and `ChineseScriptNormalizer` performs the conversion.
+///    Reading the text here is what a preview cannot afford: the share test the
+///    transcript stage falls back to (`isHanDominant`) is asked of the *whole*
+///    joined line, so its answer moves as the line grows, and a verdict that
+///    moves rewrites characters already on the user's screen. With the language
+///    as the only input the verdict is fixed for the session and the conversion
+///    is character-wise, so **the line is monotone by construction**: every
+///    prefix comes out of a later call exactly as it did out of the earlier one.
+/// 3. **It can never show a script the paste will not produce.** A Chinese
+///    language is also the branch of `ChineseScriptVariant.isChineseOutput`
+///    that needs no evidence, so wherever this converts, the transcript stage
+///    converts the same characters the same way. The one place the two part is
+///    a language that has not said - `auto`, or a code the app does not know -
+///    where the transcript stage may still convert on the text's own evidence
+///    and this does not: a preview holds a prefix, and under `auto` a Han-only
+///    prefix is as readily the opening of a Japanese sentence. Then the preview
+///    shows the engine's own characters, which is what it did before this
+///    existed.
+enum TranscriptPreviewScript {
 
-    /// `partial` written in `variant`, or exactly as it is when it is not a
-    /// Chinese transcript.
+    /// `partial` written in `variant`, or exactly as it is when the dictation
+    /// language has not said it is Chinese.
     ///
     /// - Parameters:
     ///   - partial: what has been committed so far, as the engine returned it.
@@ -51,17 +53,10 @@ struct TranscriptPreviewScript {
     ///     that is `LiveLanguagePin.decodeLanguage` - the pinned language once
     ///     one is pinned, which is a better answer than `auto` and the one the
     ///     engine was actually asked for.
-    mutating func normalized(
+    static func normalized(
         _ partial: PartialTranscript, to variant: ChineseScriptVariant, languageCode: String
     ) -> PartialTranscript {
         guard ChineseScriptVariant.isChineseLanguage(languageCode) else {
-            return partial
-        }
-        if !conversionTriggered {
-            conversionTriggered = ChineseScriptVariant.isChineseText(
-                partial.text, languageCode: languageCode)
-        }
-        guard conversionTriggered else {
             return partial
         }
         return PartialTranscript(

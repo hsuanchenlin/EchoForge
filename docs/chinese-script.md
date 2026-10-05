@@ -47,8 +47,11 @@ This is the boundary the whole feature is drawn around:
 - It never tilts auto-detect. Auto-detect is the engine's own decision and this
   runs after it, on the words that came back.
 - **English dictation comes back as English**, including on a Mac whose
-  dictation language is set to Chinese, because a mostly-Latin transcript is not
-  a Chinese transcript.
+  dictation language is set to Chinese, because the conversion only ever
+  rewrites Han characters and an English sentence has none. A Chinese name
+  quoted inside one is a Han character, and under a Chinese dictation language
+  it is written in the script that user chose - which is the setting doing its
+  job, not an exception to it.
 
 `ChineseScriptNormalizer` takes the text, the chosen script and the dictation
 language as arguments and reads no preference at all, so this is structural
@@ -83,22 +86,28 @@ Traditional user watched their sentence appear in Simplified and switch script
 at the paste. `TranscriptPreviewScript` is that one choke point, shared by the
 live session's line and the whole-file decode's committed segments.
 
-It is deliberately **not** a second decision. It asks
-`ChineseScriptVariant.isChineseText` and converts with
+It is deliberately **not** a second decision. It converts with
 `ChineseScriptNormalizer`, from the same `Settings` the decode ran under, and it
 touches only the copy made for the screen: the raw transcript the paste and
 History come from is still the engine's own text, converted once, here, in the
 transcript stage.
 
-It is **stricter** than this stage in exactly one way, and deliberately. This
-stage settles for `ChineseScriptVariant.mayBeChinese`, so `auto` leaves Chinese
-open and the transcript's own characters decide; the preview waits for
-`ChineseScriptVariant.isChineseLanguage` - the user's choice of a Chinese
-dictation language, or the language a live session's detection pinned. A whole
-transcript's characters are evidence enough, but a preview is a prefix, and
-under `auto` a Han-only prefix is as readily the opening of a Japanese sentence
-as of a Chinese one. Until the language says, the preview shows the engine's own
-characters.
+It asks only the first clause of the gate above -
+`ChineseScriptVariant.isChineseLanguage` - and never looks at the text. That is
+what a preview needs and the finished transcript does not: the share test is
+asked of the *whole* line, so its answer moves as the line grows, and a verdict
+that moves rewrites characters already on the user's screen. One input that
+cannot change during a session plus a character-wise conversion makes the line
+monotone by construction.
+
+So the preview is **stricter** than this stage in exactly one way. Where the
+language says Chinese the two convert identically, which is the agreement the
+preview exists for. Where it has not said - `auto`, or a code the app does not
+know - this stage may still convert on the text's own evidence and the preview
+does not, because a preview is a prefix and under `auto` a Han-only prefix is as
+readily the opening of a Japanese sentence. Until the language says, the preview
+shows the engine's own characters. `docs/live-dictation.md` has which engines
+can say and when.
 
 ## What is converted, and what is not
 
@@ -116,23 +125,40 @@ output has the same character count as the input and:
 | The user's dictionary entries and snippet templates | |
 | Recordings already in History | |
 
-Two gates decide whether anything is converted at all, and both have to pass
-(`ChineseScriptVariant.isChineseText`):
+One gate decides whether anything is converted at all
+(`ChineseScriptVariant.isChineseOutput`), and the dictation language is what it
+asks first:
 
-1. the dictation language leaves Chinese possible - Chinese or Cantonese, or
-   auto-detect, or a code the app does not know. Japanese and Korean close it,
-   because kanji and hanja are Han characters too and `学 → 學` in a Japanese
-   transcript is a corruption, not a normalization;
-2. the text itself is Han-dominant, with no kana or Hangul anywhere in it.
-
-That is the same predicate `StyleRewriteLanguage` asks "is this Chinese" with,
-on purpose: two answers to that question is how one stage converts a script the
-next stage does not think is Chinese.
+1. **a Chinese dictation language** - Chinese, Cantonese, or one of the other
+   codes in `chineseLanguageCodes` - is the answer on its own. The user named
+   the language and named the script, and the conversion only ever rewrites Han
+   characters, so there is nothing left for a test over the text to protect;
+2. **Japanese and Korean close it**, because kanji and hanja are Han characters
+   too and `学 → 學` in a Japanese transcript is a corruption, not a
+   normalization;
+3. **anything that has not said** - auto-detect, or a code the app does not know
+   - has to earn it from the text, which must be Han-dominant with no kana or
+   Hangul anywhere in it.
 
 "Han-dominant" weighs Han characters against whole **words**, not against
 letters, and that is what makes a code-switched sentence - `把 PR 開到
-feature/login 再 @James` - Chinese. `docs/bilingual-dictation.md` has the
-measurement and the trade.
+feature/login 再 @James` - Chinese under auto-detect.
+`docs/bilingual-dictation.md` has the measurement and the trade.
+
+That share test is deliberately **not** asked of a sentence whose language
+already says Chinese. It is a threshold, so it has to fall somewhere, and under
+a Chinese dictation language everywhere it could fall is wrong: `把 PR 开到
+feature/login 再 @James` and `We should ask 张 about the deploy` are the same ask
+from the same user - Han characters, from someone who told the app twice which
+script they write - and the only thing a threshold between them decides is which
+of the two gets the script they asked for. So both do. This is also what lets the
+running preview agree with the paste; see below.
+
+`StyleRewriteLanguage` asks a different question of the same type -
+`isChineseText`, "is this utterance Chinese" - because *it* is about to address a
+model in a language, and addressing an English sentence in Chinese because the
+user left the language on Chinese would be wrong. Two questions, named
+separately, rather than one predicate doing both jobs badly.
 
 ## ICU rather than a table
 
