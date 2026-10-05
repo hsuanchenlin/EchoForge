@@ -119,9 +119,30 @@ enum ChineseScriptVariant: String, Equatable, Sendable {
     /// which is what keeps Japanese and Korean dictation out of a stage written
     /// for the script they share.
     static func mayBeChinese(languageCode: String) -> Bool {
-        let code = languageCode.lowercased().split(separator: "-").first.map(String.init) ?? ""
+        let code = primaryCode(languageCode)
         if chineseLanguageCodes.contains(code) { return true }
         return LanguageUtil.languageNames[code] == nil || code == "auto"
+    }
+
+    /// Whether the dictation language *says* Chinese, rather than merely
+    /// leaving it open the way `auto` and an unknown code do.
+    ///
+    /// The stronger of the two questions, and the one a surface that converts
+    /// text *as it grows* has to ask. `mayBeChinese` is enough for a stage that
+    /// runs once over a whole transcript, because by then every character the
+    /// user said is evidence; a preview has only a prefix, and a Han-only
+    /// prefix is as readily the start of a Japanese sentence as of a Chinese
+    /// one - the kana that would settle it may not have been spoken yet. So
+    /// `TranscriptPreviewScript` waits for the language itself to answer:
+    /// either the user chose a Chinese one or the live session's detection
+    /// pinned one (`LiveLanguagePin`).
+    static func isChineseLanguage(_ languageCode: String) -> Bool {
+        chineseLanguageCodes.contains(primaryCode(languageCode))
+    }
+
+    /// The language subtag alone, lowercased: `zh` for `zh-Hant`.
+    private static func primaryCode(_ languageCode: String) -> String {
+        languageCode.lowercased().split(separator: "-").first.map(String.init) ?? ""
     }
 
     /// The share of a transcript's words that have to be Han before it counts as

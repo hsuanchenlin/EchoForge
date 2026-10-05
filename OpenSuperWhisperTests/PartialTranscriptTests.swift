@@ -147,6 +147,18 @@ final class ServicePartialTranscriptScriptTests: IsolatedPreferencesTestCase {
 
         XCTAssertEqual(shown?.text, "学校に行きます")
     }
+
+    /// This path has no detection to read - whisper detects inside
+    /// `whisper_full` and the segments arrive while it is still running - so on
+    /// `auto` the language has not said Chinese and the segments show as the
+    /// engine wrote them. Converting on the text alone is what let a kanji-only
+    /// first segment carry a Japanese decode into Traditional; a live session,
+    /// which pins a language of its own, is the path that can do better.
+    func testAnAutoDecodeIsPublishedAsTheEngineWroteIt() async {
+        let shown = await published("这个项目的进度很好", language: "auto", script: .traditional)
+
+        XCTAssertEqual(shown?.text, "这个项目的进度很好")
+    }
 }
 
 /// The capsule's half: when it will show decoded words and when it refuses to.

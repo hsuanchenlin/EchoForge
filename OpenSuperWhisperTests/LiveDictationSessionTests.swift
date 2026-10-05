@@ -997,9 +997,10 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
     }
 
     /// The first utterance of an `auto` session is decoded before anything is
-    /// pinned, and `auto` leaves Chinese possible - so a Mandarin speaker who
-    /// never set a dictation language still sees their own script from the
-    /// first words on the line.
+    /// pinned - but it is *published* after, because `decode` pins on the
+    /// detection and then appends. So a Mandarin speaker who never set a
+    /// dictation language still sees their own script from the first words on
+    /// the line.
     func testAnAutoSessionConvertsItsFirstUtteranceToo() async {
         AppPreferences.shared.chineseOutputScript = .traditional
         decoder.answers = ["我们开会。"]
@@ -1011,6 +1012,48 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
         await live.poll()
 
         XCTAssertEqual(live.transcript?.text, "我們開會。")
+    }
+
+    /// And the honest cost of judging by the decode's own language: a session
+    /// whose engine never reports one - every engine but Whisper - stays on
+    /// `auto`, which says nothing, so its preview is the engine's own
+    /// characters. Converting on the text alone is what let a kanji prefix
+    /// carry a Japanese sentence into Traditional, so the preview waits for an
+    /// answer instead of guessing. A Chinese-only engine has one: Paraformer's
+    /// language list is `["zh"]`, and SenseVoice's default is `zh`.
+    func testAnAutoSessionThatNeverPinsShowsTheEnginesOwnScript() async {
+        AppPreferences.shared.chineseOutputScript = .traditional
+        decoder.answers = ["我们开会。"]
+        decoder.activeEngine = .sensevoice
+        let live = makeSession(engine: .sensevoice, language: "auto")
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+
+        XCTAssertNil(live.pinnedLanguage)
+        XCTAssertEqual(live.transcript?.text, "我们开会。")
+    }
+
+    /// The defect the language gate exists for, through the session: on `auto`
+    /// a kanji-only first utterance must not start converting, or the
+    /// stickiness that protects a Chinese prefix would carry the conversion
+    /// past the kana that rules Chinese out, and a Traditional user dictating
+    /// Japanese would read `學校に行きます`.
+    func testAnAutoJapaneseSessionIsNotConvertedByItsKanjiFirstUtterance() async {
+        AppPreferences.shared.chineseOutputScript = .traditional
+        decoder.answers = ["東京都庁見学", "学校に行きます"]
+        decoder.activeEngine = .sensevoice
+        let live = makeSession(engine: .sensevoice, language: "auto")
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertEqual(live.transcript?.text, "東京都庁見学")
+
+        tap.push(Self.speech(seconds: 1.2) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertEqual(live.transcript?.text, "東京都庁見学学校に行きます")
     }
 
     // MARK: - Eligibility

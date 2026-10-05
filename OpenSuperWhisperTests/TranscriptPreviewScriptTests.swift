@@ -46,11 +46,21 @@ final class TranscriptPreviewScriptTests: XCTestCase {
         XCTAssertEqual(shown.text, "我们开会")
     }
 
-    /// Auto-detect leaves Chinese possible, which is what a live session
-    /// decodes its first utterance under.
-    func testAutoDetectedChineseIsConvertedToo() {
+    /// The language a live session pinned is a Chinese one, which is how an
+    /// `auto` Mandarin session converts from its first published utterance:
+    /// the pin lands on that utterance's decode, before it reaches the line.
+    func testAPinnedChineseLanguageConverts() {
         let shown = shown(
-            preview("我们开会"), to: .traditional, languageCode: "auto")
+            preview("我们开会"), to: .traditional, languageCode: "zh")
+
+        XCTAssertEqual(shown.text, "我們開會")
+    }
+
+    /// Cantonese is a Chinese language here too - SenseVoice offers it as its
+    /// own dictation language and whisper detects it as `yue`.
+    func testCantoneseConverts() {
+        let shown = shown(
+            preview("我们开会"), to: .traditional, languageCode: "yue")
 
         XCTAssertEqual(shown.text, "我們開會")
     }
@@ -92,6 +102,61 @@ final class TranscriptPreviewScriptTests: XCTestCase {
             to: .traditional, languageCode: "zh")
 
         XCTAssertEqual(shown.segmentCount, 7)
+    }
+
+    /// The verdict latches one way only. A Chinese session that opens with a
+    /// sentence of English must still convert the Chinese that follows, or the
+    /// first words would decide the whole recording.
+    func testAnOpeningEnglishUtteranceDoesNotCloseChinese() {
+        var script = TranscriptPreviewScript()
+        let first = script.normalized(
+            preview("OK let's start."), to: .traditional, languageCode: "zh")
+        let second = script.normalized(
+            preview("OK let's start. 我们开会讨论这个项目", segment: "我们开会讨论这个项目"),
+            to: .traditional, languageCode: "zh")
+
+        XCTAssertEqual(first.text, "OK let's start.")
+        XCTAssertEqual(second.text, "OK let's start. 我們開會討論這個項目")
+    }
+
+    // MARK: - Until the language says Chinese
+
+    /// `auto` is not an answer, so nothing is converted under it. A whole
+    /// transcript's characters are evidence enough for the transcript stage,
+    /// but a preview is a prefix: these two characters are as readily the
+    /// opening of a Japanese sentence.
+    func testAnUnsettledAutoPreviewIsShownAsDecoded() {
+        let partial = preview("学校")
+        XCTAssertEqual(
+            shown(partial, to: .traditional, languageCode: "auto"),
+            partial)
+    }
+
+    /// The defect this gate exists for. Under `auto`, a Han-only prefix used to
+    /// trigger the sticky verdict, and the stickiness then carried the
+    /// conversion past the kana that rules Chinese out - so a Traditional user
+    /// dictating Japanese saw `學校に行きます`, characters no stage of this app
+    /// would ever write and the paste would never produce.
+    func testAnAutoJapaneseSentenceIsNeverConvertedByItsKanjiOnlyPrefix() {
+        var script = TranscriptPreviewScript()
+        let first = script.normalized(
+            preview("学校"), to: .traditional, languageCode: "auto")
+        let second = script.normalized(
+            preview("学校に行きます", segment: "に行きます"),
+            to: .traditional, languageCode: "auto")
+
+        XCTAssertEqual(first.text, "学校")
+        XCTAssertEqual(second.text, "学校に行きます")
+        XCTAssertEqual(second.segment, "に行きます")
+    }
+
+    /// A language this app does not know says nothing either, so it converts
+    /// nothing - the same answer `auto` gets, for the same reason.
+    func testAnUnknownLanguageIsShownAsDecoded() {
+        let partial = preview("我们开会")
+        XCTAssertEqual(
+            shown(partial, to: .traditional, languageCode: "xx"),
+            partial)
     }
 
     // MARK: - What is left alone
@@ -163,15 +228,16 @@ final class TranscriptPreviewScriptTests: XCTestCase {
 
     // MARK: - The shared conversion rule
 
-    /// The preview and the paste must never disagree, so both ask
-    /// `ChineseScriptVariant` whether the text is Chinese and both convert with
-    /// `ChineseScriptNormalizer`. This checks the two answers line up over a
-    /// range of inputs rather than trusting that they were written to.
+    /// Once the language has said, the preview and the paste must never
+    /// disagree, so both ask `ChineseScriptVariant` whether the text is Chinese
+    /// and both convert with `ChineseScriptNormalizer`. This checks the two
+    /// answers line up over a range of inputs rather than trusting that they
+    /// were written to.
     func testThePreviewAgreesWithTheTranscriptStage() {
         let cases = [
             ("我们开会", "zh"), ("我們開會", "zh"), ("We ship on Friday.", "en"),
             ("今日は学校に行きます", "ja"), ("把 PR 开到 feature/login", "zh"),
-            ("第一句。第二句。", "auto"),
+            ("第一句。第二句。", "zh"), ("我们开会", "ko"),
         ]
         for (text, language) in cases {
             let shown = shown(
@@ -182,6 +248,21 @@ final class TranscriptPreviewScriptTests: XCTestCase {
                     text, to: .traditional, languageCode: language),
                 "the preview and the transcript stage disagreed about \(text)")
         }
+    }
+
+    /// And the one place they part, stated as its own clause so it cannot be
+    /// mistaken for an oversight: the transcript stage converts Han-dominant
+    /// text under `auto`, because by then the whole transcript is in front of
+    /// it; the preview, which has a prefix, does not.
+    func testTheOneDifferenceFromTheTranscriptStageIsTheUnsettledLanguage() {
+        let raw = "我们开会"
+        let shown = shown(preview(raw), to: .traditional, languageCode: "auto")
+
+        XCTAssertEqual(shown.text, raw)
+        XCTAssertEqual(
+            ChineseScriptNormalizer.normalized(raw, to: .traditional, languageCode: "auto"),
+            "我們開會",
+            "the transcript stage still converts an auto-detected Chinese transcript")
     }
 
 }

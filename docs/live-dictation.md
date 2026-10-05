@@ -129,10 +129,18 @@ whose whisper segments are what shows after a fallback. Three things hold it:
   the engine's own words, `finish` hands those back, and the conversion that reaches the
   clipboard is still the transcript stage's, over that raw transcript. A preview has no way to
   reach the paste or History.
-- **It uses the same Chinese predicate and transform.** `ChineseScriptVariant.isChineseText`
-  gates it and `ChineseScriptNormalizer` performs it. The language it is judged by is the one
-  the decode actually ran in - `LiveLanguagePin.decodeLanguage`, so a session pinned to
-  Japanese shows kanji as the engine returned them.
+- **It uses the same Chinese predicate and transform, and waits for the language to say
+  Chinese.** `ChineseScriptVariant.isChineseText` gates it and `ChineseScriptNormalizer`
+  performs it, over the language the decode actually ran in -
+  `LiveLanguagePin.decodeLanguage` - and only once that language *is* Chinese
+  (`ChineseScriptVariant.isChineseLanguage`). A session pinned to Japanese shows kanji as the
+  engine returned them, and so does one still detecting: the transcript stage settles for
+  "Chinese is not ruled out" because it reads a finished transcript, while a preview has a
+  prefix, and under `auto` a Han-only prefix is as readily the opening of a Japanese sentence.
+  This costs the Mandarin speaker nothing in practice - the pin lands on the first utterance's
+  decode, before that utterance is published, so the first words on the line are already in
+  their script - and a session that never pins is shown exactly what it was shown before any
+  of this existed.
 - **One verdict covers the whole preview.** `text` and `segment` are two views of one decode,
   so Han-dominance is asked once, of the joined text, and the segment follows it. Asking
   separately would let a two-character segment fail a test its own sentence passes and the line
@@ -140,9 +148,10 @@ whose whisper segments are what shows after a fallback. Three things hold it:
 
 Once a session is identified as Chinese, that verdict is sticky for the rest of the session.
 Together with character-wise conversion, this keeps every prefix already on screen unchanged
-when later code-switched English lowers the joined text's Han share. `TranscriptPreviewScriptTests`
-holds each clause, and the live and service paths have their own cases in
-`LiveDictationSessionTests` and `PartialTranscriptTests`.
+when later code-switched English lowers the joined text's Han share. The verdict latches one
+way only: an utterance of English does not close Chinese for the rest of a Chinese session.
+`TranscriptPreviewScriptTests` holds each clause, and the live and service paths have their own
+cases in `LiveDictationSessionTests` and `PartialTranscriptTests`.
 
 ## Every failure is a fallback
 

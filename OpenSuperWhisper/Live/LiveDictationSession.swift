@@ -535,8 +535,12 @@ final class LiveDictationSession: ObservableObject {
     /// `committed` is deliberately left as the engine returned it: it is the
     /// raw transcript `finish` hands back, and converting it here would move
     /// the conversion out of the one transcript stage every path shares. The
-    /// The language is the one the decode actually ran in, so a pinned Japanese
-    /// session keeps its kanji unchanged. See `TranscriptPreviewScript`.
+    /// language is the one the decode actually ran in, so a session pinned to
+    /// Japanese keeps its kanji - and a session still detecting is shown the
+    /// engine's own characters, since `auto` has not said Chinese yet. On a
+    /// Mandarin utterance the pin lands in `decode` above, before this runs,
+    /// so the first words on the line are already in the chosen script. See
+    /// `TranscriptPreviewScript`.
     private func previewScript(_ partial: PartialTranscript) -> PartialTranscript {
         transcriptPreviewScript.normalized(
             partial,

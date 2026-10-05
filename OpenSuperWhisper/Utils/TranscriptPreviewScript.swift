@@ -22,8 +22,15 @@ import Foundation
 ///    this has no way to reach it. A preview is a copy made for the screen.
 /// 2. **It uses the transcript stage's predicate and transform.**
 ///    `ChineseScriptVariant` gates it and `ChineseScriptNormalizer` performs
-///    it. The live path judges the language the decode actually ran under, so
-///    a pinned Japanese session keeps its kanji unchanged.
+///    it, and it converts nothing until the language itself says Chinese -
+///    the user's own choice of a Chinese dictation language, or the one a live
+///    session's detection pinned (`ChineseScriptVariant.isChineseLanguage`).
+///    The transcript stage settles for `mayBeChinese` because it reads a
+///    finished transcript; a preview is a prefix, and under `auto` a Han-only
+///    prefix is as readily the opening of a Japanese sentence - the kana that
+///    would rule Chinese out has not been spoken yet. So an unsettled `auto`
+///    preview is shown exactly as the engine wrote it, which is what it did
+///    before this existed.
 /// 3. **One verdict covers the whole preview.** `text` and `segment` are two
 ///    views of one decode, so the Han-dominance test is asked once, of the
 ///    joined text, and the segment follows it. Asking separately would let a
@@ -47,6 +54,9 @@ struct TranscriptPreviewScript {
     mutating func normalized(
         _ partial: PartialTranscript, to variant: ChineseScriptVariant, languageCode: String
     ) -> PartialTranscript {
+        guard ChineseScriptVariant.isChineseLanguage(languageCode) else {
+            return partial
+        }
         if !conversionTriggered {
             conversionTriggered = ChineseScriptVariant.isChineseText(
                 partial.text, languageCode: languageCode)

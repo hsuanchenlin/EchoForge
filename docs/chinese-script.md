@@ -90,6 +90,16 @@ touches only the copy made for the screen: the raw transcript the paste and
 History come from is still the engine's own text, converted once, here, in the
 transcript stage.
 
+It is **stricter** than this stage in exactly one way, and deliberately. This
+stage settles for `ChineseScriptVariant.mayBeChinese`, so `auto` leaves Chinese
+open and the transcript's own characters decide; the preview waits for
+`ChineseScriptVariant.isChineseLanguage` - the user's choice of a Chinese
+dictation language, or the language a live session's detection pinned. A whole
+transcript's characters are evidence enough, but a preview is a prefix, and
+under `auto` a Han-only prefix is as readily the opening of a Japanese sentence
+as of a Chinese one. Until the language says, the preview shows the engine's own
+characters.
+
 ## What is converted, and what is not
 
 The conversion is ICU's `Hans-Hant` / `Hant-Hans` transform

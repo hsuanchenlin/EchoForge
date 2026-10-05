@@ -697,8 +697,12 @@ class TranscriptionService: ObservableObject {
     /// script a Chinese preview is shown in: the segments go on screen before
     /// `finish` runs, so without this the capsule would show the engine's
     /// Simplified for the length of the decode and then paste the user's
-    /// Traditional. Nothing published here reaches the transcript - the paste
-    /// is `finish`'s, over the raw text. See `TranscriptPreviewScript`.
+    /// Traditional. The dictation language here is the one the user chose -
+    /// `auto` leaves it unsettled and the segments show as the engine wrote
+    /// them, the live path being the one that can do better because its pin
+    /// names a language (`LiveLanguagePin`). Nothing published here reaches the
+    /// transcript - the paste is `finish`'s, over the raw text. See
+    /// `TranscriptPreviewScript`.
     func observePartialTranscripts(
         of engine: TranscriptionEngine, generation: Int, settings: Settings
     ) {

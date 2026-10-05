@@ -158,6 +158,26 @@ final class ChineseScriptVariantTests: XCTestCase {
         XCTAssertFalse(ChineseScriptVariant.isHanDominant("中中 a b c d e f g"))
     }
 
+    /// The two language questions, and the gap between them that
+    /// `TranscriptPreviewScript` turns on. `mayBeChinese` asks whether Chinese
+    /// is still *possible*, so `auto` and a code this app does not know both
+    /// leave it open; `isChineseLanguage` asks whether the language *says*
+    /// Chinese, and only a Chinese code answers yes.
+    func testTheLanguageLeavingChineseOpenIsNotTheLanguageSayingChinese() {
+        for code in ["zh", "zh-Hant", "yue", "ZH"] {
+            XCTAssertTrue(ChineseScriptVariant.mayBeChinese(languageCode: code), code)
+            XCTAssertTrue(ChineseScriptVariant.isChineseLanguage(code), code)
+        }
+        for code in ["auto", "xx", ""] {
+            XCTAssertTrue(ChineseScriptVariant.mayBeChinese(languageCode: code), code)
+            XCTAssertFalse(ChineseScriptVariant.isChineseLanguage(code), code)
+        }
+        for code in ["ja", "ko", "en"] {
+            XCTAssertFalse(ChineseScriptVariant.mayBeChinese(languageCode: code), code)
+            XCTAssertFalse(ChineseScriptVariant.isChineseLanguage(code), code)
+        }
+    }
+
     // MARK: - The user's own preference
 
     func testPrefersTheVariantOfTheUsersOwnChineseLanguage() {
