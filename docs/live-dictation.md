@@ -111,6 +111,39 @@ key went up. `clearLiveTranscript` - what a fallback's `nil` publication calls -
 back, so the whole-file decode's own segments show as they always did.
 `docs/capsule-hud.md` has the rest.
 
+## The script the preview is shown in
+
+The preview is the one place a transcript reaches the user without having passed through
+`TextPostProcessor.process`, and the script is the one thing that stage changes which the user
+would notice. Paraformer and SenseVoice return Simplified for a speaker of Taiwanese Mandarin
+and Whisper mixes the two inside a sentence, so a Traditional user watched their sentence
+appear in Simplified for the length of the recording and then switch script at the paste.
+
+So the published line is written in `chineseOutputScript` - the same setting, the same
+predicate and the same ICU transform the transcript stage uses (`docs/chinese-script.md`),
+through one choke point, `TranscriptPreviewScript`. Both surfaces that show a preview go
+through it: `LiveDictationSession.transcript` and `TranscriptionService.partialTranscript`,
+whose whisper segments are what shows after a fallback. Three things hold it:
+
+- **It converts the copy made for the screen and nothing else.** `CommittedTranscript` keeps
+  the engine's own words, `finish` hands those back, and the conversion that reaches the
+  clipboard is still the transcript stage's, over that raw transcript. A preview has no way to
+  reach the paste or History.
+- **It is the same decision, not a second one.** `ChineseScriptVariant.isChineseText` gates it
+  and `ChineseScriptNormalizer` performs it, so the preview cannot say Traditional where the
+  paste says Simplified, and English or Japanese is as untouched here as there. The language it
+  is judged by is the one the decode actually ran in - `LiveLanguagePin.decodeLanguage`, so a
+  session pinned to Japanese shows kanji as the engine returned them.
+- **One verdict covers the whole preview.** `text` and `segment` are two views of one decode,
+  so Han-dominance is asked once, of the joined text, and the segment follows it. Asking
+  separately would let a two-character segment fail a test its own sentence passes and the line
+  would convert in pieces.
+
+The conversion is character-wise, so the rule above still holds: every prefix already on screen
+comes out of the next call exactly as it did out of the last. `TranscriptPreviewScriptTests`
+holds each clause, and the live and service paths have their own cases in
+`LiveDictationSessionTests` and `PartialTranscriptTests`.
+
 ## Every failure is a fallback
 
 The recorder is still writing the WAV, so the live path is never allowed to make a dictation

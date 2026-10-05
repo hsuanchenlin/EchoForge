@@ -691,18 +691,29 @@ class TranscriptionService: ObservableObject {
     /// file checks it: whisper's callback fires on its own worker thread, so a
     /// segment can land a main-queue hop after a *different* transcription has
     /// taken the object over.
-    private func observePartialTranscripts(
-        of engine: TranscriptionEngine, generation: Int
+    ///
+    /// `settings` is this transcription's own, and all it decides is which
+    /// script a Chinese preview is shown in: the segments go on screen before
+    /// `finish` runs, so without this the capsule would show the engine's
+    /// Simplified for the length of the decode and then paste the user's
+    /// Traditional. Nothing published here reaches the transcript - the paste
+    /// is `finish`'s, over the raw text. See `TranscriptPreviewScript`.
+    func observePartialTranscripts(
+        of engine: TranscriptionEngine, generation: Int, settings: Settings
     ) {
         guard let emitter = engine as? PartialTranscriptEmitting else { return }
+        let script = settings.chineseOutputScript
+        let language = settings.selectedLanguage
         emitter.onPartialTranscript = { [weak self] partial in
             Task { @MainActor in
                 guard let self,
                       self.transcriptionGeneration == generation,
                       !self.isCancelled(generation)
                 else { return }
-                self.partialTranscript = partial
-                self.currentSegment = partial.segment
+                let shown = TranscriptPreviewScript.normalized(
+                    partial, to: script, languageCode: language)
+                self.partialTranscript = shown
+                self.currentSegment = shown.segment
             }
         }
     }
@@ -739,7 +750,7 @@ class TranscriptionService: ObservableObject {
         progress: @escaping @MainActor (StageEvent) -> Void = { _ in }
     ) async throws -> StyledTranscript {
         let timeoutOverride = decodeTimeoutOverride
-        return try await runEngineTranscription(publishing: { $0.final }) { engine in
+        return try await runEngineTranscription(publishing: { $0.final }, settings: settings) { engine in
             let raw = try await self.decodeWithDeadline(
                 engine: engine, url: url, settings: settings,
                 timeoutOverride: timeoutOverride, reporting: false)
@@ -765,7 +776,7 @@ class TranscriptionService: ObservableObject {
     /// (`LiveLanguagePin`). An engine that cannot say reports nil.
     func decodeRaw(url: URL, settings: Settings) async throws -> RawDecode {
         let timeoutOverride = decodeTimeoutOverride
-        return try await runEngineTranscription(publishing: { $0.text }) { engine in
+        return try await runEngineTranscription(publishing: { $0.text }, settings: settings) { engine in
             try await self.decodeWithDeadline(
                 engine: engine, url: url, settings: settings,
                 timeoutOverride: timeoutOverride, reporting: true)
@@ -882,6 +893,7 @@ class TranscriptionService: ObservableObject {
     /// published state, before `work` is handed it.
     private func runEngineTranscription<Result: Sendable>(
         publishing text: @escaping @Sendable (Result) -> String,
+        settings: Settings,
         _ work: @escaping @Sendable (TranscriptionEngine) async throws -> Result
     ) async throws -> Result {
         let loadTimeout = loadTimeoutOverride ?? Self.loadTimeout
@@ -890,7 +902,8 @@ class TranscriptionService: ObservableObject {
             preparing: { generation in
                 let engine = try await self.engineForTranscription(within: loadTimeout)
                 self.observeProgress(of: engine)
-                self.observePartialTranscripts(of: engine, generation: generation)
+                self.observePartialTranscripts(
+                    of: engine, generation: generation, settings: settings)
                 return engine
             },
             work)

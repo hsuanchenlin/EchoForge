@@ -148,7 +148,12 @@ enum LiveDictationEligibility {
 /// publishes `transcript` - committed utterances only, growing and never
 /// rewritten - and the paste happens once, at the end, after every stage of
 /// `docs/text-post-processing.md`, because those stages run over whole texts
-/// and the guard compares whole texts.
+/// and the guard compares whole texts. The one thing the published line is not
+/// is the engine's own characters: a Chinese preview is written in the script
+/// the user chose, character for character, so it reads as the paste will
+/// rather than switching script at the end (`TranscriptPreviewScript`). The
+/// `committed` text handed back is untouched - the conversion that reaches the
+/// clipboard is still the transcript stage's, over the raw transcript.
 ///
 /// **Every failure is a fallback.** The recorder is still writing the WAV, so a
 /// tap that will not start or stops delivering, an utterance that throws, an
@@ -517,8 +522,26 @@ final class LiveDictationSession: ObservableObject {
         }
         let raw = decoded.text
         guard committed.append(raw), let kept = CommittedTranscript.kept(raw) else { return }
-        transcript = PartialTranscript(
-            text: committed.text, segment: kept, segmentCount: committed.utterances.count)
+        transcript = previewScript(
+            PartialTranscript(
+                text: committed.text, segment: kept,
+                segmentCount: committed.utterances.count))
+    }
+
+    /// The published line in the user's chosen Chinese output script, which is
+    /// what the paste will be written in too.
+    ///
+    /// `committed` is deliberately left as the engine returned it: it is the
+    /// raw transcript `finish` hands back, and converting it here would move
+    /// the conversion out of the one transcript stage every path shares. The
+    /// language is the one the decode actually ran in, so a pinned Japanese
+    /// session is no more converted than the whole-file decode of it would be.
+    /// See `TranscriptPreviewScript`.
+    private func previewScript(_ partial: PartialTranscript) -> PartialTranscript {
+        TranscriptPreviewScript.normalized(
+            partial,
+            to: settings.chineseOutputScript,
+            languageCode: languagePin.decodeLanguage)
     }
 
     /// The VAD, off the main actor: half a minute of audio is a few

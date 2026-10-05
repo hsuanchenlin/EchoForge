@@ -75,6 +75,21 @@ user's*:
 - a **voice snippet** template is inserted byte for byte, because the snippet
   stage replaces the text wholesale after this has run.
 
+## The preview while a dictation is running
+
+Live transcription shows words on the capsule before any of the above has run
+(`docs/live-dictation.md`), so the preview is normalized too - otherwise a
+Traditional user watched their sentence appear in Simplified and switch script
+at the paste. `TranscriptPreviewScript` is that one choke point, shared by the
+live session's line and the whole-file decode's committed segments.
+
+It is deliberately **not** a second decision. It asks
+`ChineseScriptVariant.isChineseText` and converts with
+`ChineseScriptNormalizer`, from the same `Settings` the decode ran under, and it
+touches only the copy made for the screen: the raw transcript the paste and
+History come from is still the engine's own text, converted once, here, in the
+transcript stage.
+
 ## What is converted, and what is not
 
 The conversion is ICU's `Hans-Hant` / `Hant-Hans` transform

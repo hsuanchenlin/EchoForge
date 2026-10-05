@@ -900,6 +900,119 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
         XCTAssertEqual(decoder.decodes.map(\.language), ["auto", "auto"])
     }
 
+    // MARK: - The script the preview is shown in
+
+    /// The bug: Paraformer, SenseVoice and Whisper hand back Simplified for a
+    /// speaker of Taiwanese Mandarin, so the capsule showed Simplified for the
+    /// length of the recording and the paste then arrived in Traditional. The
+    /// published line is written in the user's chosen script as it grows.
+    func testAChinesePreviewIsShownInTheChosenScript() async {
+        AppPreferences.shared.chineseOutputScript = .traditional
+        decoder.answers = ["我们开会。", "讨论这个项目。"]
+        let live = makeSession(language: "zh")
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertEqual(live.transcript?.text, "我們開會。")
+        XCTAssertEqual(live.transcript?.segment, "我們開會。")
+
+        tap.push(Self.speech(seconds: 1.2) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertEqual(live.transcript?.text, "我們開會。討論這個項目。")
+        XCTAssertEqual(live.transcript?.segment, "討論這個項目。")
+    }
+
+    /// And the other half of the claim: the preview is a copy made for the
+    /// screen. What `finish` hands back is the engine's own text, because that
+    /// is the *raw* transcript and the conversion that reaches the clipboard is
+    /// the transcript stage's, over it. Converting here as well would move the
+    /// one choke point `docs/chinese-script.md` is built on.
+    func testTheCommittedTranscriptIsStillTheEnginesOwnText() async {
+        AppPreferences.shared.chineseOutputScript = .traditional
+        decoder.answers = ["我们开会。", "讨论这个项目。"]
+        let live = makeSession(language: "zh")
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        tap.push(Self.speech(seconds: 1.2) + Self.silence(seconds: 0.6))
+        await live.poll()
+        tap.push(Self.silence(seconds: 0.3))
+        let outcome = await live.finish(session)
+
+        XCTAssertEqual(outcome, .committed(raw: "我们开会。讨论这个项目。"))
+    }
+
+    /// Simplified is as complete a choice as Traditional, and the preview
+    /// follows the setting rather than the default.
+    func testASimplifiedUserSeesSimplified() async {
+        AppPreferences.shared.chineseOutputScript = .simplified
+        decoder.answers = ["我們開會。"]
+        let live = makeSession(language: "zh")
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+
+        XCTAssertEqual(live.transcript?.text, "我们开会。")
+    }
+
+    /// English dictation is shown exactly as it was decoded, including on a Mac
+    /// whose dictation language is Chinese - the clause the transcript stage
+    /// holds, held here too.
+    func testAnEnglishPreviewIsUntouched() async {
+        AppPreferences.shared.chineseOutputScript = .traditional
+        decoder.answers = ["We ship the release on Friday."]
+        let live = makeSession(language: "zh")
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+
+        XCTAssertEqual(live.transcript?.text, "We ship the release on Friday.")
+    }
+
+    /// The language the preview is judged by is the one the decode actually ran
+    /// in, which on `auto` is whatever the pin named. A session pinned to
+    /// Japanese shows kanji as the engine returned them: 学 → 學 in a Japanese
+    /// preview is a corruption, not a normalization.
+    func testAPinnedJapaneseSessionIsNeverConverted() async {
+        AppPreferences.shared.chineseOutputScript = .traditional
+        decoder.answers = ["学校に行きます。", "東京の学生。"]
+        decoder.languages = [.detected("ja", probability: 0.99)]
+        let live = makeSession(language: "auto")
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertEqual(live.pinnedLanguage, "ja")
+        XCTAssertEqual(live.transcript?.text, "学校に行きます。")
+
+        tap.push(Self.speech(seconds: 1.2) + Self.silence(seconds: 0.6))
+        await live.poll()
+        XCTAssertEqual(
+            live.transcript?.text, "学校に行きます。東京の学生。",
+            "the pinned language closes Chinese for every later utterance too")
+    }
+
+    /// The first utterance of an `auto` session is decoded before anything is
+    /// pinned, and `auto` leaves Chinese possible - so a Mandarin speaker who
+    /// never set a dictation language still sees their own script from the
+    /// first words on the line.
+    func testAnAutoSessionConvertsItsFirstUtteranceToo() async {
+        AppPreferences.shared.chineseOutputScript = .traditional
+        decoder.answers = ["我们开会。"]
+        decoder.languages = [.detected("zh", probability: 0.99)]
+        let live = makeSession(language: "auto")
+        await live.start()
+
+        tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
+        await live.poll()
+
+        XCTAssertEqual(live.transcript?.text, "我們開會。")
+    }
+
     // MARK: - Eligibility
 
     /// On by default: a fresh install decodes utterances while recording. The

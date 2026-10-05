@@ -75,6 +75,80 @@ final class PartialTranscriptEngineTests: XCTestCase {
     }
 }
 
+/// The script the service publishes a preview in.
+///
+/// The whole-file whisper decode is the second surface that shows words before
+/// `TextPostProcessor.process` has run - the first is a live session - and the
+/// two have to agree, because the same dictation can produce both: a live
+/// session that falls back hands the recording to this path and the capsule
+/// goes on showing its segments.
+@MainActor
+final class ServicePartialTranscriptScriptTests: IsolatedPreferencesTestCase {
+
+    /// One engine that reports a segment on cue. Nothing else about a decode
+    /// is needed: the published preview is written where the callback lands.
+    private final class SegmentingEngine: TranscriptionEngine, PartialTranscriptEmitting {
+        var isModelLoaded = true
+        var engineName: String { "segmenting" }
+        var onProgressUpdate: ((Float) -> Void)?
+        var onPartialTranscript: ((PartialTranscript) -> Void)?
+
+        func initialize() async throws {}
+        func transcribeAudio(url: URL, settings: Settings) async throws -> String { "" }
+        func cancelTranscription() {}
+        func getSupportedLanguages() -> [String] { [] }
+    }
+
+    private func published(
+        _ raw: String, language: String, script: ChineseScriptVariant
+    ) async -> PartialTranscript? {
+        AppPreferences.shared.chineseOutputScript = script
+        AppPreferences.shared.whisperLanguage = language
+        let service = TranscriptionService()
+        let engine = SegmentingEngine()
+        service.observePartialTranscripts(of: engine, generation: 0, settings: Settings())
+
+        engine.onPartialTranscript?(
+            PartialTranscript(text: raw, segment: raw, segmentCount: 1))
+        // The callback fires on the engine's own thread and hops to the main
+        // actor, which is the hop this yield waits out.
+        await Task.yield()
+        return service.partialTranscript
+    }
+
+    /// The bug, on the whole-file path: whisper mixes the two scripts inside
+    /// one sentence, and the capsule showed that mixture for the length of the
+    /// decode before the paste arrived in one script.
+    func testASimplifiedSegmentIsPublishedInTheChosenScript() async {
+        let shown = await published("这个项目的进度很好", language: "zh", script: .traditional)
+
+        XCTAssertEqual(shown?.text, "這個項目的進度很好")
+        XCTAssertEqual(shown?.segment, "這個項目的進度很好")
+    }
+
+    func testSimplifiedIsHonouredOnThisPathToo() async {
+        let shown = await published("這個項目", language: "zh", script: .simplified)
+
+        XCTAssertEqual(shown?.text, "这个项目")
+    }
+
+    func testAnEnglishSegmentIsPublishedExactlyAsDecoded() async {
+        let shown = await published(
+            "We ship the release on Friday.", language: "en", script: .traditional)
+
+        XCTAssertEqual(shown?.text, "We ship the release on Friday.")
+    }
+
+    /// The dictation language is read from the settings the transcription ran
+    /// under, so a Japanese decode is no more converted here than anywhere
+    /// else.
+    func testAJapaneseSegmentIsNeverConverted() async {
+        let shown = await published("学校に行きます", language: "ja", script: .traditional)
+
+        XCTAssertEqual(shown?.text, "学校に行きます")
+    }
+}
+
 /// The capsule's half: when it will show decoded words and when it refuses to.
 @MainActor
 final class CapsulePartialTranscriptTests: XCTestCase {
