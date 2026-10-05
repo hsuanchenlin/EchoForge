@@ -66,6 +66,7 @@ class TranscriptionService: ObservableObject {
     /// questions and overlap routinely, the same separation transcription and
     /// model-preparation progress keep.
     @Published private(set) var partialTranscript: PartialTranscript?
+    private var transcriptPreviewScript = TranscriptPreviewScript()
 
     /// Whether the engine that would run now can report text before it finishes.
     ///
@@ -702,6 +703,7 @@ class TranscriptionService: ObservableObject {
         of engine: TranscriptionEngine, generation: Int, settings: Settings
     ) {
         guard let emitter = engine as? PartialTranscriptEmitting else { return }
+        transcriptPreviewScript = TranscriptPreviewScript()
         let script = settings.chineseOutputScript
         let language = settings.selectedLanguage
         emitter.onPartialTranscript = { [weak self] partial in
@@ -710,7 +712,7 @@ class TranscriptionService: ObservableObject {
                       self.transcriptionGeneration == generation,
                       !self.isCancelled(generation)
                 else { return }
-                let shown = TranscriptPreviewScript.normalized(
+                let shown = self.transcriptPreviewScript.normalized(
                     partial, to: script, languageCode: language)
                 self.partialTranscript = shown
                 self.currentSegment = shown.segment

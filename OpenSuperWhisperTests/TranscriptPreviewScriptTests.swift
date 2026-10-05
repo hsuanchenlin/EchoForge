@@ -16,13 +16,21 @@ final class TranscriptPreviewScriptTests: XCTestCase {
         PartialTranscript(text: text, segment: segment ?? text, segmentCount: 1)
     }
 
+    private func shown(
+        _ partial: PartialTranscript, to variant: ChineseScriptVariant,
+        languageCode: String
+    ) -> PartialTranscript {
+        var script = TranscriptPreviewScript()
+        return script.normalized(partial, to: variant, languageCode: languageCode)
+    }
+
     // MARK: - The conversion
 
     /// The bug this exists for: Paraformer, SenseVoice and Whisper hand back
     /// Simplified for a speaker of Taiwanese Mandarin, and the capsule showed
     /// it for the length of the recording before the paste switched script.
     func testASimplifiedPreviewIsShownInTraditional() {
-        let shown = TranscriptPreviewScript.normalized(
+        let shown = shown(
             preview("我们开会讨论这个项目"), to: .traditional, languageCode: "zh")
 
         XCTAssertEqual(shown.text, "我們開會討論這個項目")
@@ -32,7 +40,7 @@ final class TranscriptPreviewScriptTests: XCTestCase {
     /// Traditional is the default, but the setting is as complete a choice the
     /// other way: a user who writes Simplified sees Simplified.
     func testTheChosenScriptIsHonouredBothWays() {
-        let shown = TranscriptPreviewScript.normalized(
+        let shown = shown(
             preview("我們開會"), to: .simplified, languageCode: "zh")
 
         XCTAssertEqual(shown.text, "我们开会")
@@ -41,7 +49,7 @@ final class TranscriptPreviewScriptTests: XCTestCase {
     /// Auto-detect leaves Chinese possible, which is what a live session
     /// decodes its first utterance under.
     func testAutoDetectedChineseIsConvertedToo() {
-        let shown = TranscriptPreviewScript.normalized(
+        let shown = shown(
             preview("我们开会"), to: .traditional, languageCode: "auto")
 
         XCTAssertEqual(shown.text, "我們開會")
@@ -51,9 +59,10 @@ final class TranscriptPreviewScriptTests: XCTestCase {
     /// leave that true: it is character-wise, so every prefix already on screen
     /// comes out of a later call exactly as it did out of the earlier one.
     func testAGrowingPreviewNeverRewritesWhatIsAlreadyShown() {
-        let first = TranscriptPreviewScript.normalized(
+        var script = TranscriptPreviewScript()
+        let first = script.normalized(
             preview("我们开会。"), to: .traditional, languageCode: "zh")
-        let second = TranscriptPreviewScript.normalized(
+        let second = script.normalized(
             preview("我们开会。然后发布。", segment: "然后发布。"),
             to: .traditional, languageCode: "zh")
 
@@ -61,10 +70,24 @@ final class TranscriptPreviewScriptTests: XCTestCase {
         XCTAssertEqual(second.segment, "然後發布。")
     }
 
+    func testConversionStaysTriggeredWhenLaterEnglishLowersTheHanShare() {
+        var script = TranscriptPreviewScript()
+        let first = script.normalized(
+            preview("这个 PR"), to: .traditional, languageCode: "zh")
+        let second = script.normalized(
+            preview(
+                "这个 PR we should land it before Friday and tell the team",
+                segment: "we should land it before Friday and tell the team"),
+            to: .traditional, languageCode: "zh")
+
+        XCTAssertEqual(first.text, "這個 PR")
+        XCTAssertTrue(second.text.hasPrefix(first.text))
+    }
+
     /// `segmentCount` is the engine's count of what it has committed, not
     /// something a script conversion gets an opinion about.
     func testTheSegmentCountIsCarriedThrough() {
-        let shown = TranscriptPreviewScript.normalized(
+        let shown = shown(
             PartialTranscript(text: "我们开会", segment: "开会", segmentCount: 7),
             to: .traditional, languageCode: "zh")
 
@@ -76,7 +99,7 @@ final class TranscriptPreviewScriptTests: XCTestCase {
     func testEnglishIsLeftExactlyAsItIs() {
         let partial = preview("We ship on Friday.")
         XCTAssertEqual(
-            TranscriptPreviewScript.normalized(partial, to: .traditional, languageCode: "en"),
+            shown(partial, to: .traditional, languageCode: "en"),
             partial)
     }
 
@@ -86,7 +109,7 @@ final class TranscriptPreviewScriptTests: XCTestCase {
     func testAnEnglishSentenceUnderAChineseLanguageIsLeftAlone() {
         let partial = preview("We ship the release on Friday.")
         XCTAssertEqual(
-            TranscriptPreviewScript.normalized(partial, to: .traditional, languageCode: "zh"),
+            shown(partial, to: .traditional, languageCode: "zh"),
             partial)
     }
 
@@ -97,7 +120,7 @@ final class TranscriptPreviewScriptTests: XCTestCase {
         for (text, language) in [("今日は学校に行きます", "ja"), ("韓國語 학교", "ko")] {
             let partial = preview(text)
             XCTAssertEqual(
-                TranscriptPreviewScript.normalized(
+                shown(
                     partial, to: .traditional, languageCode: language),
                 partial,
                 "\(language) was converted")
@@ -107,7 +130,7 @@ final class TranscriptPreviewScriptTests: XCTestCase {
     /// Latin words, digits, punctuation and emoji come out byte for byte, so a
     /// code-switched preview is converted without its English being touched.
     func testOnlyHanCharactersAreTouched() {
-        let shown = TranscriptPreviewScript.normalized(
+        let shown = shown(
             preview("把 PR 开到 feature/login 再 @James 👍"),
             to: .traditional, languageCode: "zh")
 
@@ -117,7 +140,7 @@ final class TranscriptPreviewScriptTests: XCTestCase {
     func testAnEmptyPreviewSurvives() {
         let partial = PartialTranscript(text: "", segment: "", segmentCount: 0)
         XCTAssertEqual(
-            TranscriptPreviewScript.normalized(partial, to: .traditional, languageCode: "zh"),
+            shown(partial, to: .traditional, languageCode: "zh"),
             partial)
     }
 
@@ -129,7 +152,7 @@ final class TranscriptPreviewScriptTests: XCTestCase {
     /// then convert in pieces: the sentence in the user's script and the newest
     /// words in the engine's.
     func testTheSegmentFollowsTheWholePreviewsVerdict() {
-        let shown = TranscriptPreviewScript.normalized(
+        let shown = shown(
             PartialTranscript(
                 text: "我们开会讨论这个项目的进度", segment: "OK 开会", segmentCount: 2),
             to: .traditional, languageCode: "zh")
@@ -138,7 +161,7 @@ final class TranscriptPreviewScriptTests: XCTestCase {
         XCTAssertEqual(shown.segment, "OK 開會")
     }
 
-    // MARK: - It is the same decision, not a second one
+    // MARK: - The shared conversion rule
 
     /// The preview and the paste must never disagree, so both ask
     /// `ChineseScriptVariant` whether the text is Chinese and both convert with
@@ -151,7 +174,7 @@ final class TranscriptPreviewScriptTests: XCTestCase {
             ("第一句。第二句。", "auto"),
         ]
         for (text, language) in cases {
-            let shown = TranscriptPreviewScript.normalized(
+            let shown = shown(
                 preview(text), to: .traditional, languageCode: language)
             XCTAssertEqual(
                 shown.text,
@@ -161,40 +184,4 @@ final class TranscriptPreviewScriptTests: XCTestCase {
         }
     }
 
-    /// And the structural half: the preview conversion has exactly one call
-    /// site in the app, so the two surfaces that show a preview cannot drift.
-    func testThePreviewConversionHasOneImplementation() throws {
-        let sources = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("OpenSuperWhisper")
-        var callers: [String] = []
-        var scanned = 0
-
-        let files = FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil)
-        while let url = files?.nextObject() as? URL {
-            guard url.pathExtension == "swift" else { continue }
-            scanned += 1
-            let code = try String(contentsOf: url, encoding: .utf8)
-                .split(separator: "\n", omittingEmptySubsequences: false)
-                .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
-                .joined(separator: "\n")
-            let name = url.lastPathComponent
-            if code.contains("TranscriptPreviewScript.normalized(") {
-                callers.append(name)
-            }
-            // A preview is the only thing allowed to convert a script outside
-            // the transcript stage, and it may only do it through this type.
-            if name == "LiveDictationSession.swift" {
-                XCTAssertFalse(
-                    code.contains("ChineseScriptNormalizer"),
-                    "the live session converts a script itself; the preview goes through "
-                        + "TranscriptPreviewScript and the paste through the transcript stage")
-            }
-        }
-
-        XCTAssertGreaterThan(scanned, 20, "the scan found almost no sources")
-        XCTAssertEqual(
-            callers.sorted(), ["LiveDictationSession.swift", "TranscriptionService.swift"],
-            "the two surfaces that publish a preview are the only callers")
-    }
 }

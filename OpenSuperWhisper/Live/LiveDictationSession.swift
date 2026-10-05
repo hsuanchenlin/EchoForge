@@ -233,6 +233,7 @@ final class LiveDictationSession: ObservableObject {
 
     private let buffer = LiveSampleBuffer()
     private var committed = CommittedTranscript()
+    private var transcriptPreviewScript = TranscriptPreviewScript()
     private var hasStarted = false
 
     /// Set once `start` has seen the tap come up. Until then the tap is not
@@ -534,11 +535,10 @@ final class LiveDictationSession: ObservableObject {
     /// `committed` is deliberately left as the engine returned it: it is the
     /// raw transcript `finish` hands back, and converting it here would move
     /// the conversion out of the one transcript stage every path shares. The
-    /// language is the one the decode actually ran in, so a pinned Japanese
-    /// session is no more converted than the whole-file decode of it would be.
-    /// See `TranscriptPreviewScript`.
+    /// The language is the one the decode actually ran in, so a pinned Japanese
+    /// session keeps its kanji unchanged. See `TranscriptPreviewScript`.
     private func previewScript(_ partial: PartialTranscript) -> PartialTranscript {
-        TranscriptPreviewScript.normalized(
+        transcriptPreviewScript.normalized(
             partial,
             to: settings.chineseOutputScript,
             languageCode: languagePin.decodeLanguage)

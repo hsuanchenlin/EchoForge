@@ -979,7 +979,7 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
     /// preview is a corruption, not a normalization.
     func testAPinnedJapaneseSessionIsNeverConverted() async {
         AppPreferences.shared.chineseOutputScript = .traditional
-        decoder.answers = ["学校に行きます。", "東京の学生。"]
+        decoder.answers = ["東京都庁見学", "学校生活"]
         decoder.languages = [.detected("ja", probability: 0.99)]
         let live = makeSession(language: "auto")
         await live.start()
@@ -987,12 +987,12 @@ final class LiveDictationSessionTests: IsolatedPreferencesTestCase {
         tap.push(Self.speech(seconds: 1.5) + Self.silence(seconds: 0.6))
         await live.poll()
         XCTAssertEqual(live.pinnedLanguage, "ja")
-        XCTAssertEqual(live.transcript?.text, "学校に行きます。")
+        XCTAssertEqual(live.transcript?.text, "東京都庁見学")
 
         tap.push(Self.speech(seconds: 1.2) + Self.silence(seconds: 0.6))
         await live.poll()
         XCTAssertEqual(
-            live.transcript?.text, "学校に行きます。東京の学生。",
+            live.transcript?.text, "東京都庁見学学校生活",
             "the pinned language closes Chinese for every later utterance too")
     }
 

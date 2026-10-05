@@ -129,18 +129,18 @@ whose whisper segments are what shows after a fallback. Three things hold it:
   the engine's own words, `finish` hands those back, and the conversion that reaches the
   clipboard is still the transcript stage's, over that raw transcript. A preview has no way to
   reach the paste or History.
-- **It is the same decision, not a second one.** `ChineseScriptVariant.isChineseText` gates it
-  and `ChineseScriptNormalizer` performs it, so the preview cannot say Traditional where the
-  paste says Simplified, and English or Japanese is as untouched here as there. The language it
-  is judged by is the one the decode actually ran in - `LiveLanguagePin.decodeLanguage`, so a
-  session pinned to Japanese shows kanji as the engine returned them.
+- **It uses the same Chinese predicate and transform.** `ChineseScriptVariant.isChineseText`
+  gates it and `ChineseScriptNormalizer` performs it. The language it is judged by is the one
+  the decode actually ran in - `LiveLanguagePin.decodeLanguage`, so a session pinned to
+  Japanese shows kanji as the engine returned them.
 - **One verdict covers the whole preview.** `text` and `segment` are two views of one decode,
   so Han-dominance is asked once, of the joined text, and the segment follows it. Asking
   separately would let a two-character segment fail a test its own sentence passes and the line
   would convert in pieces.
 
-The conversion is character-wise, so the rule above still holds: every prefix already on screen
-comes out of the next call exactly as it did out of the last. `TranscriptPreviewScriptTests`
+Once a session is identified as Chinese, that verdict is sticky for the rest of the session.
+Together with character-wise conversion, this keeps every prefix already on screen unchanged
+when later code-switched English lowers the joined text's Han share. `TranscriptPreviewScriptTests`
 holds each clause, and the live and service paths have their own cases in
 `LiveDictationSessionTests` and `PartialTranscriptTests`.
 
