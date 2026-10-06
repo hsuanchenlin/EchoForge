@@ -257,6 +257,37 @@ final class TranscriptPreviewScriptTests: XCTestCase {
         XCTAssertEqual(shown.segment, "OK 開會")
     }
 
+    // MARK: - One piece at a time
+
+    /// The entry point a line that grows uses: a caller converts each piece as
+    /// it publishes it, which is what keeps a verdict arriving later from
+    /// reaching a piece already on screen (`LiveDictationSession`).
+    func testAPieceIsConvertedOnItsOwnVerdict() {
+        XCTAssertEqual(
+            TranscriptPreviewScript.converted("我们开会。", to: .traditional, languageCode: "zh"),
+            "我們開會。")
+        XCTAssertEqual(
+            TranscriptPreviewScript.converted("我们开会。", to: .traditional, languageCode: "auto"),
+            "我们开会。")
+    }
+
+    /// And converting the pieces is converting the line. The transform is
+    /// character-wise and Han for Han, so `CommittedTranscript.joined` answers
+    /// its seam test the same either side of it: a session whose language said
+    /// Chinese from the first utterance shows, piece by piece, exactly what the
+    /// transcript stage will produce over the whole raw transcript.
+    func testJoiningConvertedPiecesIsConvertingTheJoinedLine() {
+        let pieces = ["这个 PR should be ready by Friday", "我们明天开会讨论", "OK thanks."]
+        let converted = pieces.map {
+            TranscriptPreviewScript.converted($0, to: .traditional, languageCode: "zh")
+        }
+
+        XCTAssertEqual(
+            CommittedTranscript.joined(converted),
+            ChineseScriptNormalizer.normalized(
+                CommittedTranscript.joined(pieces), to: .traditional, languageCode: "zh"))
+    }
+
     // MARK: - The shared conversion rule
 
     /// Once the language has said, the preview and the paste must never

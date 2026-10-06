@@ -87,6 +87,9 @@ final class FakeDictationTranscriber: DictationTranscribing {
 
     private(set) var wholeFileCalls: [URL] = []
     private(set) var finishedRaws: [String] = []
+    /// What each live transcript was finished with, in call order: the one
+    /// place a live session's pinned language is visible to a test.
+    private(set) var finishedSettings: [Settings] = []
     private(set) var cancelCount = 0
     /// What each whole-file decode was asked to run with, in call order - what
     /// makes a delivery's own settings (routing, restyling) assertable without
@@ -133,6 +136,7 @@ final class FakeDictationTranscriber: DictationTranscribing {
         progress: @escaping @MainActor (StageEvent) -> Void
     ) async throws -> StyledTranscript {
         finishedRaws.append(raw)
+        finishedSettings.append(settings)
         for event in progressToEmit { progress(event) }
         await waitIfGated()
         return try finishedResult.get()
@@ -171,7 +175,7 @@ final class FakeLiveDictation: LiveDictating {
     init(
         settings: Settings,
         state: LiveDictationState = .running,
-        outcome: LiveDictationOutcome = .committed(raw: "live words")
+        outcome: LiveDictationOutcome = .committed(raw: "live words", language: "en")
     ) {
         self.settings = settings
         self.state = state

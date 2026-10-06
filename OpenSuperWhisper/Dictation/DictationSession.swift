@@ -624,6 +624,16 @@ final class DictationSession: ObservableObject {
     /// already taken its line off the capsule, and the whole-file decode puts
     /// its own up.
     ///
+    /// The live session is finished under the language it decoded in, which on
+    /// `auto` is the one its detection pinned. That is the only settings value
+    /// this path changes, and it is what keeps the script the capsule showed
+    /// and the script the paste arrives in one answer rather than two
+    /// (`TranscriptPreviewScript`). Every stage that asks what language this
+    /// transcript is in then reads the pinned one - the output script and, with
+    /// it, `isAsianLanguage` - because a detection trusted for one of those and
+    /// not the others is the split this exists to remove.
+    /// `docs/live-dictation.md` states it.
+    ///
     /// A cancel on the live path is a discard, not an interrupt. The frame in
     /// flight when the button is pressed may be a queue item's that this
     /// dictation is waiting behind - the busy check was skipped for it - so
@@ -642,9 +652,11 @@ final class DictationSession: ObservableObject {
             self?.handlePipelineProgress(event)
         }
         switch liveOutcome {
-        case .committed(let raw):
+        case .committed(let raw, let language):
+            var finished = settings
+            finished.selectedLanguage = language
             styled = try await transcriber.finishTranscribed(
-                raw: raw, settings: settings, progress: progress)
+                raw: raw, settings: finished, progress: progress)
         case .fallback(let reason):
             print("Live dictation fell back to the whole-file decode: \(reason)")
             styled = try await transcriber.transcribeAudio(

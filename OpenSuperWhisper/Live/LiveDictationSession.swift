@@ -53,7 +53,13 @@ enum LiveDictationOutcome: Equatable {
     /// Every utterance was decoded live; `raw` is the joined transcript, still
     /// to go through `TranscriptionService.finishTranscribed`. Empty when the
     /// VAD found no speech at all - the same answer a whole-file decode gives.
-    case committed(raw: String)
+    ///
+    /// `language` is the language those utterances decoded in: the user's own
+    /// choice, or the one `LiveLanguagePin` pinned on an `auto` session. The
+    /// transcript is finished under it rather than under `auto`, so the script
+    /// the line was shown in is the script the paste arrives in - the one
+    /// detection this path has is read by both or by neither.
+    case committed(raw: String, language: String)
     /// Decode the WAV whole instead.
     case fallback(LiveDictationFallbackReason)
 }
@@ -203,9 +209,10 @@ final class LiveDictationSession: ObservableObject {
     /// The settings every utterance is decoded with - the prompt, the terms,
     /// the language - resolved once at the start, and what the caller finishes
     /// the joined transcript with, so the decodes and the post-processing read
-    /// one snapshot of the user's preferences. The one thing a decode may see
-    /// differently is the language, once `languagePin` has pinned it; this
-    /// value never changes.
+    /// one snapshot of the user's preferences. The one thing read differently
+    /// is the language, once `languagePin` has pinned it: the decodes take it
+    /// from `applied(to:)` and the post-processing from the language `finish`
+    /// hands back beside the transcript. This value never changes.
     let settings: Settings
 
     /// The language the utterances decode in. Starts as what `settings` says
@@ -233,6 +240,17 @@ final class LiveDictationSession: ObservableObject {
 
     private let buffer = LiveSampleBuffer()
     private var committed = CommittedTranscript()
+
+    /// The published line, one piece per committed utterance, each written in
+    /// the script the session's language said when that utterance landed.
+    ///
+    /// Held beside `committed` rather than derived from it, because the
+    /// language can change once: a pin that lands mid-session decides the
+    /// utterances after it, and a piece already on the user's screen is never
+    /// converted again. `CommittedTranscript.joined` makes the line, the same
+    /// seam rule the raw transcript is joined by - the conversion is Han for
+    /// Han, so both sides of every seam answer it the same way.
+    private var shownUtterances: [String] = []
     private var hasStarted = false
 
     /// Set once `start` has seen the tap come up. Until then the tap is not
@@ -435,7 +453,7 @@ final class LiveDictationSession: ObservableObject {
             return .fallback(.cancelled)
         }
         state = .finished
-        return .committed(raw: committed.text)
+        return .committed(raw: committed.text, language: languagePin.decodeLanguage)
     }
 
     /// Discards everything: the buffer, the committed text, and the tap.
@@ -522,36 +540,43 @@ final class LiveDictationSession: ObservableObject {
         }
         let raw = decoded.text
         guard committed.append(raw), let kept = CommittedTranscript.kept(raw) else { return }
-        transcript = previewScript(
-            PartialTranscript(
-                text: committed.text, segment: kept,
-                segmentCount: committed.utterances.count))
+        let piece = previewScript(kept)
+        shownUtterances.append(piece)
+        transcript = PartialTranscript(
+            text: CommittedTranscript.joined(shownUtterances), segment: piece,
+            segmentCount: committed.utterances.count)
     }
 
-    /// The published line in the user's chosen Chinese output script, which is
-    /// what the paste will be written in too.
+    /// One committed utterance in the user's chosen Chinese output script,
+    /// which is what the paste will be written in too.
     ///
     /// `committed` is deliberately left as the engine returned it: it is the
     /// raw transcript `finish` hands back, and converting it here would move
     /// the conversion out of the one transcript stage every path shares. The
-    /// language is the one the decode actually ran in, so a session pinned to
-    /// Japanese keeps its kanji, and a session whose language has not said
-    /// Chinese is shown the engine's own characters.
+    /// language is the one this utterance's decode actually ran in, so a
+    /// session pinned to Japanese keeps its kanji, and an utterance decoded
+    /// before any language had said Chinese is shown as the engine wrote it -
+    /// and stays that way, because this is asked once per utterance and the
+    /// pieces already on the line are never asked again.
     ///
-    /// Which of those a Mandarin speaker on `auto` gets depends on the engine.
+    /// What a Mandarin speaker on `auto` sees depends on the engine.
     /// `LiveLanguagePin` can only pin what an engine reports, and
     /// `DecodeLanguageReporting` is Whisper's alone: on Whisper the pin lands
     /// in `decode` above - on the first utterance's decode, before that
     /// utterance is published - so the first words on the line are already in
     /// the chosen script. On SenseVoice, Paraformer or Parakeet nothing is ever
-    /// reported, `decodeLanguage` stays `auto`, and an `auto` session's preview
-    /// is the engine's own script for the whole recording. Those engines'
-    /// Chinese users are not on `auto`, though: Paraformer offers `zh` and
-    /// nothing else, and SenseVoice's own default is `zh`
-    /// (`LanguageUtil.fallbackLanguage`). See `TranscriptPreviewScript`.
-    private func previewScript(_ partial: PartialTranscript) -> PartialTranscript {
-        TranscriptPreviewScript.normalized(
-            partial,
+    /// reported, so an `auto` session's `decodeLanguage` stays `auto` and its
+    /// preview is the engine's own script for the whole recording. `auto` is a
+    /// real choice on SenseVoice - it heads that engine's picker, and
+    /// `EngineSelectionCommand` leaves a language the new engine supports
+    /// alone, so a Whisper user on `auto` who switches keeps it - and the cost
+    /// is this preview, not the paste: the transcript stage still converts a
+    /// Han-dominant transcript under `auto`. Converting a prefix on its own
+    /// characters is what carried a Japanese sentence into Traditional, which
+    /// is the trade stated in `TranscriptPreviewScript`.
+    private func previewScript(_ utterance: String) -> String {
+        TranscriptPreviewScript.converted(
+            utterance,
             to: settings.chineseOutputScript,
             languageCode: languagePin.decodeLanguage)
     }
@@ -592,6 +617,7 @@ final class LiveDictationSession: ObservableObject {
     private func teardown() {
         transcript = nil
         committed = CommittedTranscript()
+        shownUtterances = []
         buffer.clear()
         sleeper?.cancel()
         if hasTapStarted { tap.stop() }

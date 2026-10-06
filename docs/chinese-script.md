@@ -95,19 +95,24 @@ transcript stage.
 It asks only the first clause of the gate above -
 `ChineseScriptVariant.isChineseLanguage` - and never looks at the text. That is
 what a preview needs and the finished transcript does not: the share test is
-asked of the *whole* line, so its answer moves as the line grows, and a verdict
-that moves rewrites characters already on the user's screen. One input that
-cannot change during a session plus a character-wise conversion makes the line
-monotone by construction.
+asked of the *whole* line, so its answer moves as the line grows, and under
+`auto` a Han-only prefix is as readily the opening of a Japanese sentence.
+
+The line only grows, and that too is structural rather than defended: each
+caller converts a piece once, as it publishes the piece, and never asks about it
+again. A live session converts the utterance it has just committed and joins it
+onto the pieces already shown, so a detection that lands mid-session decides the
+script of the words after it and never of the words already read.
 
 So the preview is **stricter** than this stage in exactly one way. Where the
 language says Chinese the two convert identically, which is the agreement the
-preview exists for. Where it has not said - `auto`, or a code the app does not
-know - this stage may still convert on the text's own evidence and the preview
-does not, because a preview is a prefix and under `auto` a Han-only prefix is as
-readily the opening of a Japanese sentence. Until the language says, the preview
-shows the engine's own characters. `docs/live-dictation.md` has which engines
-can say and when.
+preview exists for - and a live session makes that agreement reach `auto` too,
+by handing the language it pinned back with the transcript so the paste is
+finished under it (`docs/live-dictation.md`). Where the language had not said
+when the words were shown, this stage may still convert them on the text's own
+evidence and the preview did not, because a preview is a prefix. The reverse -
+a preview in a script the paste will not produce - never happens.
+`docs/live-dictation.md` has which engines can say and when.
 
 ## What is converted, and what is not
 

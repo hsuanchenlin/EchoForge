@@ -148,7 +148,7 @@ final class LiveDictationEngineParityTests: IsolatedPreferencesTestCase {
     }
 
     private func committed(_ run: LiveRun, file: StaticString = #filePath, line: UInt = #line) -> String? {
-        guard case .committed(let raw) = run.outcome else {
+        guard case .committed(let raw, _) = run.outcome else {
             XCTFail("the live path did not stand for the recording: \(run.outcome)", file: file, line: line)
             return nil
         }

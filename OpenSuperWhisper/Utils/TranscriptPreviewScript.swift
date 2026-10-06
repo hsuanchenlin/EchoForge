@@ -14,7 +14,7 @@ import Foundation
 /// decides the script at all; this is the second, read-only place that decision
 /// has to be visible.
 ///
-/// Three properties make it safe to run on a preview, and each is a test.
+/// Four properties make it safe to run on a preview, and each is a test.
 ///
 /// 1. **It converts nothing but what is shown.** The committed text a session
 ///    hands back for post-processing is the engine's own, untouched: the paste
@@ -26,42 +26,60 @@ import Foundation
 ///    detection pinned - and `ChineseScriptNormalizer` performs the conversion.
 ///    Reading the text here is what a preview cannot afford: the share test the
 ///    transcript stage falls back to (`isHanDominant`) is asked of the *whole*
-///    joined line, so its answer moves as the line grows, and a verdict that
-///    moves rewrites characters already on the user's screen. With the language
-///    as the only input the verdict is fixed for the session and the conversion
-///    is character-wise, so **the line is monotone by construction**: every
-///    prefix comes out of a later call exactly as it did out of the earlier one.
-/// 3. **It can never show a script the paste will not produce.** A Chinese
+///    joined line, so its answer moves as the line grows, and under `auto` a
+///    Han-only prefix is as readily the opening of a Japanese sentence. So the
+///    language is the only input, and the conversion is character-wise.
+/// 3. **The line only grows.** Every caller converts a piece of line once, as
+///    it publishes it, and never asks about it again: a live session converts
+///    the utterance it has just committed and joins it onto the pieces already
+///    shown, and the whole-file decode's growing partials are judged by a
+///    language that cannot change while the decode runs. A detection that
+///    lands mid-session therefore decides the script of the words after it and
+///    never of the words already read.
+/// 4. **It can never show a script the paste will not produce.** A Chinese
 ///    language is also the branch of `ChineseScriptVariant.isChineseOutput`
-///    that needs no evidence, so wherever this converts, the transcript stage
-///    converts the same characters the same way. The one place the two part is
-///    a language that has not said - `auto`, or a code the app does not know -
-///    where the transcript stage may still convert on the text's own evidence
-///    and this does not: a preview holds a prefix, and under `auto` a Han-only
-///    prefix is as readily the opening of a Japanese sentence. Then the preview
-///    shows the engine's own characters, which is what it did before this
-///    existed.
+///    that needs no evidence, and a live session hands the language it decoded
+///    in back with its transcript (`LiveDictationOutcome.committed`), so the
+///    paste is post-processed under the same language the line was judged by
+///    and converts the same characters the same way. The one place the two part
+///    is text published while the language had not said - `auto`, or a code the
+///    app does not know - which is shown in the engine's own characters while
+///    the transcript stage may convert it, on the whole transcript's own
+///    evidence or on a language the pin named afterwards.
 enum TranscriptPreviewScript {
 
-    /// `partial` written in `variant`, or exactly as it is when the dictation
+    /// `text` written in `variant`, or exactly as it is when the dictation
     /// language has not said it is Chinese.
     ///
+    /// The one gate. A caller with a line that grows calls this per piece as it
+    /// publishes the piece, which is what makes property 3 structural.
+    ///
     /// - Parameters:
-    ///   - partial: what has been committed so far, as the engine returned it.
+    ///   - text: what is about to be shown, as the engine returned it.
     ///   - variant: the user's chosen output script, `Settings.chineseOutputScript`.
     ///   - languageCode: the language the decode ran in. For a live session
     ///     that is `LiveLanguagePin.decodeLanguage` - the pinned language once
-    ///     one is pinned, which is a better answer than `auto` and the one the
-    ///     engine was actually asked for.
+    ///     one is pinned, which is a better answer than `auto`, the one the
+    ///     engine was actually asked for, and the one the paste is finished
+    ///     with.
+    static func converted(
+        _ text: String, to variant: ChineseScriptVariant, languageCode: String
+    ) -> String {
+        guard ChineseScriptVariant.isChineseLanguage(languageCode) else {
+            return text
+        }
+        return ChineseScriptNormalizer.convert(text, to: variant)
+    }
+
+    /// A whole published preview in `variant`: `text` and `segment` are two
+    /// views of one decode, so they are converted by the one verdict above and
+    /// cannot come out in different scripts.
     static func normalized(
         _ partial: PartialTranscript, to variant: ChineseScriptVariant, languageCode: String
     ) -> PartialTranscript {
-        guard ChineseScriptVariant.isChineseLanguage(languageCode) else {
-            return partial
-        }
-        return PartialTranscript(
-            text: ChineseScriptNormalizer.convert(partial.text, to: variant),
-            segment: ChineseScriptNormalizer.convert(partial.segment, to: variant),
+        PartialTranscript(
+            text: converted(partial.text, to: variant, languageCode: languageCode),
+            segment: converted(partial.segment, to: variant, languageCode: languageCode),
             segmentCount: partial.segmentCount)
     }
 }
