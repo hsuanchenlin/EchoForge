@@ -66,10 +66,13 @@ unless it returns exactly one character, so Latin words, digits, `@handles`,
 
 ### The one thing that had to change: Han is weighed against words
 
-The gate in front of that conversion is `ChineseScriptVariant.isHanDominant`, and
-it used to weigh Han characters against **letters**. That undercounts the Chinese
-in a code-switched sentence, and it undercounts it hardest in exactly the
-sentences this app is for:
+The share test in front of that conversion is
+`ChineseScriptVariant.isHanDominant`, which is what the gate falls back to for a
+dictation language that leaves Chinese open without naming it - auto-detect,
+which is what a bilingual speaker usually dictates under
+(`docs/chinese-script.md` owns the gate). It used to weigh Han characters
+against **letters**. That undercounts the Chinese in a code-switched sentence,
+and it undercounts it hardest in exactly the sentences this app is for:
 
 | | Han | Latin letters | Latin words |
 | --- | --- | --- | --- |
@@ -87,14 +90,17 @@ the 0.3 threshold (`ChineseScriptVariant.hanShareThreshold`).
 
 Two consequences, both deliberate:
 
-- `StyleRewriteLanguage` reads the same predicate, so a code-switched dictation
-  is now addressed in Chinese rather than English. That is the right way round -
-  an English instruction is what makes the on-device model answer Chinese
-  dictation in English (`docs/style-rewriting.md`).
-- An English sentence naming **two** Chinese people is now Chinese to this
-  predicate, where one is not. Every threshold has a shape; this side of it is
-  the cheap one - a name written in the script the user writes in, against a
-  whole daily utterance coming back in the wrong script.
+- `StyleRewriteLanguage` reads the same share test, through
+  `ChineseScriptVariant.isChineseText`, so a code-switched dictation is now
+  addressed in Chinese rather than English. That is the right way round - an
+  English instruction is what makes the on-device model answer Chinese dictation
+  in English (`docs/style-rewriting.md`).
+- Under auto-detect, an English sentence naming **two** Chinese people is
+  Chinese to this test where one is not. Every threshold has a shape; this side
+  of it is the cheap one - a name written in the script the user writes in,
+  against a whole daily utterance coming back in the wrong script. A user who
+  named a Chinese dictation language is never asked the threshold at all, so for
+  them one name is converted too (`docs/chinese-script.md`).
 
 `StyleRewriteGuard` still counts letters and stays that way: it asks whether a
 *rewrite* changed script, which is a comparison of two texts against each other

@@ -84,8 +84,8 @@ a **fallback** when the VAD found speech but less than the minimum. The threshol
 the breath and key noise after a pause, and it still stands, but the whole-file decode keeps every
 segment the VAD reports - so when it is a one-word dictation ("OK") or a short last word after a
 pause ("…tag the release. Thanks."), the session cannot answer for the recording and the file is
-decoded instead. It returns `.committed(raw:)` - possibly empty, for silence - or
-`.fallback(reason)`.
+decoded instead. It returns `.committed(raw:language:)` - the joined transcript, possibly empty
+for silence, beside the language those utterances actually decoded in - or `.fallback(reason)`.
 
 The engine a session compares against is the kind **and the load**: `LiveUtteranceDecoding`
 exposes `TranscriptionService.loadGeneration` beside `selection.active`, the session reads both
@@ -104,10 +104,11 @@ as work in flight.
 **The capsule** follows the session through `DictationSession.liveTranscript`, republished
 by `IndicatorViewModel`, and `CapsuleHUDViewModel.showLiveTranscript` accepts it while recording as
 well as during the decode. Once the live line has shown, the global
-`TranscriptionService.partialTranscript` is ignored for the rest of the session: the tail
-decode reaches that publisher too, as a fresh decode of one short piece, and letting it through
-would replace the whole committed transcript with the last utterance's segments the moment the
-key went up. `clearLiveTranscript` - what a fallback's `nil` publication calls - hands the line
+`TranscriptionService.partialTranscript` is ignored for the rest of the session - and a live
+session's own utterance decodes, the tail decode included, publish no segments to that publisher
+at all, so the last utterance's segments cannot replace the whole committed transcript the moment
+the key went up even before a line has shown. The script section below has why that second rule
+is there. `clearLiveTranscript` - what a fallback's `nil` publication calls - hands the line
 back, so the whole-file decode's own segments show as they always did.
 `docs/capsule-hud.md` has the rest.
 
