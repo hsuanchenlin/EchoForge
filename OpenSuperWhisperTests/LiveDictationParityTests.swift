@@ -117,7 +117,7 @@ final class LiveDictationParityTests: IsolatedPreferencesTestCase {
         await speak(samples, into: tap, session: session)
         let outcome = await session.finish(session.recordingSession)
 
-        guard case .committed(let live) = outcome else {
+        guard case .committed(let live, _) = outcome else {
             return XCTFail("the live path did not stand for the recording: \(outcome)")
         }
         XCTAssertTrue(live.lowercased().contains("your country"), "unexpected live transcript: \(live)")
@@ -165,7 +165,7 @@ final class LiveDictationParityTests: IsolatedPreferencesTestCase {
         await speak(samples, into: tap, session: session)
         let outcome = await session.finish(session.recordingSession)
 
-        guard case .committed(let live) = outcome else {
+        guard case .committed(let live, _) = outcome else {
             return XCTFail("the live path did not stand for the recording: \(outcome)")
         }
         XCTAssertGreaterThan(
@@ -202,7 +202,7 @@ final class LiveDictationParityTests: IsolatedPreferencesTestCase {
         await speak(samples, into: tap, session: session)
         let outcome = await session.finish(session.recordingSession)
 
-        guard case .committed(let live) = outcome else {
+        guard case .committed(let live, _) = outcome else {
             return XCTFail("the live path did not stand for the recording: \(outcome)")
         }
         XCTAssertEqual(
@@ -283,7 +283,7 @@ final class LiveDictationParityTests: IsolatedPreferencesTestCase {
         XCTAssertGreaterThanOrEqual(try XCTUnwrap(first.probability), LiveLanguagePin.minimumConfidence)
 
         let outcome = await session.finish(session.recordingSession)
-        guard case .committed(let live) = outcome else {
+        guard case .committed(let live, _) = outcome else {
             return XCTFail("the live path did not stand for the recording: \(outcome)")
         }
         XCTAssertEqual(

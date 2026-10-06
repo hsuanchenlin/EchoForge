@@ -328,7 +328,7 @@ final class CapsuleHUDViewModel: ObservableObject {
     ///
     /// Refused unless this capsule is showing its own decode - the scoping
     /// `setMode` uses, needed here because the source is a global publisher
-    /// every transcription writes to. Refused for an empty value too, so a
+    /// other transcriptions write to. Refused for an empty value too, so a
     /// decode that has produced only silence leaves the pill the size it was
     /// rather than growing a blank second line.
     func showPartialTranscript(_ text: String?) {

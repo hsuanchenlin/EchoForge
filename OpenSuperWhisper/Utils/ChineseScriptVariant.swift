@@ -93,23 +93,48 @@ enum ChineseScriptVariant: String, Equatable, Sendable {
 
     // MARK: - Is this text Chinese at all?
 
-    /// Whether a transcript dictated with `languageCode` selected is Chinese.
+    /// Whether a transcript dictated with `languageCode` selected **is a
+    /// Chinese utterance** - the question a stage asks when it is about to do
+    /// something only Chinese should get, in Chinese.
     ///
-    /// **One predicate, and every stage that has to answer this question reads
-    /// it.** `ChineseScriptNormalizer` decides whether to write the transcript
-    /// in the user's chosen script by it, and `StyleRewriteLanguage` decides
-    /// whether to address the model in Chinese by it. Two answers to "is this
-    /// Chinese" is how a stage ends up rewriting text its own guard then
-    /// refuses, or converting a script the rest of the app does not think is
-    /// Chinese at all.
+    /// `StyleRewriteLanguage` is the caller: it decides whether to address the
+    /// model in Chinese, and addressing an English sentence in Chinese because
+    /// the user left the language on Chinese would be wrong. So both halves are
+    /// needed and neither is enough - the language code alone cannot say, and
+    /// the text alone cannot either, because Japanese kanji and Korean hanja
+    /// are Han characters too.
     ///
-    /// Both halves are needed and neither is enough. The language code alone
-    /// cannot say - a user who leaves the language on Chinese and dictates a
-    /// sentence of English must not have it converted - and the text alone
-    /// cannot either, because Japanese kanji and Korean hanja are Han
-    /// characters too.
+    /// This is **not** the question the output script asks; `isChineseOutput`
+    /// is, and the difference between them is the one thing to understand here.
     static func isChineseText(_ text: String, languageCode: String) -> Bool {
         mayBeChinese(languageCode: languageCode) && isHanDominant(text)
+    }
+
+    /// Whether a transcript dictated with `languageCode` is **written in Han
+    /// characters this app may put into the user's chosen script** - the
+    /// question `ChineseScriptNormalizer` and `TranscriptPreviewScript` ask.
+    ///
+    /// A different question from `isChineseText`, and it has to be, because the
+    /// conversion is character-wise: it rewrites Han characters and leaves
+    /// every other byte alone, so on an English sentence it is a no-op. What it
+    /// must never do is rewrite Han that belongs to another language. So:
+    ///
+    /// - **A Chinese dictation language answers on its own.** The user named
+    ///   the language and named the script; a share test over the text can only
+    ///   subtract from that, and all it can subtract is the one case where the
+    ///   two settings already agree - Han characters in a sentence carrying a
+    ///   lot of English. `把 PR 开到 feature/login 再 @James` and
+    ///   `We should ask 张 about the deploy` are the same ask from the same
+    ///   user, and a threshold between them is a coin toss they did not want.
+    /// - **Anything else has to earn it from the text**, which is where the
+    ///   share test belongs: `auto` and a code the app does not know say
+    ///   nothing, so Han-dominance with no kana or Hangul in it is the only
+    ///   evidence there is.
+    ///
+    /// Japanese and Korean are closed by `mayBeChinese` either way: no code in
+    /// `chineseLanguageCodes` is theirs, so neither can reach the first branch.
+    static func isChineseOutput(_ text: String, languageCode: String) -> Bool {
+        isChineseLanguage(languageCode) || isChineseText(text, languageCode: languageCode)
     }
 
     /// Whether the dictation language leaves Chinese possible at all.
@@ -119,9 +144,30 @@ enum ChineseScriptVariant: String, Equatable, Sendable {
     /// which is what keeps Japanese and Korean dictation out of a stage written
     /// for the script they share.
     static func mayBeChinese(languageCode: String) -> Bool {
-        let code = languageCode.lowercased().split(separator: "-").first.map(String.init) ?? ""
+        let code = primaryCode(languageCode)
         if chineseLanguageCodes.contains(code) { return true }
         return LanguageUtil.languageNames[code] == nil || code == "auto"
+    }
+
+    /// Whether the dictation language *says* Chinese, rather than merely
+    /// leaving it open the way `auto` and an unknown code do.
+    ///
+    /// The strongest of the three, and an answer that does not depend on the
+    /// text at all - which is what makes it the only one a growing preview can
+    /// use. `TranscriptPreviewScript` is gated on this alone: a verdict that
+    /// reads the text would change as the text grew, and rewrite characters
+    /// already on the user's screen. It is also the branch of `isChineseOutput`
+    /// that needs no evidence, for the reason stated there.
+    ///
+    /// For a live session the answer is `LiveLanguagePin.decodeLanguage`:
+    /// either the user chose a Chinese language or the pin named one.
+    static func isChineseLanguage(_ languageCode: String) -> Bool {
+        chineseLanguageCodes.contains(primaryCode(languageCode))
+    }
+
+    /// The language subtag alone, lowercased: `zh` for `zh-Hant`.
+    private static func primaryCode(_ languageCode: String) -> String {
+        languageCode.lowercased().split(separator: "-").first.map(String.init) ?? ""
     }
 
     /// The share of a transcript's words that have to be Han before it counts as

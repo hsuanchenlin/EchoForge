@@ -148,7 +148,7 @@ final class LiveDictationEngineParityTests: IsolatedPreferencesTestCase {
     }
 
     private func committed(_ run: LiveRun, file: StaticString = #filePath, line: UInt = #line) -> String? {
-        guard case .committed(let raw) = run.outcome else {
+        guard case .committed(let raw, _) = run.outcome else {
             XCTFail("the live path did not stand for the recording: \(run.outcome)", file: file, line: line)
             return nil
         }
@@ -175,9 +175,16 @@ final class LiveDictationEngineParityTests: IsolatedPreferencesTestCase {
     /// 36 s of Mandarin under the SenseVoice budget: the 28 s cap forces at
     /// least one cut while recording, the closing marker survives the tail,
     /// and the joined text is the whole-file text.
+    ///
+    /// It is also the one check of the preview's script on real weights.
+    /// SenseVoice was trained on Simplified corpora and returns Simplified for
+    /// a speaker of Taiwanese Mandarin, so this is the recording that showed
+    /// the bug: the capsule read Simplified for 36 seconds and the paste
+    /// arrived in Traditional.
     func testSenseVoiceMandarinLiveMatchesTheWholeFile() async throws {
         let url = try fixture("sensevoice/sensevoice-long.wav")
         try skipUnlessDownloaded(SenseVoiceEngine.isModelDownloaded, "SenseVoice")
+        AppPreferences.shared.chineseOutputScript = .traditional
         let engine = SenseVoiceEngine()
         try await engine.initialize()
 
@@ -190,7 +197,21 @@ final class LiveDictationEngineParityTests: IsolatedPreferencesTestCase {
         XCTAssertGreaterThanOrEqual(run.decodesWhileRecording, 1, "an utterance is committed while recording")
         XCTAssertTrue(live.contains(mandarinMarker), "the closing sentence was lost at a cut or in the tail: \(live)")
         assertParity(live: live, reference: whole, engine: "SenseVoice")
-        XCTAssertEqual(run.line?.text, live, "the line ends as the transcript")
+
+        // The transcript the session hands back is the engine's own words -
+        // the raw transcript the one post-processing stage converts - and the
+        // line is that transcript in the script the user chose. Here the two
+        // are different strings, which is the whole point.
+        XCTAssertEqual(
+            run.line?.text,
+            ChineseScriptNormalizer.normalized(live, to: .traditional, languageCode: "zh"),
+            "the line ends as the transcript, written in the chosen script")
+        XCTAssertNotEqual(
+            run.line?.text, live,
+            "SenseVoice returned Simplified, so a Traditional user's line is not the raw text")
+        XCTAssertTrue(
+            run.line?.text.contains("說明整段音頻都被完整地識別了") == true,
+            "the closing sentence is on the line in Traditional: \(run.line?.text ?? "nil")")
     }
 
     /// The utterance this app is named for, through the live path on the one

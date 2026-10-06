@@ -21,10 +21,12 @@ import Foundation
 /// chose. It **never touches an explicit language**: a session started on
 /// anything but `auto` decodes in that language throughout, and no detection is
 /// consulted. And it **never writes a preference**: the pinned language reaches
-/// the decode `Settings` copy the session builds (`applied(to:)`) and nothing
-/// else - the `Settings` the joined transcript is post-processed with still
-/// carry `auto`, and `whisperLanguage` is never written by anything on this
-/// path.
+/// copies of `Settings` and nothing else - the decode's, which the session
+/// builds with `applied(to:)`, and the one the joined transcript is
+/// post-processed with, which `DictationSession` builds from the language
+/// `finish` hands back so the capsule's script and the paste's are one answer.
+/// `whisperLanguage` is never written by anything on this path, and the next
+/// press starts on `auto` again.
 ///
 /// Pure, so the rules can be stated against a fake decoder. `LiveLanguagePinTests`
 /// holds them.

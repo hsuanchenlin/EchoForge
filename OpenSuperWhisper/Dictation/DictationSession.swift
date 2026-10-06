@@ -624,6 +624,16 @@ final class DictationSession: ObservableObject {
     /// already taken its line off the capsule, and the whole-file decode puts
     /// its own up.
     ///
+    /// A live session that pinned a **Chinese** language is finished under it
+    /// rather than under the `auto` the user chose, and that is the whole of
+    /// the substitution: it is what keeps the script the capsule showed and the
+    /// script the paste arrives in one answer rather than two
+    /// (`TranscriptPreviewScript`). Any other pinned language is not
+    /// substituted, because the output script is the only stage the detection
+    /// was added to decide - a pinned `ja` would otherwise turn
+    /// `isAsianLanguage` on and respace a Japanese paste that no script
+    /// conversion touches at all. `docs/live-dictation.md` states it.
+    ///
     /// A cancel on the live path is a discard, not an interrupt. The frame in
     /// flight when the button is pressed may be a queue item's that this
     /// dictation is waiting behind - the busy check was skipped for it - so
@@ -642,9 +652,13 @@ final class DictationSession: ObservableObject {
             self?.handlePipelineProgress(event)
         }
         switch liveOutcome {
-        case .committed(let raw):
+        case .committed(let raw, let language):
+            var finished = settings
+            if ChineseScriptVariant.isChineseLanguage(language) {
+                finished.selectedLanguage = language
+            }
             styled = try await transcriber.finishTranscribed(
-                raw: raw, settings: settings, progress: progress)
+                raw: raw, settings: finished, progress: progress)
         case .fallback(let reason):
             print("Live dictation fell back to the whole-file decode: \(reason)")
             styled = try await transcriber.transcribeAudio(

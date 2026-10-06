@@ -84,8 +84,8 @@ a **fallback** when the VAD found speech but less than the minimum. The threshol
 the breath and key noise after a pause, and it still stands, but the whole-file decode keeps every
 segment the VAD reports - so when it is a one-word dictation ("OK") or a short last word after a
 pause ("…tag the release. Thanks."), the session cannot answer for the recording and the file is
-decoded instead. It returns `.committed(raw:)` - possibly empty, for silence - or
-`.fallback(reason)`.
+decoded instead. It returns `.committed(raw:language:)` - the joined transcript, possibly empty
+for silence, beside the language those utterances actually decoded in - or `.fallback(reason)`.
 
 The engine a session compares against is the kind **and the load**: `LiveUtteranceDecoding`
 exposes `TranscriptionService.loadGeneration` beside `selection.active`, the session reads both
@@ -104,12 +104,87 @@ as work in flight.
 **The capsule** follows the session through `DictationSession.liveTranscript`, republished
 by `IndicatorViewModel`, and `CapsuleHUDViewModel.showLiveTranscript` accepts it while recording as
 well as during the decode. Once the live line has shown, the global
-`TranscriptionService.partialTranscript` is ignored for the rest of the session: the tail
-decode reaches that publisher too, as a fresh decode of one short piece, and letting it through
-would replace the whole committed transcript with the last utterance's segments the moment the
-key went up. `clearLiveTranscript` - what a fallback's `nil` publication calls - hands the line
+`TranscriptionService.partialTranscript` is ignored for the rest of the session - and a live
+session's own utterance decodes, the tail decode included, publish no segments to that publisher
+at all, so the last utterance's segments cannot replace the whole committed transcript the moment
+the key went up even before a line has shown. The script section below has why that second rule
+is there. `clearLiveTranscript` - what a fallback's `nil` publication calls - hands the line
 back, so the whole-file decode's own segments show as they always did.
 `docs/capsule-hud.md` has the rest.
+
+## The script the preview is shown in
+
+The preview is the one place a transcript reaches the user without having passed through
+`TextPostProcessor.process`, and the script is the one thing that stage changes which the user
+would notice. Paraformer and SenseVoice return Simplified for a speaker of Taiwanese Mandarin
+and Whisper mixes the two inside a sentence, so a Traditional user watched their sentence
+appear in Simplified for the length of the recording and then switch script at the paste.
+
+So the published line is written in `chineseOutputScript` - the same setting, the same
+predicate and the same ICU transform the transcript stage uses (`docs/chinese-script.md`),
+through one choke point, `TranscriptPreviewScript`. Both surfaces that show a preview go
+through it: `LiveDictationSession.transcript` and `TranscriptionService.partialTranscript`,
+whose whisper segments are what shows after a fallback. Four things hold it:
+
+- **It converts the copy made for the screen and nothing else.** `CommittedTranscript` keeps
+  the engine's own words, `finish` hands those back, and the conversion that reaches the
+  clipboard is still the transcript stage's, over that raw transcript. A preview has no way to
+  reach the paste or History.
+- **The language decides, and the text is never consulted.**
+  `ChineseScriptVariant.isChineseLanguage` is the whole gate, asked of the language the decode
+  actually ran in (`LiveLanguagePin.decodeLanguage`), and `ChineseScriptNormalizer` performs
+  the conversion. A session pinned to Japanese shows kanji as the engine returned them, and so
+  does one whose language has not said Chinese at all. Reading the text here is what a preview
+  cannot afford: the share test the transcript stage falls back to (`isHanDominant`) is asked
+  of the whole joined line, so its answer moves as the line grows, and under `auto` a Han-only
+  prefix is as readily the opening of a Japanese sentence.
+- **The line only grows.** The session converts each utterance once, as it commits it, holds
+  the converted pieces beside the raw ones (`shownUtterances`) and joins the line from those by
+  `CommittedTranscript.joined` - the same seam rule, which answers the same either side of a
+  Han-for-Han conversion. So the verdict is asked once per utterance and never about an
+  utterance already read: a detection that lands mid-session decides the script of the words
+  after it, and the words on screen stay exactly as they were shown. Nothing is sticky and
+  there is nothing to latch; the property is structural.
+
+  It holds through the stop, too, which takes the second publisher out of the picture: the
+  capsule is already in `.polishing(.transcribing)` while `finish` decodes the tail - the one
+  state `CapsuleHUDViewModel.showPartialTranscript` accepts the global publisher in - so an
+  utterance decode that published its own segments would put the engine's unconverted words
+  up a moment before the committed line replaced them in the user's script. So a live
+  session's decodes publish no segments at all (`decodeRaw` passes no preview settings to
+  `TranscriptionService.observePartialTranscripts`, which takes the callback off the engine).
+  The second line stays blank for the length of the tail decode, which is the price, and no
+  character on screen is ever rewritten.
+- **The preview can never show a script the paste will not produce.** A Chinese language is
+  also the branch of `ChineseScriptVariant.isChineseOutput` that needs no evidence, and
+  `finish` hands the language it decoded in back beside the transcript
+  (`LiveDictationOutcome.committed`), which `DictationSession` finishes under in place of
+  `auto` **when it is a Chinese language**. So a pinned Mandarin session's paste converts the
+  same characters the same way the line did - including the code-switched sentence
+  `这个 PR should be ready by Friday`, whose Han share is below `hanShareThreshold` and which
+  the transcript stage would have left in Simplified had it still been asked under `auto`.
+  Nothing else is substituted, and no preference is written (`LiveLanguagePin`).
+
+**What a Mandarin speaker on `auto` sees depends on the engine.** `LiveLanguagePin` can only
+pin a language an engine reports, and `DecodeLanguageReporting` is Whisper's alone. On Whisper
+the pin lands on the first utterance's decode, before that utterance is published, so the first
+words on the line are already in the user's script. On SenseVoice, Paraformer or Parakeet
+nothing is ever reported, `decodeLanguage` stays `auto`, and the preview is the engine's own
+script for the whole recording - as it was before any of this existed. `auto` is reachable
+there: it heads SenseVoice's own picker (`LanguageUtil.senseVoiceLanguages` is
+`SenseVoiceLanguage.allCases`, which starts at `auto`) and `EngineSelectionCommand` leaves a
+language the new engine supports alone, so a Whisper user on `auto` who switches to SenseVoice
+keeps it. `LanguageUtil.fallbackLanguage(engine: .sensevoice)` is `zh` only for a user whose
+current code that engine cannot decode. A Whisper detection below
+`LiveLanguagePin.minimumConfidence`, or none at all, lands in the same place.
+
+The cost of that is the preview alone, not the paste: a session that never pins is finished
+under `auto` exactly as before, where the transcript stage still converts a Han-dominant
+transcript on the text's own evidence. **That is the one place the preview and the paste part**
+- text published while the language had not said is shown in the engine's characters and may
+be converted at the paste, which is also what an `auto` session's pre-pin prefix gets. The
+reverse never happens. `TranscriptPreviewScriptTests` holds each clause, and the live and
+service paths have their own cases in `LiveDictationSessionTests` and `PartialTranscriptTests`.
 
 ## Every failure is a fallback
 
@@ -172,8 +247,18 @@ the queue path it always took.
 The `Settings` a dictation is finished with are built at the press when a live session starts,
 carried on the session, and used both for every utterance decode and for the finish - so one
 dictation cannot be decoded under one prompt and language and post-processed under another.
-Without a session they are built at stop, as before. The one value a decode may see differently
-is the language, below; `LiveDictationSession.settings` itself never changes.
+Without a session they are built at stop, as before. The one value read differently is the
+language, below; `LiveDictationSession.settings` itself never changes.
+
+A session that pinned a **Chinese** language is finished under it as well as decoded in it, so
+the decode, the preview and the paste cannot be three answers about the script
+(`DictationSession.transcribe` makes that one finish copy). A pin to any other language is not
+substituted. That asymmetry is deliberate and is the scope of the detection rather than a
+special case for Chinese: the output script is the only finishing stage the pin was added to
+decide, and `selectedLanguage` is read by more than that one - `isAsianLanguage` among them, so
+substituting a pinned `ja` or `ko` would switch the CJK/Latin spacing of a paste that gets no
+script conversion at all. A pinned non-Chinese session's pasted text is therefore byte for byte
+what it was before any of this existed.
 
 ## The language is decided once per session
 
@@ -196,10 +281,12 @@ Three things there are absolute, and `LiveLanguagePinTests` and the language cas
   it - the whole-file decode of the WAV runs on the settings the user chose, `auto` included.
 - **It never touches an explicit language.** A session started on anything but `auto` decodes in
   that language throughout and no detection is consulted, whatever the engine reports.
-- **It never writes a preference.** The pinned language reaches the copy of `Settings` each decode
-  is handed (`LiveLanguagePin.applied(to:)`) and nothing else: `session.settings`, which the joined
-  transcript is post-processed with and the fallback decodes the WAV with, still says `auto`, and
-  `whisperLanguage` is never written by anything on this path.
+- **It never writes a preference.** The pinned language reaches copies of `Settings` and nothing
+  else: the one each decode is handed (`LiveLanguagePin.applied(to:)`), and the one the joined
+  transcript is finished under, which `DictationSession` builds from the language `finish` returns
+  beside the transcript so the capsule's script and the paste's are one answer. `session.settings`
+  itself still says `auto`, which is what a fallback decodes the WAV with, and `whisperLanguage` is
+  never written by anything on this path.
 
 Nothing pins on less than a detection: a report with no language (the FluidAudio engines, which
 cannot say, and any decode that ran in a language it was *given* rather than detected), a

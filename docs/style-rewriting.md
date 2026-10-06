@@ -189,9 +189,16 @@ Three pieces carry it:
   spoken with the language left on Chinese is asked for in English, Chinese
   spoken on auto-detect is asked for in Chinese, and Japanese or Korean - Han
   characters and all - is ruled out by its language code. It asks that question
-  with `ChineseScriptVariant.isChineseText`, the same predicate the script
-  normalizer gates on one stage earlier, because two answers to "is this
-  Chinese" is how one stage converts a script the next does not recognise.
+  with `ChineseScriptVariant.isChineseText`: whether the *utterance* is Chinese,
+  which is what choosing a language to speak to a model in needs. The script
+  normalizer one stage earlier asks the narrower
+  `ChineseScriptVariant.isChineseOutput` - whether this text's Han characters
+  may be written in the user's chosen script - and a Chinese dictation language
+  settles that on its own, because the conversion touches nothing but Han
+  (`docs/chinese-script.md`). The two differ on exactly one shape of text, an
+  English sentence quoting a Chinese name under a Chinese dictation language:
+  its name is converted and its rewrite is still asked for in English, which is
+  what each stage should do with it.
   Where the transcript uses only characters the two variants share, the user's
   chosen output script decides (`docs/chinese-script.md`) - it is the script
   that transcript was just written in.

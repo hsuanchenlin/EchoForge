@@ -134,7 +134,9 @@ recordings already in History.
 It is a setting about how Chinese is written down and nothing else. It does not change
 which language is recognised: English dictation stays English, Japanese and Korean are
 never touched, and your dictionary entries and voice snippets are inserted exactly as
-you typed them.
+you typed them. While your dictation language is Chinese, a Chinese word quoted inside
+an otherwise English sentence is still Chinese, so it is written in the script you
+chose ([the full rule](chinese-script.md)).
 
 Paraformer refuses nothing: dictate English to it and the model
 answers with garbled fragments, which Kongweh catches - the dictation fails, the

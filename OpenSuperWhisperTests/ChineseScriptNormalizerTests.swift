@@ -161,11 +161,33 @@ final class ChineseScriptNormalizerTests: IsolatedPreferencesTestCase {
     }
 
     /// A user who leaves the language on Chinese and dictates an English
-    /// sentence gets their English sentence, quoted Chinese name and all.
-    func testAnEnglishSentenceUnderAChineseLanguageIsLeftAlone() {
+    /// sentence gets their English sentence back - every Latin word, digit and
+    /// mark of it - because the conversion has nothing but Han characters to
+    /// act on.
+    ///
+    /// The quoted Chinese name in it *is* a Han character, and under a Chinese
+    /// dictation language it is written in the script that user chose. It used
+    /// to depend on `isHanDominant`: this sentence is 1 Han against 8 English
+    /// words, so it fell below `hanShareThreshold` and the name stayed
+    /// Simplified, while `把 PR 开到 feature/login 再 @James` sat above it and
+    /// was converted. Both are Han characters from a user who named their
+    /// language and their script, so both get it now - and the running preview,
+    /// which cannot ask a question of a sentence it has only half of, agrees
+    /// with this stage as a result (`TranscriptPreviewScriptTests`).
+    func testAnEnglishSentenceUnderAChineseLanguageKeepsItsEnglishAndConvertsItsHan() {
         let text = "We should ask 张 about the deploy tomorrow morning."
+
         XCTAssertEqual(
-            ChineseScriptNormalizer.normalized(text, to: .traditional, languageCode: "zh"), text
+            ChineseScriptNormalizer.normalized(text, to: .traditional, languageCode: "zh"),
+            "We should ask 張 about the deploy tomorrow morning."
+        )
+        // And the language is still what decides: nothing has said Chinese
+        // here, and the share test refuses this sentence on its own.
+        XCTAssertEqual(
+            ChineseScriptNormalizer.normalized(text, to: .traditional, languageCode: "auto"), text
+        )
+        XCTAssertEqual(
+            ChineseScriptNormalizer.normalized(text, to: .traditional, languageCode: "en"), text
         )
     }
 

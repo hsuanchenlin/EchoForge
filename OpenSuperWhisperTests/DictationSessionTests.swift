@@ -491,7 +491,7 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
     func testACommittedLiveSession_finishesTheJoinedTextAndNeverDecodesTheFile() async {
         recorder.stoppedURL = makeTemporaryAudio()
         let live = FakeLiveDictation(
-            settings: Settings(), outcome: .committed(raw: "live words"))
+            settings: Settings(), outcome: .committed(raw: "live words", language: "en"))
         transcriber.finishedResult = .success(.stub("Live words."))
         let session = makeSession(live: live)
         session.start()
@@ -503,6 +503,81 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
         XCTAssertTrue(transcriber.wholeFileCalls.isEmpty,
                       "a committed live session must not decode the file a second time")
         XCTAssertEqual(insertion.inserted, ["Live words."])
+    }
+
+    /// A session that pinned Chinese is finished under it rather than under the
+    /// `auto` the user's settings still carry. That is what keeps the script
+    /// the capsule showed and the script the paste arrives in one answer: the
+    /// transcript
+    /// stage's share test would otherwise leave a code-switched Mandarin
+    /// sentence in the engine's Simplified after the capsule had shown it in
+    /// the user's Traditional (`TranscriptPreviewScript`).
+    func testACommittedLiveSessionIsFinishedUnderAPinnedChineseLanguage() async {
+        recorder.stoppedURL = makeTemporaryAudio()
+        let live = FakeLiveDictation(
+            settings: Self.settings(language: "auto"),
+            outcome: .committed(raw: "这个 PR should be ready by Friday", language: "zh"))
+        transcriber.finishedResult = .success(.stub("這個 PR should be ready by Friday"))
+        let session = makeSession(live: live)
+        session.start()
+
+        session.stop()
+        await waitForEnd(session)
+
+        XCTAssertEqual(transcriber.finishedSettings.map(\.selectedLanguage), ["zh"])
+    }
+
+    /// A pin to anything but Chinese is not substituted. The output script is
+    /// the only finishing stage the detection was added to decide, and
+    /// `selectedLanguage` is read by more than that one: a pinned `ja` would
+    /// turn `isAsianLanguage` on and respace a Japanese paste that gets no
+    /// script conversion at all, so that paste has to stay what it was.
+    func testAPinnedJapaneseLiveSessionIsFinishedUnderTheChosenLanguage() async {
+        recorder.stoppedURL = makeTemporaryAudio()
+        let live = FakeLiveDictation(
+            settings: Self.settings(language: "auto"),
+            outcome: .committed(raw: "ReactのuseEffectを使います", language: "ja"))
+        transcriber.finishedResult = .success(.stub("ReactのuseEffectを使います"))
+        let session = makeSession(live: live)
+        session.start()
+
+        session.stop()
+        await waitForEnd(session)
+
+        var substituted = Self.settings(language: "ja")
+        XCTAssertTrue(
+            substituted.shouldApplyAsianAutocorrect,
+            "this fixture only means something while substituting `ja` would change the paste")
+        substituted.selectedLanguage = "auto"
+        XCTAssertFalse(substituted.shouldApplyAsianAutocorrect)
+
+        XCTAssertEqual(transcriber.finishedSettings.map(\.selectedLanguage), ["auto"])
+        XCTAssertEqual(
+            transcriber.finishedSettings.map(\.shouldApplyAsianAutocorrect), [false],
+            "a pinned `ja` must not switch the CJK/Latin spacing of the paste on")
+    }
+
+    /// And a session that never pinned is finished under exactly what the user
+    /// chose, so nothing on this path invents a language.
+    func testALiveSessionThatNeverPinnedIsFinishedUnderTheChosenLanguage() async {
+        recorder.stoppedURL = makeTemporaryAudio()
+        let live = FakeLiveDictation(
+            settings: Self.settings(language: "auto"),
+            outcome: .committed(raw: "我们开会。", language: "auto"))
+        transcriber.finishedResult = .success(.stub("我們開會。"))
+        let session = makeSession(live: live)
+        session.start()
+
+        session.stop()
+        await waitForEnd(session)
+
+        XCTAssertEqual(transcriber.finishedSettings.map(\.selectedLanguage), ["auto"])
+    }
+
+    private static func settings(language: String) -> Settings {
+        var settings = Settings()
+        settings.selectedLanguage = language
+        return settings
     }
 
     /// Every reason the live path can give up. None of them is a failure the
@@ -608,7 +683,7 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
     /// queued as a file at the last moment.
     func testALiveSessionIsNeverQueuedBecauseItsOwnDecodeLooksBusy() async {
         recorder.stoppedURL = makeTemporaryAudio()
-        let live = FakeLiveDictation(settings: Settings(), outcome: .committed(raw: "live"))
+        let live = FakeLiveDictation(settings: Settings(), outcome: .committed(raw: "live", language: "en"))
         transcriber.finishedResult = .success(.stub("Live."))
         let session = makeSession(live: live)
         session.start()
@@ -806,7 +881,7 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
     func testCancellingALiveDecode_neverInterruptsTheEngine() async {
         recorder.stoppedURL = makeTemporaryAudio()
         transcriber.holdNextDecode()
-        let live = FakeLiveDictation(settings: Settings(), outcome: .committed(raw: "live"))
+        let live = FakeLiveDictation(settings: Settings(), outcome: .committed(raw: "live", language: "en"))
         let session = makeSession(live: live)
         session.start()
 

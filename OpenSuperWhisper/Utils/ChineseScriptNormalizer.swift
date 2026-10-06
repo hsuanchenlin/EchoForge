@@ -33,10 +33,13 @@ import Foundation
 ///    punctuation, whitespace, timestamps and emoji come out byte for byte as
 ///    they went in, because a character whose transform is not exactly one
 ///    character is kept as it was.
-/// 3. **Only a Chinese transcript is converted at all** - both the dictation
-///    language and the text itself have to say so
-///    (`ChineseScriptVariant.isChineseText`), which is the same predicate the
-///    rewriting stage asks the same question with.
+/// 3. **Only a Chinese transcript is converted at all**
+///    (`ChineseScriptVariant.isChineseOutput`). A Chinese dictation language
+///    answers that on its own, because the user named both the language and the
+///    script and the conversion is a no-op on everything that is not Han; every
+///    other language has to earn it from the text, Han-dominant with no kana or
+///    Hangul in it. Japanese and Korean are closed by their own language codes
+///    and by their own characters.
 /// 4. **It converts the recognizer's words, never the user's.** It runs at the
 ///    very front of `TextPostProcessor.process`, before the personal terms
 ///    dictionary splices in anything the user typed themselves, and the
@@ -52,14 +55,16 @@ enum ChineseScriptNormalizer {
     ///   - text: the recognizer's output, before anything the user wrote has
     ///     been spliced into it.
     ///   - variant: the user's chosen output script.
-    ///   - languageCode: the dictation language, or `auto`. Its job is to rule
-    ///     Chinese *out* for a language written in the same characters -
-    ///     Japanese kanji and Korean hanja are Han too, and converting 学 to 學
-    ///     in a Japanese transcript would be a corruption, not a normalization.
+    ///   - languageCode: the dictation language, or `auto`. It rules Chinese
+    ///     *out* for a language written in the same characters - Japanese kanji
+    ///     and Korean hanja are Han too, and converting 学 to 學 in a Japanese
+    ///     transcript would be a corruption, not a normalization - and it rules
+    ///     Chinese *in* when it names a Chinese language, which is the whole of
+    ///     `ChineseScriptVariant.isChineseOutput`.
     static func normalized(
         _ text: String, to variant: ChineseScriptVariant, languageCode: String
     ) -> String {
-        guard ChineseScriptVariant.isChineseText(text, languageCode: languageCode) else {
+        guard ChineseScriptVariant.isChineseOutput(text, languageCode: languageCode) else {
             return text
         }
         return convert(text, to: variant)

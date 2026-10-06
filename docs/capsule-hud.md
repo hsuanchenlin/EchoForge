@@ -97,11 +97,11 @@ Five rules in it are load-bearing:
   `beginPolishing(.rewriting)` is refused unless the capsule is already
   showing `.polishing(.transcribing)` - this session's own decode.
 - **So may decoded words**, and here the reason is still a global publisher:
-  `TranscriptionService.partialTranscript` carries every transcription's
-  segments, so `showPartialTranscript` is refused unless the capsule is showing
-  its own decode, and cleared when the rewrite starts - the pill then says what
-  it is doing with the text rather than keeping a line of transcript beside a
-  different promise.
+  `TranscriptionService.partialTranscript` carries other transcriptions'
+  segments too, so `showPartialTranscript` is refused unless the capsule is
+  showing its own decode, and cleared when the rewrite starts - the pill then
+  says what it is doing with the text rather than keeping a line of transcript
+  beside a different promise.
 
 ### The decoded-so-far line
 
@@ -126,10 +126,13 @@ during the decode. It is the same committed-only contract - every publication is
 the whole transcript so far, and it only grows - and it works on every local
 engine, since it is the session cutting utterances rather than the engine
 emitting segments. The two sources never take turns: once the live line has
-shown, the global publisher is ignored for the rest of the session, because the
-tail decode reaches it too as a fresh decode of one short piece, and letting it
-through would replace the whole committed transcript with the last utterance's
-segments the moment the key went up. A session that falls back publishes `nil`,
+shown, the global publisher is ignored for the rest of the session, and a live
+session's own utterance decodes - the tail decode included - publish no segments
+to it in the first place, so the last utterance's segments can never replace the
+whole committed transcript the moment the key went up.
+`docs/live-dictation.md` has why those decodes are silent: their words would
+reach the pill in the engine's own script a moment before the committed line put
+them in the user's. A session that falls back publishes `nil`,
 which `clearLiveTranscript` reads as handing the line back, and the whole-file
 decode's own segments then show as before. `CapsuleLiveTranscriptTests` holds
 both halves.
