@@ -696,16 +696,28 @@ class TranscriptionService: ObservableObject {
     /// script a Chinese preview is shown in: the segments go on screen before
     /// `finish` runs, so without this the capsule would show the engine's
     /// Simplified for the length of the decode and then paste the user's
-    /// Traditional. The dictation language here is the one the user chose -
-    /// `auto` leaves it unsettled and the segments show as the engine wrote
-    /// them, the live path being the one that can do better because its pin
-    /// names a language (`LiveLanguagePin`). Nothing published here reaches the
-    /// transcript - the paste is `finish`'s, over the raw text. See
-    /// `TranscriptPreviewScript`.
+    /// Traditional. The dictation language here is the one the user chose, and
+    /// `auto` leaves it unsettled, so those segments show as the engine wrote
+    /// them. Nothing published here reaches the transcript - the paste is
+    /// `finish`'s, over the raw text. See `TranscriptPreviewScript`.
+    ///
+    /// **Nil settings means this transcription's segments are not shown at
+    /// all**, and the callback is taken off the engine so an earlier
+    /// transcription's cannot outlive it. `decodeRaw` is the caller: a live
+    /// session draws its own line, one committed utterance at a time and in a
+    /// script it can only decide once its pin has landed, so publishing the
+    /// same words here - unconverted, from a decode whose language is still
+    /// `auto` - would put them on the capsule a moment before the line
+    /// replaced them in the user's script. That is a rewrite of words already
+    /// read, which the preview does not do.
     func observePartialTranscripts(
-        of engine: TranscriptionEngine, generation: Int, settings: Settings
+        of engine: TranscriptionEngine, generation: Int, settings: Settings?
     ) {
         guard let emitter = engine as? PartialTranscriptEmitting else { return }
+        guard let settings else {
+            emitter.onPartialTranscript = nil
+            return
+        }
         let script = settings.chineseOutputScript
         let language = settings.selectedLanguage
         emitter.onPartialTranscript = { [weak self] partial in
@@ -754,7 +766,9 @@ class TranscriptionService: ObservableObject {
         progress: @escaping @MainActor (StageEvent) -> Void = { _ in }
     ) async throws -> StyledTranscript {
         let timeoutOverride = decodeTimeoutOverride
-        return try await runEngineTranscription(publishing: { $0.final }, settings: settings) { engine in
+        return try await runEngineTranscription(
+            publishing: { $0.final }, showingSegmentsWith: settings
+        ) { engine in
             let raw = try await self.decodeWithDeadline(
                 engine: engine, url: url, settings: settings,
                 timeoutOverride: timeoutOverride, reporting: false)
@@ -767,12 +781,14 @@ class TranscriptionService: ObservableObject {
     /// post-processing, no rewriting, nothing routed.
     ///
     /// The same frame `transcribeAudio` runs in - serialised against every other
-    /// transcription on the engine, its own generation, progress and committed
-    /// segments published, cancellable - so a caller that decodes pieces of a
-    /// dictation while the microphone is still open queues behind, and ahead
-    /// of, whole-file work exactly as that work queues behind it. What it returns
-    /// has been through no stage of `docs/text-post-processing.md`; `finish`
-    /// is how it gets there.
+    /// transcription on the engine, its own generation, its progress published,
+    /// cancellable - so a caller that decodes pieces of a dictation while the
+    /// microphone is still open queues behind, and ahead of, whole-file work
+    /// exactly as that work queues behind it. Its committed segments are the
+    /// one thing it does **not** publish: the caller shows the words itself,
+    /// in a script this decode cannot yet know (`observePartialTranscripts`).
+    /// What it returns has been through no stage of
+    /// `docs/text-post-processing.md`; `finish` is how it gets there.
     ///
     /// Beside the text it carries the language the decode ran in, from an
     /// engine that can say (`DecodeLanguageReporting`), which is how a live
@@ -780,7 +796,9 @@ class TranscriptionService: ObservableObject {
     /// (`LiveLanguagePin`). An engine that cannot say reports nil.
     func decodeRaw(url: URL, settings: Settings) async throws -> RawDecode {
         let timeoutOverride = decodeTimeoutOverride
-        return try await runEngineTranscription(publishing: { $0.text }, settings: settings) { engine in
+        return try await runEngineTranscription(
+            publishing: { $0.text }, showingSegmentsWith: nil
+        ) { engine in
             try await self.decodeWithDeadline(
                 engine: engine, url: url, settings: settings,
                 timeoutOverride: timeoutOverride, reporting: true)
@@ -893,11 +911,13 @@ class TranscriptionService: ObservableObject {
     }
 
     /// The frame for work that needs the engine: `runTranscription` with the
-    /// engine loaded, and its progress and committed segments wired to the
-    /// published state, before `work` is handed it.
+    /// engine loaded, and its progress - and, for work whose segments the
+    /// capsule shows, its committed segments - wired to the published state
+    /// before `work` is handed it. Nil settings is work that draws its own
+    /// line; see `observePartialTranscripts`.
     private func runEngineTranscription<Result: Sendable>(
         publishing text: @escaping @Sendable (Result) -> String,
-        settings: Settings,
+        showingSegmentsWith settings: Settings?,
         _ work: @escaping @Sendable (TranscriptionEngine) async throws -> Result
     ) async throws -> Result {
         let loadTimeout = loadTimeoutOverride ?? Self.loadTimeout

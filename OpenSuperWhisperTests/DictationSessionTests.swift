@@ -505,14 +505,14 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
         XCTAssertEqual(insertion.inserted, ["Live words."])
     }
 
-    /// The transcript is finished under the language the session decoded in,
-    /// which on `auto` is the one its detection pinned - not the `auto` the
-    /// user's settings still carry. That is what keeps the script the capsule
-    /// showed and the script the paste arrives in one answer: the transcript
+    /// A session that pinned Chinese is finished under it rather than under the
+    /// `auto` the user's settings still carry. That is what keeps the script
+    /// the capsule showed and the script the paste arrives in one answer: the
+    /// transcript
     /// stage's share test would otherwise leave a code-switched Mandarin
     /// sentence in the engine's Simplified after the capsule had shown it in
     /// the user's Traditional (`TranscriptPreviewScript`).
-    func testACommittedLiveSessionIsFinishedUnderTheLanguageItDecodedIn() async {
+    func testACommittedLiveSessionIsFinishedUnderAPinnedChineseLanguage() async {
         recorder.stoppedURL = makeTemporaryAudio()
         let live = FakeLiveDictation(
             settings: Self.settings(language: "auto"),
@@ -525,6 +525,36 @@ final class DictationSessionTests: IsolatedPreferencesTestCase {
         await waitForEnd(session)
 
         XCTAssertEqual(transcriber.finishedSettings.map(\.selectedLanguage), ["zh"])
+    }
+
+    /// A pin to anything but Chinese is not substituted. The output script is
+    /// the only finishing stage the detection was added to decide, and
+    /// `selectedLanguage` is read by more than that one: a pinned `ja` would
+    /// turn `isAsianLanguage` on and respace a Japanese paste that gets no
+    /// script conversion at all, so that paste has to stay what it was.
+    func testAPinnedJapaneseLiveSessionIsFinishedUnderTheChosenLanguage() async {
+        recorder.stoppedURL = makeTemporaryAudio()
+        let live = FakeLiveDictation(
+            settings: Self.settings(language: "auto"),
+            outcome: .committed(raw: "ReactのuseEffectを使います", language: "ja"))
+        transcriber.finishedResult = .success(.stub("ReactのuseEffectを使います"))
+        let session = makeSession(live: live)
+        session.start()
+
+        session.stop()
+        await waitForEnd(session)
+
+        var substituted = Self.settings(language: "ja")
+        XCTAssertTrue(
+            substituted.shouldApplyAsianAutocorrect,
+            "this fixture only means something while substituting `ja` would change the paste")
+        substituted.selectedLanguage = "auto"
+        XCTAssertFalse(substituted.shouldApplyAsianAutocorrect)
+
+        XCTAssertEqual(transcriber.finishedSettings.map(\.selectedLanguage), ["auto"])
+        XCTAssertEqual(
+            transcriber.finishedSettings.map(\.shouldApplyAsianAutocorrect), [false],
+            "a pinned `ja` must not switch the CJK/Latin spacing of the paste on")
     }
 
     /// And a session that never pinned is finished under exactly what the user

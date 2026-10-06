@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 
 @testable import OpenSuperWhisper
@@ -85,16 +86,31 @@ final class PartialTranscriptEngineTests: XCTestCase {
 @MainActor
 final class ServicePartialTranscriptScriptTests: IsolatedPreferencesTestCase {
 
-    /// One engine that reports a segment on cue. Nothing else about a decode
-    /// is needed: the published preview is written where the callback lands.
-    private final class SegmentingEngine: TranscriptionEngine, PartialTranscriptEmitting {
+    /// One engine that reports a segment on cue - either when a test fires the
+    /// callback itself, or from inside a real decode when `emitting` names the
+    /// segment. Nothing else about a decode is needed: the published preview is
+    /// written where the callback lands.
+    private final class SegmentingEngine: TranscriptionEngine, PartialTranscriptEmitting,
+        @unchecked Sendable
+    {
         var isModelLoaded = true
         var engineName: String { "segmenting" }
         var onProgressUpdate: ((Float) -> Void)?
         var onPartialTranscript: ((PartialTranscript) -> Void)?
 
+        private let emitting: String?
+
+        init(emitting: String? = nil) { self.emitting = emitting }
+
         func initialize() async throws {}
-        func transcribeAudio(url: URL, settings: Settings) async throws -> String { "" }
+
+        func transcribeAudio(url: URL, settings: Settings) async throws -> String {
+            guard let emitting else { return "" }
+            onPartialTranscript?(
+                PartialTranscript(text: emitting, segment: emitting, segmentCount: 1))
+            return emitting
+        }
+
         func cancelTranscription() {}
         func getSupportedLanguages() -> [String] { [] }
     }
@@ -165,6 +181,95 @@ final class ServicePartialTranscriptScriptTests: IsolatedPreferencesTestCase {
         let shown = await published("这个项目的进度很好", language: "auto", script: .traditional)
 
         XCTAssertEqual(shown?.text, "这个项目的进度很好")
+    }
+
+    // MARK: - The decode that draws its own line
+
+    /// A live session's utterance decode publishes no segments here at all.
+    ///
+    /// The capsule is already in `.polishing(.transcribing)` while `finish`
+    /// decodes the tail - the one state `showPartialTranscript` accepts this
+    /// global publisher in - so segments published from a live decode would go
+    /// up in the engine's own script, under the `auto` the decode still runs in,
+    /// and be replaced a moment later by the committed line in the user's
+    /// script. That is a rewrite of words already read.
+    func testARawDecodePublishesNoSegments() async throws {
+        let engine = SegmentingEngine(emitting: "我们开会")
+        let service = TranscriptionService()
+        service.engineOverride = engine
+        let shown = Shown()
+        let watching = service.$partialTranscript.compactMap { $0 }.sink { shown.append($0) }
+        defer { watching.cancel() }
+
+        _ = try await service.decodeRaw(url: Self.audioURL, settings: Self.chineseSettings())
+        await Self.settle(until: { !shown.texts.isEmpty })
+
+        XCTAssertEqual(shown.texts, [], "a live session's own decode put words on the capsule")
+        XCTAssertNil(
+            engine.onPartialTranscript,
+            "and its callback must not be left on the engine for a later frame to fire")
+    }
+
+    /// And the whole-file decode still does, which is what makes the case above
+    /// a decision rather than a dead callback: the same engine, the same
+    /// segment, through `transcribeAudio`.
+    func testAWholeFileDecodeStillPublishesItsSegments() async throws {
+        let engine = SegmentingEngine(emitting: "我们开会")
+        let service = TranscriptionService()
+        service.engineOverride = engine
+        let shown = Shown()
+        let watching = service.$partialTranscript.compactMap { $0 }.sink { shown.append($0) }
+        defer { watching.cancel() }
+
+        _ = try await service.transcribeAudio(
+            url: Self.audioURL, settings: Self.chineseSettings())
+        await Self.settle(until: { !shown.texts.isEmpty })
+
+        XCTAssertEqual(
+            shown.texts, ["我們開會"],
+            "the whole-file decode's own segments are still shown, in the chosen script")
+    }
+
+    /// What reached the publisher, collected off the main actor's turns.
+    private final class Shown: @unchecked Sendable {
+        private let lock = NSLock()
+        private var values: [String] = []
+
+        func append(_ partial: PartialTranscript) {
+            lock.lock(); defer { lock.unlock() }
+            values.append(partial.text)
+        }
+
+        var texts: [String] {
+            lock.lock(); defer { lock.unlock() }
+            return values
+        }
+    }
+
+    /// Waits for the main-actor hop each publish makes, up to a budget, so the
+    /// positive case cannot pass on timing and the negative case cannot fail on
+    /// it.
+    private static func settle(until satisfied: () -> Bool) async {
+        for _ in 0..<50 where !satisfied() {
+            try? await Task.sleep(nanoseconds: 2_000_000)
+        }
+    }
+
+    /// Chinese dictation with Traditional output and every optional stage off,
+    /// so the only thing that can change the published text is the script.
+    private static func chineseSettings() -> Settings {
+        var settings = Settings()
+        settings.selectedLanguage = "zh"
+        settings.chineseOutputScript = .traditional
+        settings.useAsianAutocorrect = false
+        settings.safeCorrectionEnabled = false
+        settings.styleRewrite = .disabled
+        return settings
+    }
+
+    private static var audioURL: URL {
+        URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .appendingPathComponent("test_audio.m4a")
     }
 }
 

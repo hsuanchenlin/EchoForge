@@ -144,15 +144,25 @@ whose whisper segments are what shows after a fallback. Four things hold it:
   utterance already read: a detection that lands mid-session decides the script of the words
   after it, and the words on screen stay exactly as they were shown. Nothing is sticky and
   there is nothing to latch; the property is structural.
+
+  It holds through the stop, too, which takes the second publisher out of the picture: the
+  capsule is already in `.polishing(.transcribing)` while `finish` decodes the tail - the one
+  state `CapsuleHUDViewModel.showPartialTranscript` accepts the global publisher in - so an
+  utterance decode that published its own segments would put the engine's unconverted words
+  up a moment before the committed line replaced them in the user's script. So a live
+  session's decodes publish no segments at all (`decodeRaw` passes no preview settings to
+  `TranscriptionService.observePartialTranscripts`, which takes the callback off the engine).
+  The second line stays blank for the length of the tail decode, which is the price, and no
+  character on screen is ever rewritten.
 - **The preview can never show a script the paste will not produce.** A Chinese language is
   also the branch of `ChineseScriptVariant.isChineseOutput` that needs no evidence, and
   `finish` hands the language it decoded in back beside the transcript
   (`LiveDictationOutcome.committed`), which `DictationSession` finishes under in place of
-  `auto`. So a pinned session's paste converts the same characters the same way the line did -
-  including the code-switched sentence `这个 PR should be ready by Friday`, whose Han share is
-  below `hanShareThreshold` and which the transcript stage would have left in Simplified had it
-  still been asked under `auto`. That substitution is the only settings value this path
-  changes, and no preference is written (`LiveLanguagePin`).
+  `auto` **when it is a Chinese language**. So a pinned Mandarin session's paste converts the
+  same characters the same way the line did - including the code-switched sentence
+  `这个 PR should be ready by Friday`, whose Han share is below `hanShareThreshold` and which
+  the transcript stage would have left in Simplified had it still been asked under `auto`.
+  Nothing else is substituted, and no preference is written (`LiveLanguagePin`).
 
 **What a Mandarin speaker on `auto` sees depends on the engine.** `LiveLanguagePin` can only
 pin a language an engine reports, and `DecodeLanguageReporting` is Whisper's alone. On Whisper
@@ -239,14 +249,15 @@ dictation cannot be decoded under one prompt and language and post-processed und
 Without a session they are built at stop, as before. The one value read differently is the
 language, below; `LiveDictationSession.settings` itself never changes.
 
-That one value is read differently in both directions, which is the point: a pinned session is
-decoded *and* finished under the language it pinned, so the decode, the preview and the paste
-cannot be three answers. `DictationSession.transcribe` makes the finish copy from the language
-the outcome names, and the stages downstream of it read that language - the output script
-(above) and, with it, `isAsianLanguage`, so an `auto` session pinned to Mandarin, Japanese or
-Korean now gets the CJK/Latin spacing an explicitly-chosen one always got. The detection is
-either trusted by every stage or by none; trusting it for the script alone would be the same
-split this section exists to refuse.
+A session that pinned a **Chinese** language is finished under it as well as decoded in it, so
+the decode, the preview and the paste cannot be three answers about the script
+(`DictationSession.transcribe` makes that one finish copy). A pin to any other language is not
+substituted. That asymmetry is deliberate and is the scope of the detection rather than a
+special case for Chinese: the output script is the only finishing stage the pin was added to
+decide, and `selectedLanguage` is read by more than that one - `isAsianLanguage` among them, so
+substituting a pinned `ja` or `ko` would switch the CJK/Latin spacing of a paste that gets no
+script conversion at all. A pinned non-Chinese session's pasted text is therefore byte for byte
+what it was before any of this existed.
 
 ## The language is decided once per session
 

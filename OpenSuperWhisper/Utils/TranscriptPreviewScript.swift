@@ -35,7 +35,12 @@ import Foundation
 ///    shown, and the whole-file decode's growing partials are judged by a
 ///    language that cannot change while the decode runs. A detection that
 ///    lands mid-session therefore decides the script of the words after it and
-///    never of the words already read.
+///    never of the words already read. The two callers never write the same
+///    line either: a live session's own utterance decodes publish no segments
+///    of their own (`TranscriptionService.observePartialTranscripts`), so the
+///    service's publisher - whose language is the user's `auto`, with no pin to
+///    read - cannot put an unconverted copy of the tail on the capsule a moment
+///    before the line arrives in the user's script.
 /// 4. **It can never show a script the paste will not produce.** A Chinese
 ///    language is also the branch of `ChineseScriptVariant.isChineseOutput`
 ///    that needs no evidence, and a live session hands the language it decoded
