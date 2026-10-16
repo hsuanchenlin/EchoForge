@@ -262,6 +262,17 @@ class ContentViewModel: ObservableObject {
         recordings[index].aiCorrectedAt = aiCorrectedAt
     }
 
+    func handleManualEdit(
+        id: UUID, transcription: String, preservedOriginal: String?
+    ) {
+        guard let index = recordings.firstIndex(where: { $0.id == id }) else { return }
+        recordings[index].transcription = transcription
+        if let preservedOriginal {
+            recordings[index].rawTranscription = preservedOriginal
+        }
+        recordings[index].aiCorrectedAt = nil
+    }
+
     func deleteRecording(_ recording: Recording) {
         recordingStore.deleteRecording(recording)
         if let index = recordings.firstIndex(where: { $0.id == recording.id }) {
@@ -876,6 +887,14 @@ struct ContentView: View {
             viewModel.handleCorrection(
                 id: id, transcription: transcription,
                 rawTranscription: rawTranscription, aiCorrectedAt: aiCorrectedAt)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: RecordingStore.recordingDidManuallyEditNotification)) { notification in
+            guard let userInfo = notification.userInfo,
+                  let id = userInfo["id"] as? UUID,
+                  let transcription = userInfo["transcription"] as? String else { return }
+            viewModel.handleManualEdit(
+                id: id, transcription: transcription,
+                preservedOriginal: userInfo["rawTranscription"] as? String)
         }
         // There used to be a full-window scrim here whenever a model was
         // loading - "Loading Whisper Model..." over a dimmed, unusable history.

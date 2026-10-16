@@ -173,10 +173,10 @@ final class HistoryRowActionTests: XCTestCase {
 
     /// A finished recording with words in it is the only state where everything
     /// applies.
-    func testAFinishedRowOffersAllSix() {
+    func testAFinishedRowOffersEveryAction() {
         XCTAssertEqual(
             HistoryRowActionKind.available(for: .completed, hasTranscript: true),
-            [.play, .copy, .export, .fixWithAI, .regenerate, .delete])
+            [.play, .copy, .export, .edit, .fixWithAI, .regenerate, .delete])
     }
 
     /// "No speech detected" is a finished row with nothing in it. There is
@@ -243,11 +243,11 @@ final class HistoryRowActionTests: XCTestCase {
         }
     }
 
-    /// The two actions with a tooltip longer than their label. "Fix with AI"
-    /// says nothing about what it fixes or where it runs, and "Export
-    /// transcript" says nothing about the user choosing where it goes - which is
-    /// the whole safety story of that press.
-    func testTheTwoActionsThatNeedExplainingExplainThemselves() {
+    /// The actions with a tooltip longer than their label. "Fix with AI"
+    /// says nothing about what it fixes or where it runs, "Export transcript"
+    /// says nothing about the user choosing where it goes, and "Edit
+    /// transcript" is the pencil that would otherwise look like another copy.
+    func testTheActionsThatNeedExplainingExplainThemselves() {
         let fix = HistoryRowActionKind.fixWithAI.help
         XCTAssertNotNil(fix)
         XCTAssertTrue(fix?.contains("this Mac") == true, "the tooltip must say where it runs")
@@ -258,7 +258,13 @@ final class HistoryRowActionTests: XCTestCase {
             export?.contains("you choose") == true,
             "the tooltip must say the destination is the user's")
 
-        for kind in HistoryRowActionKind.allCases where kind != .fixWithAI && kind != .export {
+        XCTAssertEqual(
+            HistoryRowActionKind.edit.help, "Edit the transcribed text manually")
+        XCTAssertEqual(HistoryRowActionKind.edit.label(isPlaying: false), "Edit transcript")
+        XCTAssertEqual(HistoryRowActionKind.edit.symbolName(isPlaying: false), "pencil")
+
+        for kind in HistoryRowActionKind.allCases
+        where kind != .fixWithAI && kind != .export && kind != .edit {
             XCTAssertNil(kind.help, "\(kind.rawValue) grew a tooltip its label already carries")
         }
     }

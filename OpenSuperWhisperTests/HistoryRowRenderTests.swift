@@ -166,6 +166,24 @@ final class HistoryRowRenderTests: XCTestCase {
             "the light card is not distinct from the window canvas")
     }
 
+    // MARK: - Manual edit
+
+    /// The editor is a text area plus the two buttons that close it, in the
+    /// same place the static transcript sat. Both widths have to keep Save and
+    /// Cancel on the card.
+    @MainActor
+    func testAnEditingRowShowsSaveAndCancelAtBothWidths() throws {
+        for tier in HistoryWidthTier.allCases {
+            try assertRow(
+                named: "editing-\(tier.rawValue)",
+                recording: recording(status: .completed),
+                initiallyEditing: true,
+                tier: tier,
+                showing: ["Save", "Cancel"]
+            )
+        }
+    }
+
     // MARK: - Fix with AI
 
     /// A corrected row says so, and keeps the way back to what it said before.
@@ -275,7 +293,10 @@ final class HistoryRowRenderTests: XCTestCase {
                 recording: recording,
                 corrections: corrections,
                 tier: tier,
-                showing: ["Apple Intelligence", "quick brown fox"]
+                // "fox" is left out: Vision has read it as "tox" on this
+                // caption-sized card, and "AI" as "Al". The settings sentence
+                // and the rest of the transcript are what identify the state.
+                showing: ["System Settings", "lazy dog"]
             )
         }
     }
@@ -522,14 +543,16 @@ final class HistoryRowRenderTests: XCTestCase {
         _ recording: Recording,
         corrections: TranscriptCorrectionCoordinator? = nil,
         exports: TranscriptExportCoordinator? = nil,
-        searchQuery: String = ""
+        searchQuery: String = "",
+        initiallyEditing: Bool = false
     ) -> AnyView {
         AnyView(
             RecordingRow(
                 recording: recording, searchQuery: searchQuery, onDelete: {}, onRegenerate: {},
                 corrections: corrections ?? TranscriptCorrectionCoordinator(),
                 exports: exports ?? TranscriptExportCoordinator(
-                    choosing: { _, _ in nil }, writing: { _, _ in })))
+                    choosing: { _, _ in nil }, writing: { _, _ in }),
+                initiallyEditing: initiallyEditing))
     }
 
     // MARK: - Rendering
@@ -541,6 +564,7 @@ final class HistoryRowRenderTests: XCTestCase {
         corrections: TranscriptCorrectionCoordinator? = nil,
         exports: TranscriptExportCoordinator? = nil,
         searchQuery: String = "",
+        initiallyEditing: Bool = false,
         tier: HistoryWidthTier,
         scheme: ColorScheme = .light,
         showing fragments: [String],
@@ -550,7 +574,7 @@ final class HistoryRowRenderTests: XCTestCase {
         let hosting = try hostingView(
             for: row(
                 recording, corrections: corrections, exports: exports,
-                searchQuery: searchQuery),
+                searchQuery: searchQuery, initiallyEditing: initiallyEditing),
             width: width,
             metrics: HistoryRowMetrics.metrics(for: tier), scheme: scheme)
 

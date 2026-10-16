@@ -33,6 +33,13 @@ class RecordingStore: ObservableObject {
         }
     }
 
+    /// A store against a database the caller owns, so a test can save without
+    /// touching the user's recordings. The queue is already migrated.
+    init(database dbQueue: DatabaseQueue, recordings: [Recording] = []) {
+        self.dbQueue = dbQueue
+        self.recordings = recordings
+    }
+
     private nonisolated func setupDatabase() throws {
         try Self.makeMigrator().migrate(dbQueue)
     }
@@ -650,4 +657,68 @@ class RecordingStore: ObservableObject {
 
     static let recordingDidCorrectNotification = Notification.Name(
         "RecordingStore.recordingDidCorrect")
+
+    /// Writes a manual transcript edit over one row.
+    ///
+    /// Its own method rather than a whole-row `update`, for the reason
+    /// `applyCorrection` is: the row may be being written by the queue at the
+    /// same moment, and this must replace the transcript without carrying a
+    /// stale status or progress back over the top of it.
+    ///
+    /// `preservedOriginal` is written only when the row had no original worth
+    /// keeping, so "Show original" and "Compare" still have something to
+    /// disclose. A row that already stores one keeps it. `aiCorrectedAt` is
+    /// cleared because the words on the card are now the user's, and a badge
+    /// saying a model wrote them would be a lie.
+    func applyManualEdit(
+        _ id: UUID, transcription: String, preservedOriginal: String?,
+        expectedTranscription: String
+    ) async -> ManualEditCommitResult {
+        let changed: Int
+        do {
+            changed = try await dbQueue.write { db -> Int in
+                let matching = Recording
+                    .filter(Recording.Columns.id == id)
+                    .filter(Recording.Columns.status == RecordingStatus.completed.rawValue)
+                    .filter(Recording.Columns.transcription == expectedTranscription)
+                if let preservedOriginal {
+                    return try matching.updateAll(db, [
+                        Recording.Columns.transcription.set(to: transcription),
+                        Recording.Columns.rawTranscription.set(to: preservedOriginal),
+                        Recording.Columns.aiCorrectedAt.set(to: nil as Date?),
+                    ])
+                }
+                return try matching.updateAll(db, [
+                    Recording.Columns.transcription.set(to: transcription),
+                    Recording.Columns.aiCorrectedAt.set(to: nil as Date?),
+                ])
+            }
+        } catch {
+            print("Failed to store the manual edit: \(error)")
+            return .failed
+        }
+
+        guard changed == 1 else { return .superseded }
+
+        if let index = recordings.firstIndex(where: { $0.id == id }) {
+            recordings[index].transcription = transcription
+            if let preservedOriginal {
+                recordings[index].rawTranscription = preservedOriginal
+            }
+            recordings[index].aiCorrectedAt = nil
+        }
+        var userInfo: [String: Any] = ["id": id, "transcription": transcription]
+        if let preservedOriginal {
+            userInfo["rawTranscription"] = preservedOriginal
+        }
+        NotificationCenter.default.post(
+            name: Self.recordingDidManuallyEditNotification,
+            object: nil,
+            userInfo: userInfo
+        )
+        return .applied
+    }
+
+    static let recordingDidManuallyEditNotification = Notification.Name(
+        "RecordingStore.recordingDidManuallyEdit")
 }
