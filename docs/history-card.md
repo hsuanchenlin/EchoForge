@@ -42,9 +42,9 @@ more" under it).
 
 ## Actions
 
-`HistoryRowActionKind.available(for:hasTranscript:isEditing:)` is a pure function of the
-recording's status, whether it has any words in it, and whether the inline editor is
-already open, and it is read **three times**:
+`HistoryRowActionKind.available(for:hasTranscript:isEditing:isCorrecting:)` is a pure function of the
+recording's status, whether it has any words in it, whether the inline editor is
+already open, and whether Fix with AI is still running, and it is read **three times**:
 to draw the hover bar, to fill the right-click menu, and to register the same actions
 with VoiceOver. Hover is a pointer affordance and a VoiceOver user has no pointer, so a
 bar that were the only route to delete would be no route at all - and three
@@ -65,7 +65,8 @@ cancel. Save is disabled while the draft is empty, so a recording cannot be blan
 into "No speech detected". The typed text is written through
 `RecordingStore.applyManualEdit`. A failed write leaves the editor open with the
 draft still there; a write that lands, or a regeneration that superseded it, closes
-the editor. The Edit action is omitted while the editor is open. If the row had no
+the editor. The Edit action is omitted while the editor is open, and while Fix with
+AI is running on the row. If the row had no
 `rawTranscription` yet, the text the card showed before the edit is stored as that
 original, so **Show original** and **Compare** still have something to disclose; a
 row that already keeps the engine's words (post-processing or a previous Fix with

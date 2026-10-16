@@ -248,13 +248,13 @@ enum HistoryTimestamp {
 /// the buttons that carry it.
 ///
 /// Which actions a row offers depends on its status, whether it has any words
-/// in it, and whether the inline editor is already open. Getting that wrong is
-/// not a cosmetic bug: a play button on a recording that has not been written
-/// yet, or a missing delete on a row stuck in the queue, is the user unable to
-/// get out of a state. So the decision is a pure function here, and
-/// `RecordingRow` reads it three times - to draw the hover bar, to fill the
-/// context menu, and to register the same actions with VoiceOver, which has no
-/// pointer to hover with.
+/// in it, whether the inline editor is already open, and whether Fix with AI
+/// is still running. Getting that wrong is not a cosmetic bug: a play button
+/// on a recording that has not been written yet, or a missing delete on a row
+/// stuck in the queue, is the user unable to get out of a state. So the
+/// decision is a pure function here, and `RecordingRow` reads it three times -
+/// to draw the hover bar, to fill the context menu, and to register the same
+/// actions with VoiceOver, which has no pointer to hover with.
 enum HistoryRowActionKind: String, CaseIterable, Sendable {
     case play
     case copy
@@ -284,11 +284,13 @@ enum HistoryRowActionKind: String, CaseIterable, Sendable {
     /// app's own failure message rather than the user's words. The same rule
     /// the stage itself applies; see `TranscriptCorrection.request(for:)`.
     ///
-    /// `edit` is omitted while the inline editor is already open: Save and
-    /// Cancel are the way out of that session, and the pencil is not a second
-    /// one.
+    /// `edit` is omitted while the inline editor is already open, and while
+    /// Fix with AI is still running on this row: Save and Cancel are the way
+    /// out of the session, and a correction that lands would drop a draft
+    /// started in the wait.
     static func available(
-        for status: RecordingStatus, hasTranscript: Bool, isEditing: Bool = false
+        for status: RecordingStatus, hasTranscript: Bool, isEditing: Bool = false,
+        isCorrecting: Bool = false
     ) -> [HistoryRowActionKind] {
         switch status {
         case .pending, .converting, .transcribing:
@@ -299,7 +301,7 @@ enum HistoryRowActionKind: String, CaseIterable, Sendable {
             guard hasTranscript else {
                 return [.play, .copy, .regenerate, .delete]
             }
-            return isEditing
+            return isEditing || isCorrecting
                 ? [.play, .copy, .export, .fixWithAI, .regenerate, .delete]
                 : [.play, .copy, .export, .edit, .fixWithAI, .regenerate, .delete]
         }

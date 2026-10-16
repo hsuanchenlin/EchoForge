@@ -188,6 +188,16 @@ final class HistoryRowActionTests: XCTestCase {
             [.play, .copy, .export, .fixWithAI, .regenerate, .delete])
     }
 
+    /// Fix with AI keeps the row completed for the whole model wait. Offering
+    /// Edit in that window lets the user type a draft the landing correction
+    /// then discards.
+    func testARowBeingFixedWithAIDoesNotOfferEdit() {
+        XCTAssertEqual(
+            HistoryRowActionKind.available(
+                for: .completed, hasTranscript: true, isCorrecting: true),
+            [.play, .copy, .export, .fixWithAI, .regenerate, .delete])
+    }
+
     /// "No speech detected" is a finished row with nothing in it. There is
     /// nothing for a model to fix and nothing to put in a document either -
     /// `TranscriptExport.document(for:)` refuses the same row on the way in.

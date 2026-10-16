@@ -656,7 +656,7 @@ struct RecordingRow: View {
         HistoryRowActionKind
             .available(
                 for: recording.status, hasTranscript: !displayText.isEmpty,
-                isEditing: editing.isEditing)
+                isEditing: editing.isEditing, isCorrecting: isCorrecting)
             .map { kind in
                 HistoryRowAction(
                     kind: kind,
