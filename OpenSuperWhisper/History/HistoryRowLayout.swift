@@ -244,7 +244,7 @@ enum HistoryTimestamp {
 
 // MARK: - Actions
 
-/// The six things a history row can do to itself, as a decision separate from
+/// The seven things a history row can do to itself, as a decision separate from
 /// the buttons that carry it.
 ///
 /// Which actions a row offers depends on its status, whether it has any words

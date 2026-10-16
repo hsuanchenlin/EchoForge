@@ -2,8 +2,9 @@
 
 The main window's list of recordings, one card per row: `OpenSuperWhisper/History/`.
 `RecordingRow` draws a card, `HistoryRowLayout.swift` holds every decision the card
-makes about *how* rather than *what*, and `HistoryProvenanceBadge` supplies the pill
-that says what produced the row (`docs/history-provenance.md`).
+makes about *how* rather than *what*, `ManualTranscriptEdit.swift` holds the write a
+Save produces and the card-local editor session, and `HistoryProvenanceBadge` supplies
+the pill that says what produced the row (`docs/history-provenance.md`).
 
 ## Two layouts, one threshold
 
@@ -69,8 +70,8 @@ the editor. The Edit action is omitted while the editor is open, and while Fix w
 AI is running on the row. If the row had no
 `rawTranscription` yet, the text the card showed before the edit is stored as that
 original, so **Show original** and **Compare** still have something to disclose; a
-row that already keeps the engine's words (post-processing or a previous Fix with
-AI) leaves that copy alone. A later edit, or a regeneration that lands while the
+row that already stores an original (post-processing, Fix with AI, or a previous
+edit) leaves that copy alone. A later edit, or a regeneration that lands while the
 editor is open, must not overwrite it. The "AI Polished" mark is cleared, because
 the words on the card are now the user's.
 
