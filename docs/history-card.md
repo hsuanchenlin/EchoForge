@@ -42,8 +42,9 @@ more" under it).
 
 ## Actions
 
-`HistoryRowActionKind.available(for:hasTranscript:)` is a pure function of the
-recording's status and whether it has any words in it, and it is read **three times**:
+`HistoryRowActionKind.available(for:hasTranscript:isEditing:)` is a pure function of the
+recording's status, whether it has any words in it, and whether the inline editor is
+already open, and it is read **three times**:
 to draw the hover bar, to fill the right-click menu, and to register the same actions
 with VoiceOver. Hover is a pointer affordance and a VoiceOver user has no pointer, so a
 bar that were the only route to delete would be no route at all - and three
@@ -60,12 +61,16 @@ row that has words, and writes a file the user chooses rather than the clipboard
 
 **Edit transcript** is the pencil on the same completed row. A press replaces the
 static transcript with an inline editor, Save and Cancel, ⌘↩ to save and Escape to
-cancel. The typed text is written through `RecordingStore.applyManualEdit`. If the
-row had no `rawTranscription` yet, the text the card showed before the edit is stored
-as that original, so **Show original** and **Compare** still have something to
-disclose; a row that already keeps the engine's words (post-processing or a previous
-Fix with AI) leaves that copy alone. A later edit, or a regeneration that lands while
-the editor is open, must not overwrite it. The "AI Polished" mark is cleared, because
+cancel. Save is disabled while the draft is empty, so a recording cannot be blanked
+into "No speech detected". The typed text is written through
+`RecordingStore.applyManualEdit`. A failed write leaves the editor open with the
+draft still there; a write that lands, or a regeneration that superseded it, closes
+the editor. The Edit action is omitted while the editor is open. If the row had no
+`rawTranscription` yet, the text the card showed before the edit is stored as that
+original, so **Show original** and **Compare** still have something to disclose; a
+row that already keeps the engine's words (post-processing or a previous Fix with
+AI) leaves that copy alone. A later edit, or a regeneration that lands while the
+editor is open, must not overwrite it. The "AI Polished" mark is cleared, because
 the words on the card are now the user's.
 
 **Fix with AI** (`docs/history-ai-fix.md`) is the one action that asks a model: it only

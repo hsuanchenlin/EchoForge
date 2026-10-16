@@ -68,6 +68,14 @@ final class ManualTranscriptEditTests: XCTestCase {
         XCTAssertNil(ManualTranscriptEdit.preparing(draft: "hello", on: recording))
     }
 
+    /// Blanking the card would draw "No speech detected" and hide Edit, so
+    /// the original words could not be typed back.
+    func testAnEmptyDraftIsNotAWrite() {
+        let recording = recording(transcription: "hello")
+        XCTAssertNil(ManualTranscriptEdit.preparing(draft: "", on: recording))
+        XCTAssertNil(ManualTranscriptEdit.preparing(draft: "   \n", on: recording))
+    }
+
     // MARK: - Cancel
 
     func testCancelingDropsTheDraftWithoutProducingAWrite() {
@@ -81,16 +89,34 @@ final class ManualTranscriptEditTests: XCTestCase {
         XCTAssertNil(session.save(on: recording(transcription: "hello")))
     }
 
-    func testSavingExitsEditModeAndReturnsTheWrite() {
+    func testSavingReturnsTheWriteWithoutLeavingTheSession() {
         var session = HistoryTranscriptEditing()
         session.begin(transcript: "hello")
         session.draftTranscription = "Hello"
         let recording = recording(transcription: "hello")
 
         let edit = session.save(on: recording)
-        XCTAssertFalse(session.isEditing)
+        XCTAssertTrue(session.isEditing)
+        XCTAssertEqual(session.draftTranscription, "Hello")
         XCTAssertEqual(edit?.transcription, "Hello")
         XCTAssertEqual(edit?.preservedOriginal, "hello")
+    }
+
+    func testSavingAnEmptyDraftWritesNothingAndKeepsTheSession() {
+        var session = HistoryTranscriptEditing()
+        session.begin(transcript: "hello")
+        session.draftTranscription = "   "
+
+        XCTAssertFalse(session.canSave)
+        XCTAssertNil(session.save(on: recording(transcription: "hello")))
+        XCTAssertTrue(session.isEditing)
+        XCTAssertEqual(session.draftTranscription, "   ")
+    }
+
+    func testAFailedWriteLeavesTheEditorOpen() {
+        XCTAssertTrue(ManualEditCommitResult.applied.closesEditor)
+        XCTAssertTrue(ManualEditCommitResult.superseded.closesEditor)
+        XCTAssertFalse(ManualEditCommitResult.failed.closesEditor)
     }
 
     // MARK: - The store

@@ -15,9 +15,17 @@ struct ManualTranscriptEdit: Equatable, Sendable {
     /// `rawTranscription` as it is.
     let preservedOriginal: String?
 
-    /// The write a Save produces, or nil when the draft is already what the
-    /// row shows and there is no original to newly keep.
+    /// The write a Save produces, or nil when there is nothing to write: the
+    /// draft is empty, or it is already what the row shows and there is no
+    /// original to newly keep.
+    ///
+    /// An empty save would store a blank transcript, which the card draws as
+    /// "No speech detected" and which hides Edit, so the words could not be
+    /// typed back.
     static func preparing(draft: String, on recording: Recording) -> ManualTranscriptEdit? {
+        guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
         let preservedOriginal = Self.originalToPreserve(on: recording)
         if draft == recording.transcription, preservedOriginal == nil {
             return nil
@@ -53,15 +61,20 @@ struct HistoryTranscriptEditing: Equatable, Sendable {
         isEditing = false
     }
 
+    /// Whether Save should be offered. An empty draft is refused rather than
+    /// stored as a blank transcript.
+    var canSave: Bool {
+        isEditing
+            && !draftTranscription.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// The write to hand the store, or nil when there is nothing to save.
-    /// Leaves the session idle either way, which is Cancel's shape as well:
-    /// discarding the draft is the whole of not writing.
-    mutating func save(on recording: Recording) -> ManualTranscriptEdit? {
-        guard isEditing else { return nil }
-        let edit = ManualTranscriptEdit.preparing(
+    /// Leaves the session open: a failed write must not drop the draft, and an
+    /// empty draft is refused rather than stored.
+    func save(on recording: Recording) -> ManualTranscriptEdit? {
+        guard canSave else { return nil }
+        return ManualTranscriptEdit.preparing(
             draft: draftTranscription, on: recording)
-        cancel()
-        return edit
     }
 }
 
@@ -69,4 +82,15 @@ enum ManualEditCommitResult: Equatable {
     case applied
     case superseded
     case failed
+
+    /// Whether the inline editor should close. A failed write leaves it open
+    /// so the typed text is still there to retry.
+    var closesEditor: Bool {
+        switch self {
+        case .applied, .superseded:
+            return true
+        case .failed:
+            return false
+        }
+    }
 }

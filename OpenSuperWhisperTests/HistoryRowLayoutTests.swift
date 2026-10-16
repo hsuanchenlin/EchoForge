@@ -179,6 +179,15 @@ final class HistoryRowActionTests: XCTestCase {
             [.play, .copy, .export, .edit, .fixWithAI, .regenerate, .delete])
     }
 
+    /// The inline editor is already open, so the pencil is not a second
+    /// session. Save and Cancel are the way out.
+    func testAnOpenEditorDoesNotOfferEditAgain() {
+        XCTAssertEqual(
+            HistoryRowActionKind.available(
+                for: .completed, hasTranscript: true, isEditing: true),
+            [.play, .copy, .export, .fixWithAI, .regenerate, .delete])
+    }
+
     /// "No speech detected" is a finished row with nothing in it. There is
     /// nothing for a model to fix and nothing to put in a document either -
     /// `TranscriptExport.document(for:)` refuses the same row on the way in.

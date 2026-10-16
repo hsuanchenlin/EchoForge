@@ -441,16 +441,21 @@ struct RecordingRow: View {
     }
 
     private func saveEdit() {
-        let edit = editing.save(on: recording)
-        editorFocused = false
-        guard let edit else { return }
+        guard editing.canSave else { return }
+        guard let edit = editing.save(on: recording) else {
+            cancelEdit()
+            return
+        }
         let id = recording.id
         let expected = recording.transcription
         Task { @MainActor in
-            _ = await RecordingStore.shared.applyManualEdit(
+            let result = await RecordingStore.shared.applyManualEdit(
                 id, transcription: edit.transcription,
                 preservedOriginal: edit.preservedOriginal,
                 expectedTranscription: expected)
+            if result.closesEditor {
+                cancelEdit()
+            }
         }
     }
 
@@ -476,6 +481,7 @@ struct RecordingRow: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
                     .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(!editing.canSave)
                 Button("Cancel", action: cancelEdit)
                     .buttonStyle(.bordered)
                     .controlSize(.small)
@@ -648,7 +654,9 @@ struct RecordingRow: View {
     /// silently loses a case.
     private var actions: [HistoryRowAction] {
         HistoryRowActionKind
-            .available(for: recording.status, hasTranscript: !displayText.isEmpty)
+            .available(
+                for: recording.status, hasTranscript: !displayText.isEmpty,
+                isEditing: editing.isEditing)
             .map { kind in
                 HistoryRowAction(
                     kind: kind,
@@ -659,12 +667,9 @@ struct RecordingRow: View {
                         ? ThemePalette.iconAccent(colorScheme)
                         : (kind == .play && isPlaying
                             ? ThemePalette.failureText(colorScheme) : nil),
-                    // The actions that can be busy. A second Fix with AI press
-                    // while the first is running has nothing to do that the
-                    // first is not already doing; Edit is busy while this card
-                    // is already in the editor.
-                    isBusy: (kind == .fixWithAI && isCorrecting)
-                        || (kind == .edit && editing.isEditing),
+                    // A second Fix with AI press while the first is running
+                    // has nothing to do that the first is not already doing.
+                    isBusy: kind == .fixWithAI && isCorrecting,
                     perform: { perform(kind) })
             }
     }
@@ -1038,7 +1043,7 @@ struct HistoryRowAction: Identifiable {
     var help: String? = nil
     var tint: Color? = nil
     /// Whether this action is already running. "Fix with AI" while the model
-    /// works, and Edit while this card is already in the editor.
+    /// works.
     var isBusy: Bool = false
     let perform: () -> Void
 
