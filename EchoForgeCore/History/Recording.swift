@@ -28,16 +28,14 @@ struct Recording: Identifiable, Codable, FetchableRecord, PersistableRecord, Equ
     var status: RecordingStatus
     var progress: Float
     var sourceFileURL: String?
-    /// The transcript exactly as the engine produced it, before post-processing.
-    ///
-    /// Nil for every recording stored so far: nothing writes this yet. It exists
-    /// so a later stage can persist `ProcessedText.raw` and fall back to what the
-    /// user originally said when post-processing turns out to be wrong.
+    /// The original words "Show original" and "Compare" disclose: what the engine
+    /// heard, before post-processing, Fix with AI, or a first manual edit replaced
+    /// the transcript. Nil when the card's transcript is still that original.
     var rawTranscription: String?
 
     /// When the user last pressed "Fix with AI" on this row and the correction
-    /// landed. Nil until somebody presses it, and cleared again by anything that
-    /// replaces the transcript with the engine's own words.
+    /// landed. Nil until somebody presses it, and cleared again when the words
+    /// on the card are no longer the model's: a regeneration, or a manual edit.
     ///
     /// Its own column rather than a `RecordingProvenance` case, and that is a
     /// decision rather than an omission: provenance records *which way of

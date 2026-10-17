@@ -244,20 +244,22 @@ enum HistoryTimestamp {
 
 // MARK: - Actions
 
-/// The six things a history row can do to itself, as a decision separate from
+/// The seven things a history row can do to itself, as a decision separate from
 /// the buttons that carry it.
 ///
-/// Which actions a row offers depends only on its status and on whether it has
-/// any words in it, and getting that wrong is not a cosmetic bug: a play button
+/// Which actions a row offers depends on its status, whether it has any words
+/// in it, whether the inline editor is already open, and whether Fix with AI
+/// is still running. Getting that wrong is not a cosmetic bug: a play button
 /// on a recording that has not been written yet, or a missing delete on a row
-/// stuck in the queue, is the user unable to get out of a state. So the decision
-/// is a pure function here, and `RecordingRow` reads it three times - to draw
-/// the hover bar, to fill the context menu, and to register the same actions
-/// with VoiceOver, which has no pointer to hover with.
+/// stuck in the queue, is the user unable to get out of a state. So the
+/// decision is a pure function here, and `RecordingRow` reads it three times -
+/// to draw the hover bar, to fill the context menu, and to register the same
+/// actions with VoiceOver, which has no pointer to hover with.
 enum HistoryRowActionKind: String, CaseIterable, Sendable {
     case play
     case copy
     case export
+    case edit
     case fixWithAI
     case regenerate
     case delete
@@ -276,14 +278,19 @@ enum HistoryRowActionKind: String, CaseIterable, Sendable {
     /// queued or failed row has no finished transcript to export at all.
     /// `TranscriptExport.document(for:)` applies the same rule on the way in.
     ///
-    /// `fixWithAI` is the one action that needs more than the status. It only
-    /// ever asks a model about words, so a completed row with nothing in it -
-    /// the "No speech detected" card - has nothing to offer it, and a failed
-    /// row's "transcript" is the app's own failure message rather than the
-    /// user's words. The same rule the stage itself applies; see
-    /// `TranscriptCorrection.request(for:)`.
+    /// `edit` and `fixWithAI` both need words. A completed row with nothing in
+    /// it - the "No speech detected" card - has nothing to type over and
+    /// nothing to ask a model about, and a failed row's "transcript" is the
+    /// app's own failure message rather than the user's words. The same rule
+    /// the stage itself applies; see `TranscriptCorrection.request(for:)`.
+    ///
+    /// `edit` is omitted while the inline editor is already open, and while
+    /// Fix with AI is still running on this row: Save and Cancel are the way
+    /// out of the session, and a correction that lands would drop a draft
+    /// started in the wait.
     static func available(
-        for status: RecordingStatus, hasTranscript: Bool
+        for status: RecordingStatus, hasTranscript: Bool, isEditing: Bool = false,
+        isCorrecting: Bool = false
     ) -> [HistoryRowActionKind] {
         switch status {
         case .pending, .converting, .transcribing:
@@ -291,9 +298,12 @@ enum HistoryRowActionKind: String, CaseIterable, Sendable {
         case .failed:
             return [.regenerate, .delete]
         case .completed:
-            return hasTranscript
+            guard hasTranscript else {
+                return [.play, .copy, .regenerate, .delete]
+            }
+            return isEditing || isCorrecting
                 ? [.play, .copy, .export, .fixWithAI, .regenerate, .delete]
-                : [.play, .copy, .regenerate, .delete]
+                : [.play, .copy, .export, .edit, .fixWithAI, .regenerate, .delete]
         }
     }
 
@@ -305,6 +315,7 @@ enum HistoryRowActionKind: String, CaseIterable, Sendable {
         case .play: return isPlaying ? "Stop playback" : "Play audio"
         case .copy: return "Copy transcription"
         case .export: return "Export transcript"
+        case .edit: return "Edit transcript"
         case .fixWithAI: return "Fix with AI"
         case .regenerate: return "Regenerate transcription"
         case .delete: return "Delete recording"
@@ -317,6 +328,8 @@ enum HistoryRowActionKind: String, CaseIterable, Sendable {
         switch self {
         case .export:
             return "Save this transcript and its details to a file you choose"
+        case .edit:
+            return "Edit the transcribed text manually"
         case .fixWithAI:
             return "Fix homophones, mis-heard characters and typos from context, on this Mac"
         case .play, .copy, .regenerate, .delete:
@@ -329,6 +342,7 @@ enum HistoryRowActionKind: String, CaseIterable, Sendable {
         case .play: return isPlaying ? "stop.fill" : "play.fill"
         case .copy: return "doc.on.doc"
         case .export: return "square.and.arrow.down"
+        case .edit: return "pencil"
         case .fixWithAI: return "sparkles"
         case .regenerate: return "arrow.clockwise"
         case .delete: return "trash"

@@ -173,9 +173,28 @@ final class HistoryRowActionTests: XCTestCase {
 
     /// A finished recording with words in it is the only state where everything
     /// applies.
-    func testAFinishedRowOffersAllSix() {
+    func testAFinishedRowOffersEveryAction() {
         XCTAssertEqual(
             HistoryRowActionKind.available(for: .completed, hasTranscript: true),
+            [.play, .copy, .export, .edit, .fixWithAI, .regenerate, .delete])
+    }
+
+    /// The inline editor is already open, so the pencil is not a second
+    /// session. Save and Cancel are the way out.
+    func testAnOpenEditorDoesNotOfferEditAgain() {
+        XCTAssertEqual(
+            HistoryRowActionKind.available(
+                for: .completed, hasTranscript: true, isEditing: true),
+            [.play, .copy, .export, .fixWithAI, .regenerate, .delete])
+    }
+
+    /// Fix with AI keeps the row completed for the whole model wait. Offering
+    /// Edit in that window lets the user type a draft the landing correction
+    /// then discards.
+    func testARowBeingFixedWithAIDoesNotOfferEdit() {
+        XCTAssertEqual(
+            HistoryRowActionKind.available(
+                for: .completed, hasTranscript: true, isCorrecting: true),
             [.play, .copy, .export, .fixWithAI, .regenerate, .delete])
     }
 
@@ -243,11 +262,11 @@ final class HistoryRowActionTests: XCTestCase {
         }
     }
 
-    /// The two actions with a tooltip longer than their label. "Fix with AI"
-    /// says nothing about what it fixes or where it runs, and "Export
-    /// transcript" says nothing about the user choosing where it goes - which is
-    /// the whole safety story of that press.
-    func testTheTwoActionsThatNeedExplainingExplainThemselves() {
+    /// The actions with a tooltip longer than their label. "Fix with AI"
+    /// says nothing about what it fixes or where it runs, "Export transcript"
+    /// says nothing about the user choosing where it goes, and "Edit
+    /// transcript" is the pencil that would otherwise look like another copy.
+    func testTheActionsThatNeedExplainingExplainThemselves() {
         let fix = HistoryRowActionKind.fixWithAI.help
         XCTAssertNotNil(fix)
         XCTAssertTrue(fix?.contains("this Mac") == true, "the tooltip must say where it runs")
@@ -258,7 +277,13 @@ final class HistoryRowActionTests: XCTestCase {
             export?.contains("you choose") == true,
             "the tooltip must say the destination is the user's")
 
-        for kind in HistoryRowActionKind.allCases where kind != .fixWithAI && kind != .export {
+        XCTAssertEqual(
+            HistoryRowActionKind.edit.help, "Edit the transcribed text manually")
+        XCTAssertEqual(HistoryRowActionKind.edit.label(isPlaying: false), "Edit transcript")
+        XCTAssertEqual(HistoryRowActionKind.edit.symbolName(isPlaying: false), "pencil")
+
+        for kind in HistoryRowActionKind.allCases
+        where kind != .fixWithAI && kind != .export && kind != .edit {
             XCTAssertNil(kind.help, "\(kind.rawValue) grew a tooltip its label already carries")
         }
     }

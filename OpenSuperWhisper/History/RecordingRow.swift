@@ -17,9 +17,10 @@ import SwiftUI
 /// truncates deliberately or sits inside a `ViewThatFits` that stacks instead.
 /// `HistoryRowRenderTests` draws both tiers and reads the pixels back.
 ///
-/// The one action on it that changes the row's own words is "Fix with AI"
-/// (`TranscriptCorrection`); everything about that press that outlives the card
-/// lives in `TranscriptCorrectionCoordinator`, and this view only draws it.
+/// Two actions change the row's own words: "Edit transcript", which is local
+/// to this card, and "Fix with AI" (`TranscriptCorrection`). Everything about
+/// the latter that outlives the card lives in `TranscriptCorrectionCoordinator`,
+/// and this view only draws it.
 struct RecordingRow: View {
     let recording: Recording
     let searchQuery: String
@@ -43,6 +44,10 @@ struct RecordingRow: View {
     @State private var showTranscription = false
     @State private var showOriginal = false
     @State private var showComparison = false
+    /// Inline edit of this card's transcript. Local to the row: typing is not
+    /// a model call that has to survive a scroll.
+    @State private var editing = HistoryTranscriptEditing()
+    @FocusState private var editorFocused: Bool
     /// Compared once, when the comparison is opened.
     ///
     /// The row rebuilds on hover, and a transcript of a long dictation is a lot
@@ -56,6 +61,28 @@ struct RecordingRow: View {
     /// is no pointer, so the actions are simply present - a button that exists
     /// only while a mouse is over it is a button a VoiceOver user does not have.
     @Environment(\.accessibilityVoiceOverEnabled) private var voiceOverEnabled
+
+    init(
+        recording: Recording,
+        searchQuery: String,
+        onDelete: @escaping () -> Void,
+        onRegenerate: @escaping () -> Void,
+        corrections: TranscriptCorrectionCoordinator = .shared,
+        exports: TranscriptExportCoordinator = .shared,
+        initiallyEditing: Bool = false
+    ) {
+        self.recording = recording
+        self.searchQuery = searchQuery
+        self.onDelete = onDelete
+        self.onRegenerate = onRegenerate
+        self._corrections = ObservedObject(wrappedValue: corrections)
+        self._exports = ObservedObject(wrappedValue: exports)
+        var editing = HistoryTranscriptEditing()
+        if initiallyEditing {
+            editing.begin(transcript: recording.transcription)
+        }
+        self._editing = State(initialValue: editing)
+    }
 
     // MARK: - What the row is
 
@@ -139,6 +166,7 @@ struct RecordingRow: View {
     /// which lives on the footer row the card already has.
     private var showsActions: Bool {
         isHovered || isPlaying || voiceOverEnabled || isPending || hasFailed
+            || editing.isEditing
     }
 
     // MARK: - Body
@@ -174,6 +202,10 @@ struct RecordingRow: View {
         .animation(.easeInOut(duration: 0.2), value: showsActions)
         .animation(.easeInOut(duration: 0.2), value: isRegenerating)
         .animation(.easeInOut(duration: 0.2), value: isCorrecting)
+        .animation(.easeInOut(duration: 0.2), value: editing.isEditing)
+        .onChange(of: recording.transcription) { _, _ in
+            if editing.isEditing { cancelEdit() }
+        }
         // The third reading of `actions`, and the reason that list is data: a
         // right-click reaches every action a pointer user can hover for and a
         // VoiceOver user can rotor to, without a fourth hand-written copy.
@@ -305,6 +337,8 @@ struct RecordingRow: View {
 
             if hasFailed {
                 failureSection
+            } else if editing.isEditing {
+                transcriptEditor
             } else if !displayText.isEmpty {
                 transcriptSection
             } else if !isPending {
@@ -394,6 +428,76 @@ struct RecordingRow: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+    }
+
+    private func beginEdit() {
+        editing.begin(transcript: displayText)
+        editorFocused = true
+    }
+
+    private func cancelEdit() {
+        editing.cancel()
+        editorFocused = false
+    }
+
+    private func saveEdit() {
+        guard editing.canSave else { return }
+        guard let edit = editing.save(on: recording) else {
+            cancelEdit()
+            return
+        }
+        let id = recording.id
+        let expected = recording.transcription
+        Task { @MainActor in
+            let result = await RecordingStore.shared.applyManualEdit(
+                id, transcription: edit.transcription,
+                preservedOriginal: edit.preservedOriginal,
+                expectedTranscription: expected)
+            if result.closesEditor {
+                cancelEdit()
+            }
+        }
+    }
+
+    /// The inline editor that replaces the static transcript while the user
+    /// is typing. ⌘↩ saves and Escape cancels, matching a Mac text field.
+    private var transcriptEditor: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextEditor(text: $editing.draftTranscription)
+                .font(.body)
+                .scrollContentBackground(.hidden)
+                .padding(6)
+                .frame(height: 88)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(ThemePalette.insetSurface(colorScheme))
+                )
+                .focused($editorFocused)
+                .accessibilityLabel("Transcript")
+
+            HStack(spacing: 10) {
+                Button("Save", action: saveEdit)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .keyboardShortcut(.return, modifiers: .command)
+                    .disabled(!editing.canSave)
+                Button("Cancel", action: cancelEdit)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .keyboardShortcut(.cancelAction)
+                Spacer(minLength: 0)
+            }
+        }
+        .onAppear { editorFocused = true }
+        .onExitCommand(perform: cancelEdit)
+        .onKeyPress(.return, phases: .down) { press in
+            guard press.modifiers.contains(.command) else { return .ignored }
+            saveEdit()
+            return .handled
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Edit transcript")
     }
 
     private var transcriptSection: some View {
@@ -550,7 +654,9 @@ struct RecordingRow: View {
     /// silently loses a case.
     private var actions: [HistoryRowAction] {
         HistoryRowActionKind
-            .available(for: recording.status, hasTranscript: !displayText.isEmpty)
+            .available(
+                for: recording.status, hasTranscript: !displayText.isEmpty,
+                isEditing: editing.isEditing, isCorrecting: isCorrecting)
             .map { kind in
                 HistoryRowAction(
                     kind: kind,
@@ -561,11 +667,8 @@ struct RecordingRow: View {
                         ? ThemePalette.iconAccent(colorScheme)
                         : (kind == .play && isPlaying
                             ? ThemePalette.failureText(colorScheme) : nil),
-                    // The one action that can be busy. A second press while the
-                    // first is running has nothing to do that the first is not
-                    // already doing, so the button says so rather than starting
-                    // a race for the same row - see
-                    // `TranscriptCorrectionCoordinator.correct`.
+                    // A second Fix with AI press while the first is running
+                    // has nothing to do that the first is not already doing.
                     isBusy: kind == .fixWithAI && isCorrecting,
                     perform: { perform(kind) })
             }
@@ -594,11 +697,16 @@ struct RecordingRow: View {
             NSPasteboard.general.setString(recording.transcription, forType: .string)
         case .export:
             exports.export(recording)
+        case .edit:
+            beginEdit()
         case .fixWithAI:
+            if editing.isEditing { editing.cancel() }
             corrections.correct(recording)
         case .regenerate:
+            if editing.isEditing { editing.cancel() }
             onRegenerate()
         case .delete:
+            if editing.isEditing { editing.cancel() }
             if isPlaying { audioRecorder.stopPlaying() }
             onDelete()
         }
@@ -923,7 +1031,7 @@ struct HistoryActionButton: View {
     }
 }
 
-/// One of the four things a history row can do to itself.
+/// One of the things a history row can do to itself.
 ///
 /// A value rather than a view so the hover bar and the VoiceOver action list
 /// are two readings of one list. See `RecordingRow.actions`.
@@ -934,7 +1042,8 @@ struct HistoryRowAction: Identifiable {
     /// The longer sentence for the tooltip, where the label needs one.
     var help: String? = nil
     var tint: Color? = nil
-    /// Whether this action is already running. Only "Fix with AI" ever is.
+    /// Whether this action is already running. "Fix with AI" while the model
+    /// works.
     var isBusy: Bool = false
     let perform: () -> Void
 

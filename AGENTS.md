@@ -132,7 +132,7 @@ here, it is authoritative over this file.
 | Ask panel (⌥A) | `OpenSuperWhisper/Ask/` | `docs/ask-panel.md` |
 | Screen questions (⌥S) | `Utils/ScreenCaptureService.swift`, `Vision/` | `docs/screen-context.md` |
 | History AI fix | `History/TranscriptCorrectionCoordinator.swift`, `Rewriting/TranscriptCorrection.swift` | `docs/history-ai-fix.md` |
-| History card | `History/RecordingRow.swift` | `docs/history-card.md` |
+| History card | `History/RecordingRow.swift`, `History/ManualTranscriptEdit.swift` | `docs/history-card.md` |
 | History provenance | `EchoForgeCore/History/RecordingProvenance.swift` | `docs/history-provenance.md` |
 | History search and export | `EchoForgeCore/History/HistorySearchQuery.swift` | `docs/history-search-export.md` |
 | Database, row creation, `terms.json` | `Models/RecordingStore.swift`, `EchoForgeCore/History/` | `docs/history-storage.md` |

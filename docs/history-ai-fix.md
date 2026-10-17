@@ -112,6 +112,7 @@ something that happened to a row afterwards, and it is stored as such - which is
 why the "AI Polished" chip sits beside the timestamp and duration rather than inside the
 provenance pill.
 
-The mark is **cleared by a regeneration**, in the same write that replaces the
-transcript. The row's words are the engine's again, and a badge saying a model wrote
-them would be a lie.
+The mark is **cleared** in the same write that replaces the transcript, whenever the
+words on the card are no longer the model's: a regeneration that writes the engine's
+output, or a manual edit (`docs/history-card.md`) that writes the user's. A badge
+saying a model wrote those words would be a lie.

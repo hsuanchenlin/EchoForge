@@ -2,8 +2,9 @@
 
 The main window's list of recordings, one card per row: `OpenSuperWhisper/History/`.
 `RecordingRow` draws a card, `HistoryRowLayout.swift` holds every decision the card
-makes about *how* rather than *what*, and `HistoryProvenanceBadge` supplies the pill
-that says what produced the row (`docs/history-provenance.md`).
+makes about *how* rather than *what*, `ManualTranscriptEdit.swift` holds the write a
+Save produces and the card-local editor session, and `HistoryProvenanceBadge` supplies
+the pill that says what produced the row (`docs/history-provenance.md`).
 
 ## Two layouts, one threshold
 
@@ -42,8 +43,9 @@ more" under it).
 
 ## Actions
 
-`HistoryRowActionKind.available(for:hasTranscript:)` is a pure function of the
-recording's status and whether it has any words in it, and it is read **three times**:
+`HistoryRowActionKind.available(for:hasTranscript:isEditing:isCorrecting:)` is a pure function of the
+recording's status, whether it has any words in it, whether the inline editor is
+already open, and whether Fix with AI is still running, and it is read **three times**:
 to draw the hover bar, to fill the right-click menu, and to register the same actions
 with VoiceOver. Hover is a pointer affordance and a VoiceOver user has no pointer, so a
 bar that were the only route to delete would be no route at all - and three
@@ -58,10 +60,25 @@ pins all of it.
 **Export transcript** (`docs/history-search-export.md`) is offered only on a completed
 row that has words, and writes a file the user chooses rather than the clipboard.
 
+**Edit transcript** is the pencil on the same completed row. A press replaces the
+static transcript with an inline editor, Save and Cancel, ⌘↩ to save and Escape to
+cancel. Save is disabled while the draft is empty, so a recording cannot be blanked
+into "No speech detected". The typed text is written through
+`RecordingStore.applyManualEdit`. A failed write leaves the editor open with the
+draft still there; a write that lands, or a regeneration that superseded it, closes
+the editor. The Edit action is omitted while the editor is open, and while Fix with
+AI is running on the row. If the row had no
+`rawTranscription` yet, the text the card showed before the edit is stored as that
+original, so **Show original** and **Compare** still have something to disclose; a
+row that already stores an original (post-processing, Fix with AI, or a previous
+edit) leaves that copy alone. A later edit, or a regeneration that lands while the
+editor is open, must not overwrite it. The "AI Polished" mark is cleared, because
+the words on the card are now the user's.
+
 **Fix with AI** (`docs/history-ai-fix.md`) is the one action that asks a model: it only
 ever asks about words, so a completed row with nothing in it has nothing to offer it,
 and a failed row's "transcript" is Kongweh's own failure message rather than the user's
-words.
+words. Edit and Fix with AI share that rule.
 
 ## Colour
 
